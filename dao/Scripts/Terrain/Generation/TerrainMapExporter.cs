@@ -8,10 +8,25 @@ public enum TerrainBiome
     Coast,
     Grassland,
     Forest,
+    Wetland,
     Alpine,
     Rock,
     Snow,
-    RiverValley
+    RiverValley,
+    Canyon,
+    Vista
+}
+
+public enum TerrainMapLayer
+{
+    Biome,
+    Height,
+    River,
+    Moisture,
+    Temperature,
+    ScenicPotential,
+    Traversability,
+    Landscape
 }
 
 public readonly record struct TerrainMapSample(
@@ -20,6 +35,9 @@ public readonly record struct TerrainMapSample(
     float River,
     float Moisture,
     float Temperature,
+    float ScenicPotential,
+    float Traversability,
+    TerrainLandscapeKind LandscapeKind,
     TerrainBiome Biome,
     Color Color);
 
@@ -27,17 +45,22 @@ public static class TerrainMapExporter
 {
     public static TerrainMapSample SampleWorld(Vector2 world, TerrainGenerationProfile profile)
     {
-        TerrainSample sample = TerrainSampler.SampleWithSlope(world, profile, 24.0f);
-        TerrainBiome biome = ClassifyBiome(sample.Height, profile.SeaLevel, sample.Slope, sample.River, sample.Moisture, sample.Temperature);
+        TerrainWorldField field = TerrainWorldFieldSampler.Sample(world, profile);
+        float slope = 1.0f - Mathf.Clamp(TerrainSampler.NormalAt(world, profile, 24.0f).Y, 0.0f, 1.0f);
+        TerrainBiome biome = ClassifyBiome(field, profile.SeaLevel, slope);
+        Color terrainColor = TerrainSampler.ColorForSurface(field, profile, slope);
 
         return new TerrainMapSample(
             world,
-            sample.Height,
-            sample.River,
-            sample.Moisture,
-            sample.Temperature,
+            field.Height,
+            field.River,
+            field.Moisture,
+            field.Temperature,
+            field.ScenicPotential,
+            field.Traversability,
+            field.LandscapeKind,
             biome,
-            ColorForBiome(biome, sample.Color));
+            ColorForBiome(biome, terrainColor));
     }
 
     public static Image CreateBiomeMap(
@@ -45,6 +68,16 @@ public static class TerrainMapExporter
         Vector2 center,
         float worldSize,
         int imageSize)
+    {
+        return CreateMap(profile, center, worldSize, imageSize, TerrainMapLayer.Biome);
+    }
+
+    public static Image CreateMap(
+        TerrainGenerationProfile profile,
+        Vector2 center,
+        float worldSize,
+        int imageSize,
+        TerrainMapLayer layer)
     {
         int size = Mathf.Clamp(imageSize, 16, 4096);
         float safeWorldSize = Mathf.Max(1.0f, worldSize);
@@ -59,7 +92,7 @@ public static class TerrainMapExporter
                 Vector2 world = new(
                     center.X + (tx - 0.5f) * safeWorldSize,
                     center.Y + (ty - 0.5f) * safeWorldSize);
-                image.SetPixel(x, y, SampleWorld(world, profile).Color);
+                image.SetPixel(x, y, ColorForLayer(SampleWorld(world, profile), profile, layer));
             }
         }
 
@@ -73,28 +106,46 @@ public static class TerrainMapExporter
         int imageSize,
         string outputPath)
     {
-        Image image = CreateBiomeMap(profile, center, worldSize, imageSize);
+        return SaveMap(profile, center, worldSize, imageSize, TerrainMapLayer.Biome, outputPath);
+    }
+
+    public static Error SaveMap(
+        TerrainGenerationProfile profile,
+        Vector2 center,
+        float worldSize,
+        int imageSize,
+        TerrainMapLayer layer,
+        string outputPath)
+    {
+        Image image = CreateMap(profile, center, worldSize, imageSize, layer);
         return image.SavePng(outputPath);
     }
 
-    private static TerrainBiome ClassifyBiome(float height, float seaLevel, float slope, float river, float moisture, float temperature)
+    private static TerrainBiome ClassifyBiome(TerrainWorldField field, float seaLevel, float slope)
     {
-        if (height < seaLevel - 12.0f)
+        if (field.Height < seaLevel - 12.0f)
         {
             return TerrainBiome.Ocean;
         }
 
-        if (height < seaLevel + 10.0f)
+        if (field.Height < seaLevel + 10.0f)
         {
             return TerrainBiome.Coast;
         }
 
-        if (river > 0.64f && height < seaLevel + 420.0f)
+        if (field.LandscapeKind == TerrainLandscapeKind.Canyon)
+        {
+            return TerrainBiome.Canyon;
+        }
+
+        if (field.River > 0.64f && field.Height < seaLevel + 420.0f)
         {
             return TerrainBiome.RiverValley;
         }
 
-        if (height > seaLevel + 680.0f || (temperature < 0.20f && height > seaLevel + 360.0f))
+        if (field.LandscapeKind == TerrainLandscapeKind.Snowfield ||
+            field.Height > seaLevel + 680.0f ||
+            (field.Temperature < 0.20f && field.Height > seaLevel + 360.0f))
         {
             return TerrainBiome.Snow;
         }
@@ -104,12 +155,24 @@ public static class TerrainMapExporter
             return TerrainBiome.Rock;
         }
 
-        if (height > seaLevel + 420.0f || temperature < 0.34f)
+        if (field.LandscapeKind == TerrainLandscapeKind.VistaPlateau)
+        {
+            return TerrainBiome.Vista;
+        }
+
+        if (field.Height > seaLevel + 420.0f ||
+            field.Temperature < 0.34f ||
+            field.LandscapeKind is TerrainLandscapeKind.Highlands or TerrainLandscapeKind.MountainMassif)
         {
             return TerrainBiome.Alpine;
         }
 
-        if (moisture > 0.62f && temperature > 0.28f)
+        if (field.LandscapeKind == TerrainLandscapeKind.Wetland)
+        {
+            return TerrainBiome.Wetland;
+        }
+
+        if (field.Moisture > 0.62f && field.Temperature > 0.28f)
         {
             return TerrainBiome.Forest;
         }
@@ -125,13 +188,80 @@ public static class TerrainMapExporter
             TerrainBiome.Coast => new Color(0.68f, 0.58f, 0.38f),
             TerrainBiome.Grassland => new Color(0.24f, 0.45f, 0.20f),
             TerrainBiome.Forest => new Color(0.08f, 0.28f, 0.13f),
+            TerrainBiome.Wetland => new Color(0.11f, 0.33f, 0.26f),
             TerrainBiome.Alpine => new Color(0.42f, 0.45f, 0.38f),
             TerrainBiome.Rock => new Color(0.35f, 0.35f, 0.33f),
             TerrainBiome.Snow => new Color(0.88f, 0.90f, 0.86f),
             TerrainBiome.RiverValley => new Color(0.10f, 0.32f, 0.30f),
+            TerrainBiome.Canyon => new Color(0.45f, 0.31f, 0.24f),
+            TerrainBiome.Vista => new Color(0.55f, 0.47f, 0.26f),
             _ => terrainColor
         };
 
         return terrainColor.Lerp(overlay, 0.58f);
+    }
+
+    private static Color ColorForLayer(TerrainMapSample sample, TerrainGenerationProfile profile, TerrainMapLayer layer)
+    {
+        return layer switch
+        {
+            TerrainMapLayer.Biome => sample.Color,
+            TerrainMapLayer.Height => ColorForHeight(sample.Height, profile),
+            TerrainMapLayer.River => ScalarRamp(sample.River, new Color(0.04f, 0.07f, 0.10f), new Color(0.08f, 0.36f, 0.72f)),
+            TerrainMapLayer.Moisture => ScalarRamp(sample.Moisture, new Color(0.42f, 0.31f, 0.18f), new Color(0.08f, 0.42f, 0.36f)),
+            TerrainMapLayer.Temperature => ScalarRamp(sample.Temperature, new Color(0.40f, 0.55f, 0.78f), new Color(0.76f, 0.46f, 0.20f)),
+            TerrainMapLayer.ScenicPotential => ScalarRamp(sample.ScenicPotential, new Color(0.10f, 0.10f, 0.12f), new Color(0.86f, 0.68f, 0.22f)),
+            TerrainMapLayer.Traversability => ScalarRamp(sample.Traversability, new Color(0.25f, 0.08f, 0.08f), new Color(0.20f, 0.60f, 0.24f)),
+            TerrainMapLayer.Landscape => ColorForLandscape(sample.LandscapeKind),
+            _ => sample.Color
+        };
+    }
+
+    private static Color ColorForHeight(float height, TerrainGenerationProfile profile)
+    {
+        float low = profile.SeaLevel - profile.HeightScale * 0.52f;
+        float high = profile.SeaLevel + profile.HeightScale * 1.36f;
+        float t = Mathf.Clamp((height - low) / Mathf.Max(1.0f, high - low), 0.0f, 1.0f);
+
+        if (t < 0.32f)
+        {
+            return new Color(0.03f, 0.10f, 0.22f).Lerp(new Color(0.08f, 0.32f, 0.42f), t / 0.32f);
+        }
+
+        if (t < 0.58f)
+        {
+            return new Color(0.17f, 0.38f, 0.18f).Lerp(new Color(0.46f, 0.42f, 0.30f), (t - 0.32f) / 0.26f);
+        }
+
+        if (t < 0.82f)
+        {
+            return new Color(0.46f, 0.42f, 0.30f).Lerp(new Color(0.36f, 0.36f, 0.34f), (t - 0.58f) / 0.24f);
+        }
+
+        return new Color(0.36f, 0.36f, 0.34f).Lerp(new Color(0.90f, 0.91f, 0.88f), (t - 0.82f) / 0.18f);
+    }
+
+    private static Color ColorForLandscape(TerrainLandscapeKind landscape)
+    {
+        return landscape switch
+        {
+            TerrainLandscapeKind.Ocean => new Color(0.03f, 0.10f, 0.22f),
+            TerrainLandscapeKind.Coast => new Color(0.70f, 0.58f, 0.34f),
+            TerrainLandscapeKind.Lowland => new Color(0.30f, 0.48f, 0.20f),
+            TerrainLandscapeKind.Wetland => new Color(0.08f, 0.34f, 0.30f),
+            TerrainLandscapeKind.ForestBasin => new Color(0.08f, 0.25f, 0.12f),
+            TerrainLandscapeKind.RiverValley => new Color(0.10f, 0.34f, 0.36f),
+            TerrainLandscapeKind.Canyon => new Color(0.45f, 0.29f, 0.22f),
+            TerrainLandscapeKind.Highlands => new Color(0.39f, 0.43f, 0.35f),
+            TerrainLandscapeKind.MountainMassif => new Color(0.34f, 0.34f, 0.32f),
+            TerrainLandscapeKind.Snowfield => new Color(0.88f, 0.90f, 0.86f),
+            TerrainLandscapeKind.VistaPlateau => new Color(0.56f, 0.49f, 0.26f),
+            _ => Colors.Magenta
+        };
+    }
+
+    private static Color ScalarRamp(float value, Color low, Color high)
+    {
+        return low.Lerp(high, Mathf.Clamp(value, 0.0f, 1.0f));
     }
 }

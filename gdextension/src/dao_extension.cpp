@@ -187,8 +187,15 @@ double sample_height_native(double p_x, double p_z, const NativeTerrainProfile &
 			(warped_z - 347.0) / (p_profile.mountain_scale * 0.82),
 			p_profile.seed + 53,
 			5);
-	double river = 1.0 - smooth_step(0.02, 0.135, std::abs(canyon_noise - 0.52));
-	river *= smooth_step(0.23, 0.72, continent) * p_profile.river_strength;
+	const double main_river = 1.0 - smooth_step(0.035, 0.215, std::abs(canyon_noise - 0.52));
+	const double tributary_noise = ridged(
+			(warped_x - 1729.0) / (p_profile.mountain_scale * 1.34),
+			(warped_z + 941.0) / (p_profile.mountain_scale * 1.34),
+			p_profile.seed + 137,
+			4);
+	const double tributary = 1.0 - smooth_step(0.03, 0.18, std::abs(tributary_noise - 0.48));
+	double river = std::max(main_river, tributary * 0.58);
+	river = clamp_value(river * smooth_step(0.21, 0.72, continent) * p_profile.river_strength * 1.16, 0.0, 1.0);
 
 	const double micro = fbm(
 			p_x / 118.0,

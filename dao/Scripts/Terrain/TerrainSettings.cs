@@ -32,6 +32,7 @@ public partial class TerrainSettings : Resource
     [Export(PropertyHint.Range, "0,120,1")] public float SkirtDepth { get; set; } = 42.0f;
     [Export(PropertyHint.Range, "1,16,1")] public int MaxCompletedTilesPerFrame { get; set; } = 4;
     [Export(PropertyHint.Range, "1,64,1")] public int MaxQueuedTileJobs { get; set; } = 24;
+    [Export(PropertyHint.Range, "0,512,1")] public int MaxCachedTileData { get; set; } = 96;
     [Export] public bool GenerateCollision { get; set; } = true;
     [Export] public bool UseNativeSamplerWhenAvailable { get; set; } = false;
 
@@ -58,6 +59,7 @@ public partial class TerrainSettings : Resource
             SkirtDepth,
             Mathf.Max(1, MaxCompletedTilesPerFrame),
             Mathf.Max(1, MaxQueuedTileJobs),
+            Mathf.Clamp(MaxCachedTileData, 0, 2048),
             GenerateCollision,
             UseNativeSamplerWhenAvailable);
     }
@@ -84,6 +86,7 @@ public readonly record struct TerrainGenerationProfile(
     float SkirtDepth,
     int MaxCompletedTilesPerFrame,
     int MaxQueuedTileJobs,
+    int MaxCachedTileData,
     bool GenerateCollision,
     bool UseNativeSamplerWhenAvailable)
 {

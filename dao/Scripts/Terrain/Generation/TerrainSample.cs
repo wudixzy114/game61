@@ -9,5 +9,8 @@ public readonly record struct TerrainSample(
     float River,
     float Moisture,
     float Temperature,
+    float ScenicPotential,
+    float Traversability,
+    TerrainLandscapeKind LandscapeKind,
     float Slope,
     Color Color);

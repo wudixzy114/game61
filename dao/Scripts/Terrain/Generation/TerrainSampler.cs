@@ -15,83 +15,20 @@ public static class TerrainSampler
 
     public static TerrainSample Sample(Vector2 world, TerrainGenerationProfile profile)
     {
-        Vector2 warped = ProceduralNoise.DomainWarp(
-            world,
-            profile.ContinentScale * 0.42f,
-            profile.ContinentScale * 0.085f,
-            profile.Seed);
-
-        float continent = ProceduralNoise.Fbm(
-            warped.X / profile.ContinentScale,
-            warped.Y / profile.ContinentScale,
-            profile.Seed + 11,
-            6);
-        continent = Mathf.Clamp((continent + 1.0f) * 0.5f, 0.0f, 1.0f);
-
-        float basin = Mathf.SmoothStep(0.18f, 0.82f, continent);
-        float shelf = Mathf.SmoothStep(0.35f, 0.72f, continent);
-
-        Vector2 mountainWarp = ProceduralNoise.DomainWarp(
-            world,
-            profile.MountainScale * 0.62f,
-            profile.MountainScale * 0.11f,
-            profile.Seed + 199);
-        float ridge = ProceduralNoise.Ridged(
-            mountainWarp.X / profile.MountainScale,
-            mountainWarp.Y / profile.MountainScale,
-            profile.Seed + 29,
-            7);
-        float mountainMask = Mathf.SmoothStep(0.42f, 0.86f, continent);
-        float mountains = ridge * mountainMask * profile.MountainWeight;
-
-        float broad = ProceduralNoise.Fbm(
-            warped.X / (profile.MountainScale * 1.75f),
-            warped.Y / (profile.MountainScale * 1.75f),
-            profile.Seed + 41,
-            5) * 0.5f + 0.5f;
-
-        float canyonNoise = ProceduralNoise.Ridged(
-            (warped.X + 811.0f) / (profile.MountainScale * 0.82f),
-            (warped.Y - 347.0f) / (profile.MountainScale * 0.82f),
-            profile.Seed + 53,
-            5);
-        float river = 1.0f - Mathf.SmoothStep(0.02f, 0.135f, Mathf.Abs(canyonNoise - 0.52f));
-        river *= Mathf.SmoothStep(0.23f, 0.72f, continent) * profile.RiverStrength;
-
-        float micro = ProceduralNoise.Fbm(
-            world.X / 118.0f,
-            world.Y / 118.0f,
-            profile.Seed + 71,
-            4);
-
-        float height =
-            ((basin - 0.48f) * profile.HeightScale * 0.72f) +
-            (shelf * broad * profile.HeightScale * 0.34f) +
-            (mountains * profile.HeightScale * 1.08f) +
-            (micro * profile.HeightScale * profile.DetailWeight);
-
-        float valleyCarve = river * profile.RiverCarveDepth * (0.35f + mountains * 0.85f);
-        height -= valleyCarve * profile.ValleyWeight;
-
-        float terraceMask = Mathf.SmoothStep(0.52f, 0.86f, mountains) * profile.VistaFrequency;
-        height = ProceduralNoise.Terrace(height, Mathf.Max(12.0f, profile.TerraceStrength), terraceMask * 0.38f);
-
-        float moisture = Mathf.Clamp(
-            (ProceduralNoise.Fbm(world.X / 950.0f, world.Y / 950.0f, profile.Seed + 83, 5) * 0.5f) + 0.5f + river * 0.45f,
-            0.0f,
-            1.0f);
-        float latitude = Mathf.Abs(Mathf.Sin(world.Y / 9000.0f));
-        float temperature = Mathf.Clamp(1.0f - latitude - Mathf.Max(0.0f, height) / (profile.HeightScale * 1.7f), 0.0f, 1.0f);
+        TerrainWorldField field = TerrainWorldFieldSampler.Sample(world, profile);
 
         return new TerrainSample(
-            height,
-            continent,
-            mountains,
-            river,
-            moisture,
-            temperature,
+            field.Height,
+            field.Continent,
+            field.Mountains,
+            field.River,
+            field.Moisture,
+            field.Temperature,
+            field.ScenicPotential,
+            field.Traversability,
+            field.LandscapeKind,
             0.0f,
-            ColorFor(height, profile.SeaLevel, 0.0f, river, moisture, temperature));
+            ColorFor(field.Height, profile.SeaLevel, 0.0f, field.River, field.Moisture, field.Temperature));
     }
 
     public static TerrainSample SampleWithSlope(Vector2 world, TerrainGenerationProfile profile, float spacing)
@@ -126,22 +63,13 @@ public static class TerrainSampler
 
     public static Color ColorForSurface(Vector2 world, TerrainGenerationProfile profile, float height, float slope)
     {
-        float canyonNoise = ProceduralNoise.Ridged(
-            (world.X + 811.0f) / (profile.MountainScale * 0.82f),
-            (world.Y - 347.0f) / (profile.MountainScale * 0.82f),
-            profile.Seed + 53,
-            4);
-        float river = 1.0f - Mathf.SmoothStep(0.02f, 0.135f, Mathf.Abs(canyonNoise - 0.52f));
-        river *= profile.RiverStrength;
+        TerrainWorldField field = TerrainWorldFieldSampler.SampleKnownHeight(world, profile, height);
+        return ColorForSurface(field, profile, slope);
+    }
 
-        float moisture = Mathf.Clamp(
-            (ProceduralNoise.Fbm(world.X / 950.0f, world.Y / 950.0f, profile.Seed + 83, 4) * 0.5f) + 0.5f + river * 0.45f,
-            0.0f,
-            1.0f);
-        float latitude = Mathf.Abs(Mathf.Sin(world.Y / 9000.0f));
-        float temperature = Mathf.Clamp(1.0f - latitude - Mathf.Max(0.0f, height) / (profile.HeightScale * 1.7f), 0.0f, 1.0f);
-
-        return ColorFor(height, profile.SeaLevel, slope, river, moisture, temperature);
+    public static Color ColorForSurface(TerrainWorldField field, TerrainGenerationProfile profile, float slope)
+    {
+        return ColorFor(field.Height, profile.SeaLevel, slope, field.River, field.Moisture, field.Temperature);
     }
 
     private static Color ColorFor(float height, float seaLevel, float slope, float river, float moisture, float temperature)

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Dao.Terrain.Generation;
 using Dao.Terrain.Rendering;
@@ -18,6 +19,10 @@ public partial class TerrainWorld : Node3D
 
     private readonly Dictionary<TerrainTileCoord, TerrainChunk> _chunks = new();
     private readonly Dictionary<TerrainTileCoord, PendingTileJob> _jobs = new();
+    private readonly Dictionary<TerrainTileCacheKey, TerrainTileData> _tileCache = new();
+    private readonly Dictionary<TerrainTileCacheKey, LinkedListNode<TerrainTileCacheKey>> _tileCacheNodes = new();
+    private readonly LinkedList<TerrainTileCacheKey> _tileCacheLru = new();
+    private readonly List<PendingTileJob> _retiredJobs = new();
     private readonly HashSet<TerrainTileCoord> _desiredCoords = new();
     private TerrainGenerationProfile _profile;
     private Node3D? _focus;
@@ -54,6 +59,7 @@ public partial class TerrainWorld : Node3D
 
     public override void _Process(double delta)
     {
+        DisposeCompletedRetiredJobs();
         SubmitCompletedJobs();
 
         _streamTimer += delta;
@@ -64,6 +70,12 @@ public partial class TerrainWorld : Node3D
         }
 
         UpdateWaterPlane();
+    }
+
+    public override void _ExitTree()
+    {
+        CancelAllJobs();
+        DisposeCompletedRetiredJobs();
     }
 
     public void SetFocus(Node3D focus)
@@ -81,13 +93,15 @@ public partial class TerrainWorld : Node3D
             NativeTerrainBridge.EnsureInitialized();
         }
 
+        CancelAllJobs();
+        ClearTileCache();
+
         foreach (TerrainChunk chunk in _chunks.Values)
         {
             chunk.QueueFree();
         }
 
         _chunks.Clear();
-        _jobs.Clear();
         UpdateStreaming(force: true);
     }
 
@@ -152,15 +166,13 @@ public partial class TerrainWorld : Node3D
         List<TerrainTileCoord> sorted = _desiredCoords
             .OrderBy(coord => coord.CenterDistanceSquaredTo(focusPosition, _profile.ChunkSize))
             .ToList();
+        int cachedApplied = 0;
 
         foreach (TerrainTileCoord coord in sorted)
         {
-            if (_jobs.Count >= _profile.MaxQueuedTileJobs)
-            {
-                return;
-            }
-
             DesiredTileRequest request = GetDesiredRequest(coord, center);
+            TerrainTileCacheKey cacheKey = new(coord, request.Lod, request.IncludeCollision, _profile);
+
             if (_chunks.TryGetValue(coord, out TerrainChunk? chunk) &&
                 chunk.Lod == request.Lod &&
                 chunk.HasCollision == request.IncludeCollision)
@@ -168,18 +180,43 @@ public partial class TerrainWorld : Node3D
                 continue;
             }
 
+            TerrainTileData? cachedTile = GetCachedTile(cacheKey);
+            if (cachedTile is not null)
+            {
+                if (cachedApplied >= _profile.MaxCompletedTilesPerFrame)
+                {
+                    continue;
+                }
+
+                ApplyTileData(cachedTile);
+                cachedApplied++;
+                continue;
+            }
+
             if (_jobs.TryGetValue(coord, out PendingTileJob? existing) &&
                 existing.Lod == request.Lod &&
-                existing.IncludeCollision == request.IncludeCollision)
+                existing.IncludeCollision == request.IncludeCollision &&
+                existing.Profile.Equals(_profile))
             {
                 continue;
             }
 
+            if (_jobs.Count >= _profile.MaxQueuedTileJobs)
+            {
+                return;
+            }
+
+            var cancellation = new CancellationTokenSource();
+            TerrainGenerationProfile jobProfile = _profile;
             _jobs[coord] = new PendingTileJob(
                 coord,
                 request.Lod,
                 request.IncludeCollision,
-                Task.Run(() => TerrainTileBuilder.Build(coord, request.Lod, _profile, request.IncludeCollision)));
+                jobProfile,
+                cancellation,
+                Task.Run(
+                    () => TerrainTileBuilder.Build(coord, request.Lod, jobProfile, request.IncludeCollision, cancellation.Token),
+                    cancellation.Token));
         }
     }
 
@@ -202,22 +239,41 @@ public partial class TerrainWorld : Node3D
 
             _jobs.Remove(job.Coord);
 
-            if (!_desiredCoords.Contains(job.Coord))
+            if (job.Task.IsCanceled)
             {
+                job.Cancellation.Dispose();
                 continue;
             }
 
             if (job.Task.IsFaulted)
             {
+                job.Cancellation.Dispose();
                 GD.PushError($"Terrain tile {job.Coord} failed: {job.Task.Exception?.GetBaseException().Message}");
                 continue;
             }
 
             TerrainTileData data = job.Task.Result;
-            TerrainChunk chunk = GetOrCreateChunk(job.Coord);
-            chunk.Apply(data, _terrainMaterial);
+            job.Cancellation.Dispose();
+
+            if (job.Profile.Equals(_profile))
+            {
+                StoreCachedTile(data, job.Profile, job.IncludeCollision);
+            }
+
+            if (!_desiredCoords.Contains(job.Coord) || !job.Profile.Equals(_profile))
+            {
+                continue;
+            }
+
+            ApplyTileData(data);
             submitted++;
         }
+    }
+
+    private void ApplyTileData(TerrainTileData data)
+    {
+        TerrainChunk chunk = GetOrCreateChunk(data.Coord);
+        chunk.Apply(data, _terrainMaterial);
     }
 
     private TerrainChunk GetOrCreateChunk(TerrainTileCoord coord)
@@ -255,13 +311,17 @@ public partial class TerrainWorld : Node3D
             if (!_desiredCoords.Contains(job.Coord))
             {
                 _jobs.Remove(job.Coord);
+                RetireJob(job);
                 continue;
             }
 
             DesiredTileRequest request = GetDesiredRequest(job.Coord, center);
-            if (request.Lod != job.Lod || request.IncludeCollision != job.IncludeCollision)
+            if (request.Lod != job.Lod ||
+                request.IncludeCollision != job.IncludeCollision ||
+                !job.Profile.Equals(_profile))
             {
                 _jobs.Remove(job.Coord);
+                RetireJob(job);
             }
         }
     }
@@ -310,11 +370,121 @@ public partial class TerrainWorld : Node3D
             Mathf.Round(focusPosition.Z / grid) * grid);
     }
 
+    private TerrainTileData? GetCachedTile(TerrainTileCacheKey key)
+    {
+        if (!_tileCache.TryGetValue(key, out TerrainTileData? tileData))
+        {
+            return null;
+        }
+
+        TouchCacheKey(key);
+        return tileData;
+    }
+
+    private void StoreCachedTile(TerrainTileData data, TerrainGenerationProfile profile, bool includeCollision)
+    {
+        int limit = Mathf.Max(0, _profile.MaxCachedTileData);
+        if (limit == 0)
+        {
+            return;
+        }
+
+        TerrainTileCacheKey key = new(data.Coord, data.Lod, includeCollision, profile);
+        if (_tileCache.ContainsKey(key))
+        {
+            _tileCache[key] = data;
+            TouchCacheKey(key);
+            return;
+        }
+
+        _tileCache[key] = data;
+        _tileCacheNodes[key] = _tileCacheLru.AddLast(key);
+        TrimTileCache(limit);
+    }
+
+    private void TouchCacheKey(TerrainTileCacheKey key)
+    {
+        if (!_tileCacheNodes.TryGetValue(key, out LinkedListNode<TerrainTileCacheKey>? node))
+        {
+            return;
+        }
+
+        _tileCacheLru.Remove(node);
+        _tileCacheLru.AddLast(node);
+    }
+
+    private void TrimTileCache(int limit)
+    {
+        while (_tileCache.Count > limit && _tileCacheLru.First is not null)
+        {
+            TerrainTileCacheKey oldest = _tileCacheLru.First.Value;
+            _tileCacheLru.RemoveFirst();
+            _tileCacheNodes.Remove(oldest);
+            _tileCache.Remove(oldest);
+        }
+    }
+
+    private void ClearTileCache()
+    {
+        _tileCache.Clear();
+        _tileCacheNodes.Clear();
+        _tileCacheLru.Clear();
+    }
+
+    private void CancelAllJobs()
+    {
+        foreach (PendingTileJob job in _jobs.Values)
+        {
+            RetireJob(job);
+        }
+
+        _jobs.Clear();
+    }
+
+    private void RetireJob(PendingTileJob job)
+    {
+        if (job.Task.IsCompleted)
+        {
+            job.Cancellation.Dispose();
+            return;
+        }
+
+        job.Cancellation.Cancel();
+        _retiredJobs.Add(job);
+    }
+
+    private void DisposeCompletedRetiredJobs()
+    {
+        for (int i = _retiredJobs.Count - 1; i >= 0; i--)
+        {
+            PendingTileJob job = _retiredJobs[i];
+            if (!job.Task.IsCompleted)
+            {
+                continue;
+            }
+
+            if (job.Task.IsFaulted && job.Task.Exception?.GetBaseException() is not OperationCanceledException)
+            {
+                GD.PushError($"Retired terrain tile {job.Coord} failed: {job.Task.Exception?.GetBaseException().Message}");
+            }
+
+            job.Cancellation.Dispose();
+            _retiredJobs.RemoveAt(i);
+        }
+    }
+
     private sealed record PendingTileJob(
         TerrainTileCoord Coord,
         int Lod,
         bool IncludeCollision,
+        TerrainGenerationProfile Profile,
+        CancellationTokenSource Cancellation,
         Task<TerrainTileData> Task);
 
     private readonly record struct DesiredTileRequest(int Lod, bool IncludeCollision);
+    private readonly record struct TerrainTileCacheKey(
+        TerrainTileCoord Coord,
+        int Lod,
+        bool IncludeCollision,
+        TerrainGenerationProfile Profile);
 }
