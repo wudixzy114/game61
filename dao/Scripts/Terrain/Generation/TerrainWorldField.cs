@@ -100,7 +100,7 @@ public static class TerrainWorldFieldSampler
             4);
         float tributary = 1.0f - Mathf.SmoothStep(0.03f, 0.18f, Mathf.Abs(tributaryNoise - 0.48f));
         float river = Mathf.Max(mainRiver, tributary * 0.58f);
-        river = Mathf.Clamp(river * Mathf.SmoothStep(0.21f, 0.72f, continent) * profile.RiverStrength * 1.16f, 0.0f, 1.0f);
+        river = Mathf.Clamp(river * Mathf.SmoothStep(0.21f, 0.72f, continent) * profile.RiverStrength * 1.24f, 0.0f, 1.0f);
 
         float micro = includeMicroDetail
             ? ProceduralNoise.Fbm(
@@ -123,7 +123,7 @@ public static class TerrainWorldFieldSampler
     private static float BuildHeight(TerrainShapeTerms terms, TerrainGenerationProfile profile)
     {
         float height =
-            ((terms.Basin - 0.48f) * profile.HeightScale * 0.72f) +
+            ((terms.Basin - 0.44f) * profile.HeightScale * 0.72f) +
             (terms.Shelf * terms.BroadElevation * profile.HeightScale * 0.34f) +
             (terms.Mountains * profile.HeightScale * 1.08f) +
             (terms.MicroDetail * profile.HeightScale * profile.DetailWeight);

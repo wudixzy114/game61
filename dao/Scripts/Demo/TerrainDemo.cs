@@ -1,4 +1,5 @@
 using Dao.Terrain;
+using Dao.Terrain.Generation;
 using Dao.Terrain.Streaming;
 using Godot;
 
@@ -7,6 +8,13 @@ namespace Dao.Demo;
 [GlobalClass]
 public partial class TerrainDemo : Node3D
 {
+    [ExportGroup("Open World Planning")]
+    [Export] public bool ValidateOpenWorldPlanOnReady { get; set; } = true;
+    [Export] public bool ExportOpenWorldPlanOnReady { get; set; } = false;
+    [Export(PropertyHint.Range, "256,2048,1")] public int OpenWorldPlanImageSize { get; set; } = 512;
+    [Export(PropertyHint.Range, "1024,65536,1")] public float OpenWorldPlanWorldSize { get; set; } = 12288.0f;
+    [Export] public string OpenWorldPlanOutputDirectory { get; set; } = "user://terrain";
+
     public override void _Ready()
     {
         Name = "ProceduralTerrainDemo";
@@ -20,6 +28,11 @@ public partial class TerrainDemo : Node3D
 
         AddChild(CreateSun());
         AddChild(CreateWorldEnvironment());
+
+        if (ValidateOpenWorldPlanOnReady || ExportOpenWorldPlanOnReady)
+        {
+            BuildOpenWorldPlanArtifacts(terrainWorld);
+        }
     }
 
     private static DemoFlyCamera CreateCamera()
@@ -63,6 +76,49 @@ public partial class TerrainDemo : Node3D
             StreamingIntervalSeconds = 0.12,
             FocusPath = focus.GetPath()
         };
+    }
+
+    private void BuildOpenWorldPlanArtifacts(TerrainWorld terrainWorld)
+    {
+        TerrainGenerationProfile profile = terrainWorld.Settings?.Snapshot() ?? new TerrainSettings().Snapshot();
+        TerrainWorldPlan plan = TerrainWorldPlanner.CreateOpenWorldPlan(profile, Vector2.Zero, OpenWorldPlanWorldSize);
+        TerrainWorldPlanningGateResult planningGate = TerrainWorldPlanner.ValidateOpenWorldPlanning(plan);
+        TerrainQualityGateResult qualityGate = TerrainQualityAnalyzer.ValidateOpenWorldDefault(plan.QualityReport);
+        string status = planningGate.Passed && qualityGate.Passed ? "PASS" : "FAIL";
+
+        GD.Print(
+            $"Open world terrain plan {status}: " +
+            $"{planningGate.Report.PointOfInterestCount} POIs, {planningGate.Report.RouteCount} routes, " +
+            $"land {qualityGate.Report.LandRatio:0.000}, scenic {qualityGate.Report.ScenicRatio:0.000}, " +
+            $"connected {planningGate.Report.ConnectedPointRatio:0.000}.");
+
+        if (!planningGate.Passed || !qualityGate.Passed)
+        {
+            GD.PushWarning(
+                $"Open world terrain plan validation failed. " +
+                $"Planning gate: {planningGate.Passed}, quality gate: {qualityGate.Passed}.");
+        }
+
+        if (!ExportOpenWorldPlanOnReady)
+        {
+            return;
+        }
+
+        TerrainWorldPlanArtifactResult export = TerrainWorldPlanExporter.SaveOpenWorldArtifacts(
+            plan,
+            profile,
+            OpenWorldPlanImageSize,
+            OpenWorldPlanOutputDirectory);
+        string mapPath = ProjectSettings.GlobalizePath(export.MapPath);
+        string reportPath = ProjectSettings.GlobalizePath(export.ReportPath);
+        GD.Print($"Open world plan artifacts: map '{mapPath}', report '{reportPath}'.");
+
+        if (!export.Passed)
+        {
+            GD.PushWarning(
+                $"Open world terrain artifact export failed. " +
+                $"Map save: {export.MapSaveError}, report save: {export.ReportSaveError}.");
+        }
     }
 
     private static DirectionalLight3D CreateSun()

@@ -181,6 +181,13 @@ public static class TerrainQualityAnalyzer
         TerrainQualityThresholds thresholds)
     {
         TerrainQualityReport report = Analyze(profile, center, worldSize, sampleResolution);
+        return ValidateReport(report, thresholds);
+    }
+
+    public static TerrainQualityGateResult ValidateReport(
+        TerrainQualityReport report,
+        TerrainQualityThresholds thresholds)
+    {
         var summary = new StringBuilder();
         bool passed = true;
 
@@ -221,6 +228,11 @@ public static class TerrainQualityAnalyzer
             ref passed);
 
         return new TerrainQualityGateResult(passed, report, summary.ToString());
+    }
+
+    public static TerrainQualityGateResult ValidateOpenWorldDefault(TerrainQualityReport report)
+    {
+        return ValidateReport(report, TerrainQualityThresholds.OpenWorldDefault);
     }
 
     public static TerrainQualityGateResult ValidateOpenWorldDefault(

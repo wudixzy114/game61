@@ -4,6 +4,7 @@
 
 # .NET
 obj/
+tools/**/bin/
 
 # GDExtension build output
 dao/bin/*.dll

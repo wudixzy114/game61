@@ -195,7 +195,7 @@ double sample_height_native(double p_x, double p_z, const NativeTerrainProfile &
 			4);
 	const double tributary = 1.0 - smooth_step(0.03, 0.18, std::abs(tributary_noise - 0.48));
 	double river = std::max(main_river, tributary * 0.58);
-	river = clamp_value(river * smooth_step(0.21, 0.72, continent) * p_profile.river_strength * 1.16, 0.0, 1.0);
+	river = clamp_value(river * smooth_step(0.21, 0.72, continent) * p_profile.river_strength * 1.24, 0.0, 1.0);
 
 	const double micro = fbm(
 			p_x / 118.0,
@@ -204,7 +204,7 @@ double sample_height_native(double p_x, double p_z, const NativeTerrainProfile &
 			4);
 
 	double height =
-			((basin - 0.48) * p_profile.height_scale * 0.72) +
+			((basin - 0.44) * p_profile.height_scale * 0.72) +
 			(shelf * broad * p_profile.height_scale * 0.34) +
 			(mountains * p_profile.height_scale * 1.08) +
 			(micro * p_profile.height_scale * p_profile.detail_weight);
