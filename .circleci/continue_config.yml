@@ -1,0 +1,75 @@
+version: 2.1
+
+parameters:
+  run-gdextension-build:
+    type: boolean
+    default: false
+  run-csharp-build:
+    type: boolean
+    default: false
+
+jobs:
+  build-gdextension:
+    docker:
+      - image: cimg/python:3.12
+    steps:
+      - checkout
+      - run:
+          name: Initialize submodules
+          command: git submodule update --init --recursive
+      - run:
+          name: Install build dependencies
+          command: |
+            sudo apt-get update
+            sudo apt-get install -y build-essential
+      - run:
+          name: Install SCons
+          command: pip install scons
+      - restore_cache:
+          keys:
+            - gdextension-v2-{{ checksum "gdextension/godot-cpp/SConstruct" }}-{{ checksum "gdextension/SConstruct" }}
+            - gdextension-v2-{{ checksum "gdextension/godot-cpp/SConstruct" }}-
+            - gdextension-v2-
+      - run:
+          name: Build GDExtension for Linux
+          working_directory: gdextension
+          command: scons platform=linux target=template_debug
+      - save_cache:
+          key: gdextension-v2-{{ checksum "gdextension/godot-cpp/SConstruct" }}-{{ checksum "gdextension/SConstruct" }}
+          paths:
+            - gdextension/godot-cpp/bin
+            - gdextension/build
+            - gdextension/.sconsign.dblite
+      - store_artifacts:
+          path: dao/bin
+          destination: gdextension-bin
+
+  build-csharp:
+    docker:
+      - image: mcr.microsoft.com/dotnet/sdk:8.0
+    steps:
+      - checkout
+      - restore_cache:
+          keys:
+            - dotnet-packages-v1-{{ checksum "dao/dao.csproj" }}
+            - dotnet-packages-v1-
+      - run:
+          name: Restore NuGet packages
+          working_directory: dao
+          command: dotnet restore
+      - save_cache:
+          key: dotnet-packages-v1-{{ checksum "dao/dao.csproj" }}
+          paths:
+            - ~/.nuget/packages
+      - run:
+          name: Build C# scripts
+          working_directory: dao
+          command: dotnet build --no-restore
+
+workflows:
+  build:
+    jobs:
+      - build-gdextension:
+          when: << pipeline.parameters.run-gdextension-build >>
+      - build-csharp:
+          when: << pipeline.parameters.run-csharp-build >>

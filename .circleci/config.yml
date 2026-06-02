@@ -1,62 +1,15 @@
 version: 2.1
+setup: true
 
-jobs:
-  build-gdextension:
-    docker:
-      - image: cimg/python:3.12
-    steps:
-      - checkout
-      - run:
-          name: Initialize submodules
-          command: git submodule update --init --recursive
-      - run:
-          name: Install build dependencies
-          command: |
-            sudo apt-get update
-            sudo apt-get install -y build-essential
-      - run:
-          name: Install SCons
-          command: pip install scons
-      - restore_cache:
-          keys:
-            - gdextension-godot-cpp-v1-{{ checksum "gdextension/godot-cpp/SConstruct" }}
-            - gdextension-godot-cpp-v1-
-      - run:
-          name: Build GDExtension for Linux
-          working_directory: gdextension
-          command: scons platform=linux target=template_debug
-      - save_cache:
-          key: gdextension-godot-cpp-v1-{{ checksum "gdextension/godot-cpp/SConstruct" }}
-          paths:
-            - gdextension/godot-cpp/bin
-      - store_artifacts:
-          path: dao/bin
-          destination: gdextension-bin
-
-  build-csharp:
-    docker:
-      - image: mcr.microsoft.com/dotnet/sdk:8.0
-    steps:
-      - checkout
-      - restore_cache:
-          keys:
-            - dotnet-packages-v1-{{ checksum "dao/dao.csproj" }}
-            - dotnet-packages-v1-
-      - run:
-          name: Restore NuGet packages
-          working_directory: dao
-          command: dotnet restore
-      - save_cache:
-          key: dotnet-packages-v1-{{ checksum "dao/dao.csproj" }}
-          paths:
-            - ~/.nuget/packages
-      - run:
-          name: Build C# scripts
-          working_directory: dao
-          command: dotnet build --no-restore
+orbs:
+  path-filtering: circleci/path-filtering@1.2.0
 
 workflows:
-  build:
+  setup:
     jobs:
-      - build-gdextension
-      - build-csharp
+      - path-filtering/filter:
+          base-revision: main
+          config-path: .circleci/continue_config.yml
+          mapping: |
+            gdextension/.* run-gdextension-build true
+            dao/.* run-csharp-build true
