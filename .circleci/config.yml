@@ -35,7 +35,7 @@ jobs:
 
   build-csharp:
     docker:
-      - image: cimg/dotnet:8.0
+      - image: mcr.microsoft.com/dotnet/sdk:8.0
     steps:
       - checkout
       - restore_cache:
