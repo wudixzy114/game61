@@ -1,0 +1,25 @@
+# Godot
+.godot/
+.import/
+
+# .NET
+obj/
+
+# GDExtension build output
+dao/bin/*.dll
+dao/bin/*.so
+dao/bin/*.dylib
+dao/bin/*.framework/
+dao/bin/*.a
+dao/bin/*.exp
+dao/bin/*.lib
+dao/bin/*.pdb
+dao/bin/Debug/
+dao/bin/Release/
+gdextension/.sconsign*.dblite
+gdextension/build/
+gdextension/compile_commands.json
+gdextension/godot-cpp/bin/
+gdextension/godot-cpp/gen/
+gdextension/godot-cpp/.sconsign*.dblite
+gdextension/src/**.obj
