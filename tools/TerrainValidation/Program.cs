@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using Dao.Terrain;
 using Dao.Terrain.Generation;
 using Dao.Terrain.Runtime;
@@ -15,6 +16,8 @@ bool skipCorridorSmoke = HasFlag(args, "--skip-corridor-smoke");
 bool skipPoiTileSmoke = HasFlag(args, "--skip-poi-tile-smoke");
 bool skipGameplayScatterSmoke = HasFlag(args, "--skip-gameplay-scatter-smoke");
 bool nativeSmoke = HasFlag(args, "--native-smoke");
+bool benchmarkTiles = HasFlag(args, "--benchmark-tiles");
+int benchmarkTileCount = Math.Max(1, GetIntArg(args, "--benchmark-tile-count", 48));
 
 int failures = 0;
 TerrainValidationAggregate aggregate = new();
@@ -22,11 +25,20 @@ TerrainRouteCorridorSmokeReport? corridorSmokeReport = null;
 TerrainPoiTileSmokeReport? poiTileSmokeReport = null;
 TerrainGameplayScatterSmokeReport? gameplayScatterSmokeReport = null;
 TerrainNativeSamplerSmokeReport? nativeSmokeReport = null;
+TerrainTileBenchmarkReport? tileBenchmarkReport = null;
+TerrainGenerationProfile benchmarkProfile = profile with { Seed = seed };
+TerrainWorldPlan? benchmarkPlan = null;
 
 for (int i = 0; i < seedCount; i++)
 {
     TerrainGenerationProfile seedProfile = profile with { Seed = seed + i * seedStep };
     TerrainValidationResult result = ValidateSeed(seedProfile, worldSize);
+    if (i == 0)
+    {
+        benchmarkProfile = seedProfile;
+        benchmarkPlan = result.Plan;
+    }
+
     aggregate.Add(result);
 
     if (!result.Passed)
@@ -77,7 +89,21 @@ if (nativeSmoke)
     }
 }
 
-PrintAggregate(aggregate, seedCount, failures, corridorSmokeReport, poiTileSmokeReport, gameplayScatterSmokeReport, nativeSmokeReport);
+if (benchmarkTiles && benchmarkPlan is not null)
+{
+    tileBenchmarkReport = BenchmarkTerrainTiles(benchmarkProfile, benchmarkPlan, benchmarkTileCount);
+    PrintTileBenchmark(tileBenchmarkReport.Value);
+}
+
+PrintAggregate(
+    aggregate,
+    seedCount,
+    failures,
+    corridorSmokeReport,
+    poiTileSmokeReport,
+    gameplayScatterSmokeReport,
+    nativeSmokeReport,
+    tileBenchmarkReport);
 return failures == 0 ? 0 : 1;
 
 static TerrainValidationResult ValidateSeed(TerrainGenerationProfile profile, float worldSize)
@@ -531,7 +557,7 @@ static TerrainNativeSamplerSmokeReport ValidateNativeSamplerParity(TerrainGenera
 
     if (!NativeTerrainBridge.TrySampleHeightGrid(coord, resolution, nativeProfile, out float[] nativeHeights))
     {
-        return new TerrainNativeSamplerSmokeReport(false, false, coord, resolution, 0, 0.0f, 0.0f, "native height grid unavailable");
+        return new TerrainNativeSamplerSmokeReport(false, false, coord, resolution, 0, 0.0f, 0.0f, 0, 0.0f, 0.0f, "native height grid unavailable");
     }
 
     Vector2 origin = coord.Origin(nativeProfile.ChunkSize);
@@ -559,12 +585,42 @@ static TerrainNativeSamplerSmokeReport ValidateNativeSamplerParity(TerrainGenera
     }
 
     float averageDelta = compared == 0 ? 0.0f : (float)(deltaSum / compared);
-    bool passed = compared == expectedCount && maxDelta <= 1.5f && averageDelta <= 0.25f;
-    string reason = passed
-        ? "native height grid matches managed sampler tolerance"
-        : "native height grid diverged from managed sampler";
+    TerrainGenerationProfile managedProfile = profile with { UseNativeSamplerWhenAvailable = false };
+    TerrainTileData managedTile = TerrainTileBuilder.Build(coord, lod: 0, managedProfile, includeCollision: false);
+    TerrainTileData nativeTile = TerrainTileBuilder.Build(coord, lod: 0, nativeProfile, includeCollision: false);
+    int tileVertexCount = Math.Min(managedTile.Vertices.Length, nativeTile.Vertices.Length);
+    float tileMaxHeightDelta = 0.0f;
+    float tileMaxColorDelta = 0.0f;
 
-    return new TerrainNativeSamplerSmokeReport(passed, true, coord, resolution, compared, maxDelta, averageDelta, reason);
+    for (int i = 0; i < tileVertexCount; i++)
+    {
+        tileMaxHeightDelta = Math.Max(tileMaxHeightDelta, Math.Abs(nativeTile.Vertices[i].Y - managedTile.Vertices[i].Y));
+        tileMaxColorDelta = Math.Max(tileMaxColorDelta, ColorDistance(nativeTile.Colors[i], managedTile.Colors[i]));
+    }
+
+    bool gridPassed = compared == expectedCount && maxDelta <= 1.5f && averageDelta <= 0.25f;
+    bool tilePassed =
+        tileVertexCount == managedTile.Vertices.Length &&
+        tileVertexCount == nativeTile.Vertices.Length &&
+        tileMaxHeightDelta <= 1.5f &&
+        tileMaxColorDelta <= 0.03f;
+    bool passed = gridPassed && tilePassed;
+    string reason = passed
+        ? "native height grid and tile output match managed path tolerance"
+        : gridPassed ? "native tile output diverged from managed path" : "native height grid diverged from managed sampler";
+
+    return new TerrainNativeSamplerSmokeReport(
+        passed,
+        true,
+        coord,
+        resolution,
+        compared,
+        maxDelta,
+        averageDelta,
+        tileVertexCount,
+        tileMaxHeightDelta,
+        tileMaxColorDelta,
+        reason);
 }
 
 static void PrintNativeSamplerSmoke(TerrainNativeSamplerSmokeReport report)
@@ -573,7 +629,291 @@ static void PrintNativeSamplerSmoke(TerrainNativeSamplerSmokeReport report)
         $"Native sampler smoke: {(report.Passed ? "PASS" : "FAIL")} " +
         $"available {report.Available}, tile {report.Coord}, resolution {report.Resolution}, " +
         $"samples {report.ComparedSampleCount}, max delta {report.MaxHeightDelta:0.000}, " +
-        $"avg delta {report.AverageHeightDelta:0.000} ({report.Reason})");
+        $"avg delta {report.AverageHeightDelta:0.000}, tile vertices {report.TileVertexCount}, " +
+        $"tile delta {report.TileMaxHeightDelta:0.000}/{report.TileMaxColorDelta:0.000} ({report.Reason})");
+}
+
+static TerrainTileBenchmarkReport BenchmarkTerrainTiles(
+    TerrainGenerationProfile profile,
+    TerrainWorldPlan plan,
+    int requestedTileCount)
+{
+    TerrainTileCoord[] coords = SelectBenchmarkTileCoords(profile, plan, requestedTileCount);
+    TerrainRouteCorridorIndex corridorIndex = TerrainRouteCorridorIndex.FromPlan(plan, profile);
+    TerrainPointOfInterestIndex poiIndex = TerrainPointOfInterestIndex.FromPlan(plan, profile);
+    TerrainGenerationProfile managedProfile = profile with { UseNativeSamplerWhenAvailable = false };
+    TerrainGenerationProfile nativeProfile = profile with { UseNativeSamplerWhenAvailable = true };
+    bool nativeAvailable = NativeTerrainBridge.IsAvailable;
+
+    if (coords.Length == 0)
+    {
+        return new TerrainTileBenchmarkReport(
+            nativeAvailable,
+            requestedTileCount,
+            0,
+            default,
+            default,
+            0,
+            0.0f,
+            0.0f,
+            0.0,
+            "no benchmark tile coordinates selected");
+    }
+
+    TerrainTileBuilder.Build(coords[0], lod: 0, managedProfile, includeCollision: false, corridorIndex, poiIndex);
+    if (nativeAvailable)
+    {
+        TerrainTileBuilder.Build(coords[0], lod: 0, nativeProfile, includeCollision: false, corridorIndex, poiIndex);
+    }
+
+    TerrainTileBenchmarkPass managed = MeasureTileBuildPass(coords, managedProfile, corridorIndex, poiIndex);
+    TerrainTileBenchmarkPass native = nativeAvailable
+        ? MeasureTileBuildPass(coords, nativeProfile, corridorIndex, poiIndex)
+        : default;
+
+    int parityTileCount = 0;
+    float maxHeightDelta = 0.0f;
+    float maxColorDelta = 0.0f;
+    if (nativeAvailable)
+    {
+        MeasureBenchmarkTileParity(
+            coords,
+            managedProfile,
+            nativeProfile,
+            corridorIndex,
+            poiIndex,
+            maxTiles: 8,
+            out parityTileCount,
+            out maxHeightDelta,
+            out maxColorDelta);
+    }
+
+    double speedup = nativeAvailable && native.ElapsedMilliseconds > 0.0
+        ? managed.ElapsedMilliseconds / native.ElapsedMilliseconds
+        : 0.0;
+    string reason = nativeAvailable
+        ? "native-enabled render tile build benchmark completed"
+        : "native sampler unavailable; managed render tile benchmark completed";
+
+    return new TerrainTileBenchmarkReport(
+        nativeAvailable,
+        requestedTileCount,
+        coords.Length,
+        managed,
+        native,
+        parityTileCount,
+        maxHeightDelta,
+        maxColorDelta,
+        speedup,
+        reason);
+}
+
+static TerrainTileBenchmarkPass MeasureTileBuildPass(
+    TerrainTileCoord[] coords,
+    TerrainGenerationProfile profile,
+    TerrainRouteCorridorIndex corridorIndex,
+    TerrainPointOfInterestIndex poiIndex)
+{
+    GC.Collect();
+    GC.WaitForPendingFinalizers();
+    GC.Collect();
+
+    long allocatedBefore = GC.GetAllocatedBytesForCurrentThread();
+    Stopwatch stopwatch = Stopwatch.StartNew();
+    long totalVertices = 0;
+    long totalIndices = 0;
+    long totalScatter = 0;
+    long totalLandmarks = 0;
+    double heightChecksum = 0.0;
+
+    foreach (TerrainTileCoord coord in coords)
+    {
+        TerrainTileData data = TerrainTileBuilder.Build(coord, lod: 0, profile, includeCollision: false, corridorIndex, poiIndex);
+        totalVertices += data.Vertices.Length;
+        totalIndices += data.Indices.Length;
+        totalScatter += data.ScatterInstances.Length;
+        totalLandmarks += data.Landmarks.Length;
+        heightChecksum += data.MinHeight + data.MaxHeight;
+        if (data.Vertices.Length > 0)
+        {
+            heightChecksum += data.Vertices[data.Vertices.Length - 1].Y;
+        }
+    }
+
+    stopwatch.Stop();
+    long allocatedAfter = GC.GetAllocatedBytesForCurrentThread();
+
+    return new TerrainTileBenchmarkPass(
+        coords.Length,
+        totalVertices,
+        totalIndices,
+        totalScatter,
+        totalLandmarks,
+        stopwatch.Elapsed.TotalMilliseconds,
+        Math.Max(0, allocatedAfter - allocatedBefore),
+        heightChecksum);
+}
+
+static void MeasureBenchmarkTileParity(
+    TerrainTileCoord[] coords,
+    TerrainGenerationProfile managedProfile,
+    TerrainGenerationProfile nativeProfile,
+    TerrainRouteCorridorIndex corridorIndex,
+    TerrainPointOfInterestIndex poiIndex,
+    int maxTiles,
+    out int comparedTileCount,
+    out float maxHeightDelta,
+    out float maxColorDelta)
+{
+    comparedTileCount = Math.Min(Math.Max(0, maxTiles), coords.Length);
+    maxHeightDelta = 0.0f;
+    maxColorDelta = 0.0f;
+
+    for (int tile = 0; tile < comparedTileCount; tile++)
+    {
+        TerrainTileData managedTile = TerrainTileBuilder.Build(coords[tile], lod: 0, managedProfile, includeCollision: false, corridorIndex, poiIndex);
+        TerrainTileData nativeTile = TerrainTileBuilder.Build(coords[tile], lod: 0, nativeProfile, includeCollision: false, corridorIndex, poiIndex);
+        int vertexCount = Math.Min(managedTile.Vertices.Length, nativeTile.Vertices.Length);
+
+        for (int i = 0; i < vertexCount; i++)
+        {
+            maxHeightDelta = Math.Max(maxHeightDelta, Math.Abs(nativeTile.Vertices[i].Y - managedTile.Vertices[i].Y));
+            maxColorDelta = Math.Max(maxColorDelta, ColorDistance(nativeTile.Colors[i], managedTile.Colors[i]));
+        }
+    }
+}
+
+static TerrainTileCoord[] SelectBenchmarkTileCoords(
+    TerrainGenerationProfile profile,
+    TerrainWorldPlan plan,
+    int requestedTileCount)
+{
+    int maxCoords = Math.Max(1, requestedTileCount);
+    var coords = new List<TerrainTileCoord>(maxCoords);
+    var seen = new HashSet<TerrainTileCoord>();
+
+    foreach (TerrainWorldPointOfInterest point in plan.PointsOfInterest)
+    {
+        if (TryAddBenchmarkCoord(coords, seen, point.WorldPosition, profile, maxCoords))
+        {
+            return coords.ToArray();
+        }
+    }
+
+    foreach (TerrainWorldRoute route in plan.Routes)
+    {
+        if (route.Waypoints.Length == 0)
+        {
+            continue;
+        }
+
+        if (TryAddBenchmarkCoord(coords, seen, route.Waypoints[route.Waypoints.Length / 2], profile, maxCoords))
+        {
+            return coords.ToArray();
+        }
+    }
+
+    var candidates = new List<GameplayScatterRegionCandidate>(plan.Regions.Length);
+    foreach (TerrainWorldRegion region in plan.Regions)
+    {
+        if (region.RegionKind == TerrainWorldRegionKind.Ocean)
+        {
+            continue;
+        }
+
+        float score =
+            region.ScenicPotential * 0.30f +
+            region.EncounterPotential * 0.25f +
+            region.ResourcePotential * 0.20f +
+            region.HazardPotential * 0.20f +
+            region.Traversability * 0.05f;
+        candidates.Add(new GameplayScatterRegionCandidate(region.WorldPosition, score));
+    }
+
+    candidates.Sort((a, b) => b.Score.CompareTo(a.Score));
+    foreach (GameplayScatterRegionCandidate candidate in candidates)
+    {
+        if (TryAddBenchmarkCoord(coords, seen, candidate.WorldPosition, profile, maxCoords))
+        {
+            return coords.ToArray();
+        }
+    }
+
+    int radius = 0;
+    while (coords.Count < maxCoords)
+    {
+        for (int z = -radius; z <= radius && coords.Count < maxCoords; z++)
+        {
+            for (int x = -radius; x <= radius && coords.Count < maxCoords; x++)
+            {
+                if (Math.Max(Math.Abs(x), Math.Abs(z)) != radius)
+                {
+                    continue;
+                }
+
+                TerrainTileCoord coord = new(x, z);
+                if (seen.Add(coord))
+                {
+                    coords.Add(coord);
+                }
+            }
+        }
+
+        radius++;
+    }
+
+    return coords.ToArray();
+}
+
+static bool TryAddBenchmarkCoord(
+    List<TerrainTileCoord> coords,
+    HashSet<TerrainTileCoord> seen,
+    Vector2 world,
+    TerrainGenerationProfile profile,
+    int maxCoords)
+{
+    if (coords.Count >= maxCoords)
+    {
+        return true;
+    }
+
+    TerrainTileCoord coord = WorldToCoord(world, profile);
+    if (seen.Add(coord))
+    {
+        coords.Add(coord);
+    }
+
+    return coords.Count >= maxCoords;
+}
+
+static TerrainTileCoord WorldToCoord(Vector2 world, TerrainGenerationProfile profile)
+{
+    return new TerrainTileCoord(
+        Mathf.FloorToInt(world.X / profile.ChunkSize),
+        Mathf.FloorToInt(world.Y / profile.ChunkSize));
+}
+
+static void PrintTileBenchmark(TerrainTileBenchmarkReport report)
+{
+    Console.WriteLine(
+        $"Tile generation benchmark: native available {report.NativeAvailable}, " +
+        $"tiles {report.MeasuredTileCount}/{report.RequestedTileCount}, " +
+        $"native speedup {report.NativeSpeedup:0.00}x, parity tiles {report.ParityTileCount}, " +
+        $"max parity delta {report.MaxHeightDelta:0.000}/{report.MaxColorDelta:0.000} ({report.Reason})");
+    PrintTileBenchmarkPass("Managed", report.Managed);
+    if (report.NativeAvailable)
+    {
+        PrintTileBenchmarkPass("Native", report.Native);
+    }
+}
+
+static void PrintTileBenchmarkPass(string label, TerrainTileBenchmarkPass pass)
+{
+    Console.WriteLine(
+        $"{label} tile build: {pass.TileCount} tiles in {pass.ElapsedMilliseconds:0.0} ms, " +
+        $"{pass.TilesPerSecond:0.0} tiles/s, {pass.MillisecondsPerTile:0.00} ms/tile, " +
+        $"alloc {pass.AllocatedMegabytes:0.00} MB ({pass.AllocatedKilobytesPerTile:0.0} KB/tile), " +
+        $"vertices {pass.TotalVertices}, scatter {pass.TotalScatter}, landmarks {pass.TotalLandmarks}");
 }
 
 static void PrintAggregate(
@@ -583,7 +923,8 @@ static void PrintAggregate(
     TerrainRouteCorridorSmokeReport? corridorSmokeReport,
     TerrainPoiTileSmokeReport? poiTileSmokeReport,
     TerrainGameplayScatterSmokeReport? gameplayScatterSmokeReport,
-    TerrainNativeSamplerSmokeReport? nativeSmokeReport)
+    TerrainNativeSamplerSmokeReport? nativeSmokeReport,
+    TerrainTileBenchmarkReport? tileBenchmarkReport)
 {
     Console.WriteLine();
     Console.WriteLine($"Open world terrain validation: {(failures == 0 ? "PASS" : "FAIL")} ({seedCount - failures}/{seedCount} seeds passed)");
@@ -621,6 +962,12 @@ static void PrintAggregate(
     {
         Console.WriteLine($"Native sampler smoke: {(nativeSmokeReport.Value.Passed ? "PASS" : "FAIL")}");
     }
+    if (tileBenchmarkReport is not null)
+    {
+        Console.WriteLine(
+            $"Tile generation benchmark: managed {tileBenchmarkReport.Value.Managed.MillisecondsPerTile:0.00} ms/tile, " +
+            $"native {(tileBenchmarkReport.Value.NativeAvailable ? tileBenchmarkReport.Value.Native.MillisecondsPerTile.ToString("0.00") : "n/a")} ms/tile");
+    }
 }
 
 static TerrainGenerationProfile CreateDemoProfile()
@@ -648,7 +995,7 @@ static TerrainGenerationProfile CreateDemoProfile()
         MaxQueuedTileJobs: 28,
         MaxCachedTileData: 96,
         GenerateCollision: true,
-        UseNativeSamplerWhenAvailable: false);
+        UseNativeSamplerWhenAvailable: true);
 }
 
 static int GetIntArg(string[] args, string name, int fallback)
@@ -766,7 +1113,38 @@ internal readonly record struct TerrainNativeSamplerSmokeReport(
     int ComparedSampleCount,
     float MaxHeightDelta,
     float AverageHeightDelta,
+    int TileVertexCount,
+    float TileMaxHeightDelta,
+    float TileMaxColorDelta,
     string Reason);
+
+internal readonly record struct TerrainTileBenchmarkReport(
+    bool NativeAvailable,
+    int RequestedTileCount,
+    int MeasuredTileCount,
+    TerrainTileBenchmarkPass Managed,
+    TerrainTileBenchmarkPass Native,
+    int ParityTileCount,
+    float MaxHeightDelta,
+    float MaxColorDelta,
+    double NativeSpeedup,
+    string Reason);
+
+internal readonly record struct TerrainTileBenchmarkPass(
+    int TileCount,
+    long TotalVertices,
+    long TotalIndices,
+    long TotalScatter,
+    long TotalLandmarks,
+    double ElapsedMilliseconds,
+    long AllocatedBytes,
+    double HeightChecksum)
+{
+    public double TilesPerSecond => ElapsedMilliseconds <= 0.0 ? 0.0 : TileCount / (ElapsedMilliseconds / 1000.0);
+    public double MillisecondsPerTile => TileCount == 0 ? 0.0 : ElapsedMilliseconds / TileCount;
+    public double AllocatedMegabytes => AllocatedBytes / (1024.0 * 1024.0);
+    public double AllocatedKilobytesPerTile => TileCount == 0 ? 0.0 : (AllocatedBytes / 1024.0) / TileCount;
+}
 
 internal sealed class TerrainValidationAggregate
 {

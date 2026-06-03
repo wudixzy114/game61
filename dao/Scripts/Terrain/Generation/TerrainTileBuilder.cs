@@ -44,8 +44,12 @@ public static class TerrainTileBuilder
         int vertexCount = vertexCountPerSide * vertexCountPerSide;
         float step = profile.ChunkSize / resolution;
         Vector2 origin = coord.Origin(profile.ChunkSize);
+        float[] nativeFieldSamples = [];
+        bool useNativeFields = profile.UseNativeSamplerWhenAvailable &&
+            NativeTerrainBridge.TrySampleFieldGrid(coord, resolution, profile, out nativeFieldSamples);
         float[] nativeHeights = [];
-        bool useNativeHeights = profile.UseNativeSamplerWhenAvailable &&
+        bool useNativeHeights = !useNativeFields &&
+            profile.UseNativeSamplerWhenAvailable &&
             NativeTerrainBridge.TrySampleHeightGrid(coord, resolution, profile, out nativeHeights);
 
         var surfaceVertices = new Vector3[vertexCount];
@@ -74,7 +78,9 @@ public static class TerrainTileBuilder
                 float localX = x * step;
                 float localZ = z * step;
                 Vector2 world = new(origin.X + localX, origin.Y + localZ);
-                TerrainWorldField field = useNativeHeights
+                TerrainWorldField field = useNativeFields
+                    ? TerrainWorldFieldSampler.SampleNativeFieldGrid(world, profile, nativeFieldSamples, index)
+                    : useNativeHeights
                     ? TerrainWorldFieldSampler.SampleKnownHeight(world, profile, nativeHeights[index])
                     : TerrainWorldFieldSampler.Sample(world, profile);
                 float height = field.Height;

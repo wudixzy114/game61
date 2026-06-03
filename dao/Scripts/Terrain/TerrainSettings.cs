@@ -34,7 +34,7 @@ public partial class TerrainSettings : Resource
     [Export(PropertyHint.Range, "1,64,1")] public int MaxQueuedTileJobs { get; set; } = 24;
     [Export(PropertyHint.Range, "0,512,1")] public int MaxCachedTileData { get; set; } = 96;
     [Export] public bool GenerateCollision { get; set; } = true;
-    [Export] public bool UseNativeSamplerWhenAvailable { get; set; } = false;
+    [Export] public bool UseNativeSamplerWhenAvailable { get; set; } = true;
 
     public TerrainGenerationProfile Snapshot()
     {

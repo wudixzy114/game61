@@ -56,6 +56,8 @@ public readonly record struct TerrainWorldField(
 
 public static class TerrainWorldFieldSampler
 {
+    public const int NativeFieldGridStride = 17;
+
     private static readonly ConcurrentDictionary<TerrainGenerationProfile, float> LandBalanceOffsets = new();
 
     public static TerrainWorldField Sample(Vector2 world, TerrainGenerationProfile profile)
@@ -69,6 +71,36 @@ public static class TerrainWorldFieldSampler
     {
         TerrainShapeTerms terms = SampleShapeTerms(world, profile, includeMicroDetail: false);
         return BuildField(world, profile, terms, height);
+    }
+
+    public static TerrainWorldField SampleNativeFieldGrid(Vector2 world, TerrainGenerationProfile profile, float[] samples, int sampleIndex)
+    {
+        int offset = sampleIndex * NativeFieldGridStride;
+        float height = samples[offset];
+        TerrainShapeTerms terms = new(
+            samples[offset + 1],
+            samples[offset + 2],
+            samples[offset + 3],
+            samples[offset + 4],
+            samples[offset + 5],
+            samples[offset + 6],
+            0.0f,
+            samples[offset + 7],
+            samples[offset + 8],
+            samples[offset + 9],
+            samples[offset + 10],
+            samples[offset + 11],
+            samples[offset + 12],
+            samples[offset + 13],
+            samples[offset + 14],
+            samples[offset + 15],
+            samples[offset + 16]);
+        return BuildField(world, profile, terms, height);
+    }
+
+    public static float LandBalanceOffsetFor(TerrainGenerationProfile profile)
+    {
+        return GetLandBalanceOffset(profile);
     }
 
     private static TerrainShapeTerms SampleShapeTerms(

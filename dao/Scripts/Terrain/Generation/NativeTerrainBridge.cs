@@ -12,6 +12,8 @@ public static class NativeTerrainBridge
     private static bool _initialized;
     private static bool _available;
     private static IntPtr _libraryHandle;
+    private static SampleFieldGridV1Delegate? _sampleFieldGridV1;
+    private static SampleHeightGridV2Delegate? _sampleHeightGridV2;
     private static SampleHeightGridDelegate? _sampleHeightGrid;
 
     public static bool IsAvailable
@@ -35,7 +37,7 @@ public static class NativeTerrainBridge
         int expectedCount = width * width;
         heights = new float[expectedCount];
 
-        if (!_initialized || !_available || _sampleHeightGrid is null)
+        if (!_initialized || !_available || (_sampleHeightGridV2 is null && _sampleHeightGrid is null))
         {
             return false;
         }
@@ -44,7 +46,77 @@ public static class NativeTerrainBridge
         GCHandle handle = GCHandle.Alloc(heights, GCHandleType.Pinned);
         try
         {
-            int written = _sampleHeightGrid(
+            int written = _sampleHeightGridV2 is not null
+                ? _sampleHeightGridV2(
+                    profile.Seed,
+                    origin.X,
+                    origin.Y,
+                    resolution,
+                    profile.ChunkSize,
+                    profile.HeightScale,
+                    profile.SeaLevel,
+                    profile.ContinentScale,
+                    profile.MountainScale,
+                    profile.MountainWeight,
+                    profile.ValleyWeight,
+                    profile.DetailWeight,
+                    profile.VistaFrequency,
+                    profile.RiverStrength,
+                    profile.RiverCarveDepth,
+                    profile.TerraceStrength,
+                    TerrainWorldFieldSampler.LandBalanceOffsetFor(profile),
+                    handle.AddrOfPinnedObject(),
+                    expectedCount)
+                : _sampleHeightGrid!(
+                    profile.Seed,
+                    origin.X,
+                    origin.Y,
+                    resolution,
+                    profile.ChunkSize,
+                    profile.HeightScale,
+                    profile.SeaLevel,
+                    profile.ContinentScale,
+                    profile.MountainScale,
+                    profile.MountainWeight,
+                    profile.ValleyWeight,
+                    profile.DetailWeight,
+                    profile.VistaFrequency,
+                    profile.RiverStrength,
+                    profile.RiverCarveDepth,
+                    profile.TerraceStrength,
+                    handle.AddrOfPinnedObject(),
+                    expectedCount);
+
+            return written == expectedCount;
+        }
+        finally
+        {
+            handle.Free();
+        }
+    }
+
+    public static bool TrySampleFieldGrid(
+        TerrainTileCoord coord,
+        int resolution,
+        TerrainGenerationProfile profile,
+        out float[] samples)
+    {
+        EnsureInitialized();
+
+        int width = resolution + 1;
+        int expectedCount = width * width * TerrainWorldFieldSampler.NativeFieldGridStride;
+        samples = new float[expectedCount];
+
+        if (!_initialized || !_available || _sampleFieldGridV1 is null)
+        {
+            return false;
+        }
+
+        Vector2 origin = coord.Origin(profile.ChunkSize);
+        GCHandle handle = GCHandle.Alloc(samples, GCHandleType.Pinned);
+        try
+        {
+            int written = _sampleFieldGridV1(
                 profile.Seed,
                 origin.X,
                 origin.Y,
@@ -61,6 +133,7 @@ public static class NativeTerrainBridge
                 profile.RiverStrength,
                 profile.RiverCarveDepth,
                 profile.TerraceStrength,
+                TerrainWorldFieldSampler.LandBalanceOffsetFor(profile),
                 handle.AddrOfPinnedObject(),
                 expectedCount);
 
@@ -115,14 +188,27 @@ public static class NativeTerrainBridge
                     continue;
                 }
 
-                if (!NativeLibrary.TryGetExport(handle, "dao_native_sample_height_grid", out IntPtr gridExport))
+                if (NativeLibrary.TryGetExport(handle, "dao_native_sample_field_grid_v1", out IntPtr fieldGridExport))
+                {
+                    _sampleFieldGridV1 = Marshal.GetDelegateForFunctionPointer<SampleFieldGridV1Delegate>(fieldGridExport);
+                }
+
+                if (NativeLibrary.TryGetExport(handle, "dao_native_sample_height_grid_v2", out IntPtr gridV2Export))
+                {
+                    _sampleHeightGridV2 = Marshal.GetDelegateForFunctionPointer<SampleHeightGridV2Delegate>(gridV2Export);
+                }
+                else if (NativeLibrary.TryGetExport(handle, "dao_native_sample_height_grid", out IntPtr gridExport))
+                {
+                    _sampleHeightGrid = Marshal.GetDelegateForFunctionPointer<SampleHeightGridDelegate>(gridExport);
+                }
+
+                if (_sampleFieldGridV1 is null && _sampleHeightGridV2 is null && _sampleHeightGrid is null)
                 {
                     NativeLibrary.Free(handle);
                     continue;
                 }
 
                 _libraryHandle = handle;
-                _sampleHeightGrid = Marshal.GetDelegateForFunctionPointer<SampleHeightGridDelegate>(gridExport);
                 return true;
             }
         }
@@ -186,4 +272,48 @@ public static class NativeTerrainBridge
         double terraceStrength,
         IntPtr outputHeights,
         int outputHeightCount);
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate int SampleHeightGridV2Delegate(
+        int seed,
+        double originX,
+        double originZ,
+        int resolution,
+        double chunkSize,
+        double heightScale,
+        double seaLevel,
+        double continentScale,
+        double mountainScale,
+        double mountainWeight,
+        double valleyWeight,
+        double detailWeight,
+        double vistaFrequency,
+        double riverStrength,
+        double riverCarveDepth,
+        double terraceStrength,
+        double landBalanceOffset,
+        IntPtr outputHeights,
+        int outputHeightCount);
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate int SampleFieldGridV1Delegate(
+        int seed,
+        double originX,
+        double originZ,
+        int resolution,
+        double chunkSize,
+        double heightScale,
+        double seaLevel,
+        double continentScale,
+        double mountainScale,
+        double mountainWeight,
+        double valleyWeight,
+        double detailWeight,
+        double vistaFrequency,
+        double riverStrength,
+        double riverCarveDepth,
+        double terraceStrength,
+        double landBalanceOffset,
+        IntPtr outputSamples,
+        int outputSampleFloatCount);
 }
