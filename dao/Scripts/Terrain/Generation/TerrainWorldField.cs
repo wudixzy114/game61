@@ -31,6 +31,10 @@ public readonly record struct TerrainWorldField(
     float Temperature,
     float ScenicPotential,
     float Traversability,
+    float Exposure,
+    float ResourcePotential,
+    float HazardPotential,
+    float EncounterPotential,
     TerrainLandscapeKind LandscapeKind);
 
 public static class TerrainWorldFieldSampler
@@ -198,6 +202,10 @@ public static class TerrainWorldFieldSampler
         float temperature = Mathf.Clamp(1.0f - latitude - Mathf.Max(0.0f, height) / (profile.HeightScale * 1.7f), 0.0f, 1.0f);
         float scenicPotential = ComputeScenicPotential(height, profile, terms, moisture, temperature);
         float traversability = ComputeTraversability(height, profile, terms);
+        float exposure = ComputeExposure(height, profile, terms, scenicPotential);
+        float resourcePotential = ComputeResourcePotential(height, profile, terms, moisture, temperature, traversability);
+        float hazardPotential = ComputeHazardPotential(height, profile, terms, temperature, traversability, exposure);
+        float encounterPotential = ComputeEncounterPotential(scenicPotential, traversability, exposure, resourcePotential, hazardPotential);
         TerrainLandscapeKind landscape = ClassifyLandscape(height, profile, terms, moisture, temperature, scenicPotential);
 
         return new TerrainWorldField(
@@ -213,6 +221,10 @@ public static class TerrainWorldFieldSampler
             temperature,
             scenicPotential,
             traversability,
+            exposure,
+            resourcePotential,
+            hazardPotential,
+            encounterPotential,
             landscape);
     }
 
@@ -259,6 +271,93 @@ public static class TerrainWorldFieldSampler
         float ruggedPenalty = Mathf.Clamp(terms.Mountains * 1.45f, 0.0f, 0.82f);
         float riverPenalty = terms.River * 0.24f;
         return Mathf.Clamp(land * (1.0f - ruggedPenalty) * (1.0f - riverPenalty), 0.0f, 1.0f);
+    }
+
+    private static float ComputeExposure(
+        float height,
+        TerrainGenerationProfile profile,
+        TerrainShapeTerms terms,
+        float scenicPotential)
+    {
+        float elevation = Mathf.SmoothStep(profile.SeaLevel + 140.0f, profile.SeaLevel + profile.HeightScale * 0.86f, height);
+        float ridge = Mathf.SmoothStep(0.20f, 0.64f, terms.Mountains);
+        float plateau = Mathf.SmoothStep(0.34f, 0.70f, terms.Shelf * terms.BroadElevation);
+        float coastal = Mathf.Clamp(1.0f - Mathf.Abs(height - profile.SeaLevel - 18.0f) / 210.0f, 0.0f, 1.0f);
+
+        return Mathf.Clamp(
+            Mathf.Max(elevation * 0.58f, ridge * 0.70f) +
+            plateau * 0.16f +
+            scenicPotential * 0.18f +
+            coastal * 0.08f,
+            0.0f,
+            1.0f);
+    }
+
+    private static float ComputeResourcePotential(
+        float height,
+        TerrainGenerationProfile profile,
+        TerrainShapeTerms terms,
+        float moisture,
+        float temperature,
+        float traversability)
+    {
+        float land = Mathf.SmoothStep(profile.SeaLevel + 8.0f, profile.SeaLevel + 58.0f, height);
+        float waterAccess = Mathf.SmoothStep(0.18f, 0.66f, terms.River);
+        float climate = Mathf.Clamp(1.0f - Mathf.Abs(temperature - 0.54f) * 1.75f, 0.0f, 1.0f);
+        float lowElevation = 1.0f - Mathf.SmoothStep(profile.SeaLevel + 320.0f, profile.SeaLevel + profile.HeightScale * 0.92f, height);
+        float soil = Mathf.Clamp(moisture * 0.52f + climate * 0.22f + lowElevation * 0.18f + waterAccess * 0.08f, 0.0f, 1.0f);
+
+        return Mathf.Clamp(land * (soil * 0.72f + traversability * 0.28f), 0.0f, 1.0f);
+    }
+
+    private static float ComputeHazardPotential(
+        float height,
+        TerrainGenerationProfile profile,
+        TerrainShapeTerms terms,
+        float temperature,
+        float traversability,
+        float exposure)
+    {
+        float waterDepth = Mathf.Clamp((profile.SeaLevel - height) / Mathf.Max(1.0f, profile.HeightScale * 0.38f), 0.0f, 1.0f);
+        float rugged = Mathf.SmoothStep(0.05f, 0.32f, terms.Mountains);
+        float canyon = terms.River * Mathf.SmoothStep(0.05f, 0.30f, terms.Mountains);
+        float riverRisk = Mathf.SmoothStep(0.66f, 0.92f, terms.River) *
+            Mathf.SmoothStep(profile.SeaLevel + 8.0f, profile.SeaLevel + profile.HeightScale * 0.48f, height);
+        float highElevation = Mathf.SmoothStep(profile.SeaLevel + 260.0f, profile.SeaLevel + profile.HeightScale * 0.92f, height);
+        float exposedRidge = Mathf.SmoothStep(0.16f, 0.52f, exposure);
+        float snow = temperature < 0.22f
+            ? Mathf.SmoothStep(profile.SeaLevel + 280.0f, profile.SeaLevel + profile.HeightScale * 0.92f, height)
+            : 0.0f;
+        float isolation = 1.0f - traversability;
+
+        return Mathf.Clamp(
+            Mathf.Max(Mathf.Max(rugged * 0.74f, canyon * 0.82f), riverRisk * 0.50f) +
+            waterDepth * 0.12f +
+            highElevation * 0.14f +
+            exposedRidge * 0.18f +
+            snow * 0.08f +
+            isolation * 0.12f,
+            0.0f,
+            1.0f);
+    }
+
+    private static float ComputeEncounterPotential(
+        float scenicPotential,
+        float traversability,
+        float exposure,
+        float resourcePotential,
+        float hazardPotential)
+    {
+        float riskReward = Mathf.Min(resourcePotential, hazardPotential) * 0.22f;
+        return Mathf.Clamp(
+            scenicPotential * 0.24f +
+            traversability * 0.20f +
+            resourcePotential * 0.22f +
+            hazardPotential * 0.18f +
+            exposure * 0.16f +
+            riskReward,
+            0.0f,
+            1.0f);
     }
 
     private static TerrainLandscapeKind ClassifyLandscape(

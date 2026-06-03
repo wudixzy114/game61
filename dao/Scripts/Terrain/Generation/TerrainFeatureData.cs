@@ -6,6 +6,9 @@ public enum TerrainScatterKind
 {
     Tree,
     Rock,
+    Understory,
+    ResourceNode,
+    HazardOutcrop,
     Landmark
 }
 

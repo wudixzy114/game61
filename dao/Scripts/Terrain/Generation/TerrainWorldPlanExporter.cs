@@ -9,6 +9,7 @@ public readonly record struct TerrainWorldPlanArtifactResult(
     TerrainWorldPlan Plan,
     TerrainWorldPlanningGateResult PlanningGate,
     TerrainQualityGateResult QualityGate,
+    TerrainExperienceGateResult ExperienceGate,
     string MapPath,
     string ReportPath,
     Error MapSaveError,
@@ -17,6 +18,7 @@ public readonly record struct TerrainWorldPlanArtifactResult(
     public bool Passed =>
         PlanningGate.Passed &&
         QualityGate.Passed &&
+        ExperienceGate.Passed &&
         MapSaveError == Error.Ok &&
         ReportSaveError == Error.Ok;
 }
@@ -48,6 +50,7 @@ public static class TerrainWorldPlanExporter
     {
         TerrainWorldPlanningGateResult planningGate = TerrainWorldPlanner.ValidateOpenWorldPlanning(plan);
         TerrainQualityGateResult qualityGate = TerrainQualityAnalyzer.ValidateOpenWorldDefault(plan.QualityReport);
+        TerrainExperienceGateResult experienceGate = TerrainExperienceAnalyzer.ValidateOpenWorldDefault(plan.ExperienceReport);
         string mapPath = BuildOutputPath(outputDirectory, "open_world_plan.png");
         string reportPath = BuildOutputPath(outputDirectory, "open_world_plan_report.txt");
         Error directoryError = EnsureOutputDirectory(outputDirectory);
@@ -55,13 +58,14 @@ public static class TerrainWorldPlanExporter
             ? SavePlanMap(plan, profile, imageSize, baseLayer, mapPath)
             : directoryError;
         Error reportError = directoryError == Error.Ok
-            ? SaveTextReport(plan, planningGate, qualityGate, mapPath, reportPath)
+            ? SaveTextReport(plan, planningGate, qualityGate, experienceGate, mapPath, reportPath)
             : directoryError;
 
         return new TerrainWorldPlanArtifactResult(
             plan,
             planningGate,
             qualityGate,
+            experienceGate,
             mapPath,
             reportPath,
             mapError,
@@ -105,10 +109,12 @@ public static class TerrainWorldPlanExporter
         TerrainWorldPlan plan,
         TerrainWorldPlanningGateResult planningGate,
         TerrainQualityGateResult qualityGate,
+        TerrainExperienceGateResult experienceGate,
         string? mapPath = null)
     {
         TerrainQualityReport quality = qualityGate.Report;
         TerrainWorldPlanningReport planning = planningGate.Report;
+        TerrainExperienceReport experience = experienceGate.Report;
         var builder = new StringBuilder(4096);
 
         builder.AppendLine("Open World Terrain Plan");
@@ -147,6 +153,16 @@ public static class TerrainWorldPlanExporter
             $"Average route cost/scenic/traversability: {planning.AverageRouteCost:0.0} / {planning.AverageRouteScenicPotential:0.000} / {planning.AverageRouteTraversability:0.000}"));
 
         builder.AppendLine();
+        builder.AppendLine("Open World Experience Gate");
+        builder.Append(experienceGate.Summary);
+        builder.AppendLine(FormattableString.Invariant(
+            $"Encounter/resource/hazard rich regions: {experience.EncounterRichRegionRatio:0.000} / {experience.ResourceRichRegionRatio:0.000} / {experience.HazardRichRegionRatio:0.000}"));
+        builder.AppendLine(FormattableString.Invariant(
+            $"Average exposure/resource/hazard/encounter: {experience.AverageExposure:0.000} / {experience.AverageResourcePotential:0.000} / {experience.AverageHazardPotential:0.000} / {experience.AverageEncounterPotential:0.000}"));
+        builder.AppendLine(FormattableString.Invariant(
+            $"Route rhythm / POI value / risk reward / scenic anchors: {experience.RouteRhythmScore:0.000} / {experience.PointOfInterestValue:0.000} / {experience.RiskRewardBalance:0.000} / {experience.ScenicAnchorRatio:0.000}"));
+
+        builder.AppendLine();
         builder.AppendLine("Point Of Interest Counts");
         AppendPoiCount(builder, TerrainPointOfInterestKind.SettlementCandidate, planning.SettlementCandidateCount);
         AppendPoiCount(builder, TerrainPointOfInterestKind.Vista, planning.VistaCount);
@@ -180,6 +196,7 @@ public static class TerrainWorldPlanExporter
         TerrainWorldPlan plan,
         TerrainWorldPlanningGateResult planningGate,
         TerrainQualityGateResult qualityGate,
+        TerrainExperienceGateResult experienceGate,
         string? mapPath,
         string outputPath)
     {
@@ -192,7 +209,7 @@ public static class TerrainWorldPlanExporter
 
         using (file)
         {
-            file.StoreString(CreateTextReport(plan, planningGate, qualityGate, mapPath));
+            file.StoreString(CreateTextReport(plan, planningGate, qualityGate, experienceGate, mapPath));
         }
 
         return Error.Ok;

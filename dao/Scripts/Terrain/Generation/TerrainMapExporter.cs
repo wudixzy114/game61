@@ -26,6 +26,10 @@ public enum TerrainMapLayer
     Temperature,
     ScenicPotential,
     Traversability,
+    Exposure,
+    ResourcePotential,
+    HazardPotential,
+    EncounterPotential,
     Landscape
 }
 
@@ -37,6 +41,10 @@ public readonly record struct TerrainMapSample(
     float Temperature,
     float ScenicPotential,
     float Traversability,
+    float Exposure,
+    float ResourcePotential,
+    float HazardPotential,
+    float EncounterPotential,
     TerrainLandscapeKind LandscapeKind,
     TerrainBiome Biome,
     Color Color);
@@ -58,6 +66,10 @@ public static class TerrainMapExporter
             field.Temperature,
             field.ScenicPotential,
             field.Traversability,
+            field.Exposure,
+            field.ResourcePotential,
+            field.HazardPotential,
+            field.EncounterPotential,
             field.LandscapeKind,
             biome,
             ColorForBiome(biome, terrainColor));
@@ -212,6 +224,10 @@ public static class TerrainMapExporter
             TerrainMapLayer.Temperature => ScalarRamp(sample.Temperature, new Color(0.40f, 0.55f, 0.78f), new Color(0.76f, 0.46f, 0.20f)),
             TerrainMapLayer.ScenicPotential => ScalarRamp(sample.ScenicPotential, new Color(0.10f, 0.10f, 0.12f), new Color(0.86f, 0.68f, 0.22f)),
             TerrainMapLayer.Traversability => ScalarRamp(sample.Traversability, new Color(0.25f, 0.08f, 0.08f), new Color(0.20f, 0.60f, 0.24f)),
+            TerrainMapLayer.Exposure => ScalarRamp(sample.Exposure, new Color(0.10f, 0.12f, 0.15f), new Color(0.80f, 0.78f, 0.64f)),
+            TerrainMapLayer.ResourcePotential => ScalarRamp(sample.ResourcePotential, new Color(0.12f, 0.12f, 0.08f), new Color(0.32f, 0.72f, 0.26f)),
+            TerrainMapLayer.HazardPotential => ScalarRamp(sample.HazardPotential, new Color(0.12f, 0.10f, 0.10f), new Color(0.78f, 0.28f, 0.18f)),
+            TerrainMapLayer.EncounterPotential => ScalarRamp(sample.EncounterPotential, new Color(0.10f, 0.10f, 0.14f), new Color(0.82f, 0.60f, 0.26f)),
             TerrainMapLayer.Landscape => ColorForLandscape(sample.LandscapeKind),
             _ => sample.Color
         };

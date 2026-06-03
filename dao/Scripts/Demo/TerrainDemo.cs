@@ -87,21 +87,23 @@ public partial class TerrainDemo : Node3D
         TerrainWorldPlan plan = TerrainWorldPlanner.CreateOpenWorldPlan(profile, Vector2.Zero, OpenWorldPlanWorldSize);
         TerrainWorldPlanningGateResult planningGate = TerrainWorldPlanner.ValidateOpenWorldPlanning(plan);
         TerrainQualityGateResult qualityGate = TerrainQualityAnalyzer.ValidateOpenWorldDefault(plan.QualityReport);
-        string status = planningGate.Passed && qualityGate.Passed ? "PASS" : "FAIL";
+        TerrainExperienceGateResult experienceGate = TerrainExperienceAnalyzer.ValidateOpenWorldDefault(plan.ExperienceReport);
+        string status = planningGate.Passed && qualityGate.Passed && experienceGate.Passed ? "PASS" : "FAIL";
         terrainWorld.SetWorldPlan(plan);
 
         GD.Print(
             $"Open world terrain plan {status}: " +
             $"{planningGate.Report.PointOfInterestCount} POIs, {planningGate.Report.RouteCount} routes, " +
             $"land {qualityGate.Report.LandRatio:0.000}, scenic {qualityGate.Report.ScenicRatio:0.000}, " +
+            $"encounter {experienceGate.Report.AverageEncounterPotential:0.000}, rhythm {experienceGate.Report.RouteRhythmScore:0.000}, " +
             $"connected {planningGate.Report.ConnectedPointRatio:0.000}, " +
             $"coverage {planningGate.Report.PointOfInterestWorldCoverage:0.000}/{planningGate.Report.RouteWorldCoverage:0.000}.");
 
-        if (!planningGate.Passed || !qualityGate.Passed)
+        if (!planningGate.Passed || !qualityGate.Passed || !experienceGate.Passed)
         {
             GD.PushWarning(
                 $"Open world terrain plan validation failed. " +
-                $"Planning gate: {planningGate.Passed}, quality gate: {qualityGate.Passed}.");
+                $"Planning gate: {planningGate.Passed}, quality gate: {qualityGate.Passed}, experience gate: {experienceGate.Passed}.");
         }
 
         if (ShowOpenWorldPlanOverlayOnReady)
