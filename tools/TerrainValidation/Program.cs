@@ -266,6 +266,8 @@ static TerrainPoiTileSmokeReport ValidatePoiTileMaterialization(
         }
     }
 
+    TerrainPoiFootprintSmokeReport footprintReport = ValidatePoiFootprintTileEffect(profile, plan, corridorIndex, poiIndex);
+
     int distinctKinds = 0;
     int distinctScatterKinds = 0;
     for (int i = 0; i < kindCounts.Length; i++)
@@ -289,7 +291,8 @@ static TerrainPoiTileSmokeReport ValidatePoiTileMaterialization(
         kindCounts[(int)TerrainLandmarkKind.Town] > 0 &&
         scatterKindCounts[(int)TerrainLandmarkKind.Village] > 0 &&
         scatterKindCounts[(int)TerrainLandmarkKind.Town] > 0 &&
-        landmarkScatterCount >= expected.Count;
+        landmarkScatterCount >= expected.Count &&
+        footprintReport.Passed;
     string reason = passed
         ? "planned POIs materialized as tile landmarks"
         : "planned POIs missing from tile landmark data";
@@ -307,8 +310,64 @@ static TerrainPoiTileSmokeReport ValidatePoiTileMaterialization(
         scatterKindCounts[(int)TerrainLandmarkKind.Village],
         scatterKindCounts[(int)TerrainLandmarkKind.Town],
         scatterKindCounts[(int)TerrainLandmarkKind.OasisHub],
+        footprintReport.InfluencedVertexCount,
+        footprintReport.MaxHeightDelta,
+        footprintReport.MaxColorDelta,
         landmarkScatterCount,
         reason);
+}
+
+static TerrainPoiFootprintSmokeReport ValidatePoiFootprintTileEffect(
+    TerrainGenerationProfile profile,
+    TerrainWorldPlan plan,
+    TerrainRouteCorridorIndex corridorIndex,
+    TerrainPointOfInterestIndex poiIndex)
+{
+    TerrainWorldPointOfInterest point = default;
+    bool foundPoint = false;
+    foreach (TerrainWorldPointOfInterest candidate in plan.PointsOfInterest)
+    {
+        if (candidate.SettlementTier is TerrainSettlementTier.Village or TerrainSettlementTier.Town or TerrainSettlementTier.OasisHub)
+        {
+            point = candidate;
+            foundPoint = true;
+            break;
+        }
+    }
+
+    if (!foundPoint)
+    {
+        return new TerrainPoiFootprintSmokeReport(false, 0, 0.0f, 0.0f);
+    }
+
+    TerrainTileCoord coord = new(
+        Mathf.FloorToInt(point.WorldPosition.X / profile.ChunkSize),
+        Mathf.FloorToInt(point.WorldPosition.Y / profile.ChunkSize));
+    TerrainTileData baseline = TerrainTileBuilder.Build(coord, lod: 0, profile, includeCollision: false, corridorIndex);
+    TerrainTileData withPoi = TerrainTileBuilder.Build(coord, lod: 0, profile, includeCollision: false, corridorIndex, poiIndex);
+    Vector2 origin = coord.Origin(profile.ChunkSize);
+    float radius = TerrainPointOfInterestIndex.FootprintRadiusFor(point, profile);
+    float maxHeightDelta = 0.0f;
+    float maxColorDelta = 0.0f;
+    int influencedVertices = 0;
+    int vertexCount = Math.Min(baseline.Vertices.Length, withPoi.Vertices.Length);
+
+    for (int i = 0; i < vertexCount; i++)
+    {
+        Vector3 baselineVertex = baseline.Vertices[i];
+        Vector2 world = new(origin.X + baselineVertex.X, origin.Y + baselineVertex.Z);
+        if (world.DistanceTo(point.WorldPosition) > radius)
+        {
+            continue;
+        }
+
+        influencedVertices++;
+        maxHeightDelta = Math.Max(maxHeightDelta, Math.Abs(withPoi.Vertices[i].Y - baselineVertex.Y));
+        maxColorDelta = Math.Max(maxColorDelta, ColorDistance(withPoi.Colors[i], baseline.Colors[i]));
+    }
+
+    bool passed = influencedVertices > 0 && (maxHeightDelta >= 0.05f || maxColorDelta >= 0.01f);
+    return new TerrainPoiFootprintSmokeReport(passed, influencedVertices, maxHeightDelta, maxColorDelta);
 }
 
 static string PoiLandmarkName(TerrainWorldPointOfInterest point)
@@ -324,6 +383,7 @@ static void PrintPoiTileSmoke(TerrainPoiTileSmokeReport report)
         $"tiles {report.TileCount}, kinds {report.DistinctLandmarkKinds}/{report.DistinctScatterLandmarkKinds}, " +
         $"village/town/oasis hub landmarks {report.VillageLandmarkCount}/{report.TownLandmarkCount}/{report.OasisHubLandmarkCount}, " +
         $"scatter {report.VillageScatterCount}/{report.TownScatterCount}/{report.OasisHubScatterCount}, " +
+        $"footprint vertices {report.FootprintInfluencedVertexCount}, max footprint delta {report.FootprintMaxHeightDelta:0.000}/{report.FootprintMaxColorDelta:0.000}, " +
         $"landmark scatter {report.LandmarkScatterCount} ({report.Reason})");
 }
 
@@ -672,8 +732,17 @@ internal readonly record struct TerrainPoiTileSmokeReport(
     int VillageScatterCount,
     int TownScatterCount,
     int OasisHubScatterCount,
+    int FootprintInfluencedVertexCount,
+    float FootprintMaxHeightDelta,
+    float FootprintMaxColorDelta,
     int LandmarkScatterCount,
     string Reason);
+
+internal readonly record struct TerrainPoiFootprintSmokeReport(
+    bool Passed,
+    int InfluencedVertexCount,
+    float MaxHeightDelta,
+    float MaxColorDelta);
 
 internal readonly record struct TerrainGameplayScatterSmokeReport(
     bool Passed,

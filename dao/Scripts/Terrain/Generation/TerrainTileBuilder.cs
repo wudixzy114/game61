@@ -57,6 +57,9 @@ public static class TerrainTileBuilder
         TerrainRouteCorridorSegment[] corridorSegments = routeCorridors.GetSegments(coord);
         bool hasCorridors = corridorSegments.Length > 0;
         TerrainRouteCorridorSample[] corridorSamples = hasCorridors ? new TerrainRouteCorridorSample[vertexCount] : [];
+        TerrainWorldPointOfInterest[] pointInfluences = pointOfInterestIndex.GetPoints(coord);
+        bool hasPointInfluences = pointInfluences.Length > 0;
+        TerrainPointFootprintSample[] footprintSamples = hasPointInfluences ? new TerrainPointFootprintSample[vertexCount] : [];
 
         float minHeight = float.PositiveInfinity;
         float maxHeight = float.NegativeInfinity;
@@ -88,6 +91,22 @@ public static class TerrainTileBuilder
                         Traversability = Mathf.Max(field.Traversability, Mathf.Lerp(field.Traversability, 0.86f, corridor.CoreStrength))
                     };
                     corridorSamples[index] = corridor;
+                }
+
+                TerrainPointFootprintSample footprint = hasPointInfluences
+                    ? SamplePointFootprint(world, pointInfluences, profile)
+                    : TerrainPointFootprintSample.None;
+
+                if (footprint.HasInfluence)
+                {
+                    height = ApplyPointFootprintHeight(height, footprint);
+                    field = field with
+                    {
+                        Height = height,
+                        Traversability = Mathf.Max(field.Traversability, Mathf.Lerp(field.Traversability, 0.92f, footprint.CoreStrength)),
+                        EncounterPotential = Mathf.Max(field.EncounterPotential, Mathf.Lerp(field.EncounterPotential, 0.62f, footprint.CoreStrength * 0.60f))
+                    };
+                    footprintSamples[index] = footprint;
                 }
 
                 surfaceVertices[index] = new Vector3(localX, height, localZ);
@@ -122,6 +141,11 @@ public static class TerrainTileBuilder
                 if (hasCorridors && corridorSamples[index].HasInfluence)
                 {
                     surfaceColors[index] = BlendRouteSurfaceColor(surfaceColors[index], corridorSamples[index]);
+                }
+
+                if (hasPointInfluences && footprintSamples[index].HasInfluence)
+                {
+                    surfaceColors[index] = BlendPointFootprintColor(surfaceColors[index], footprintSamples[index]);
                 }
             }
         }
@@ -405,7 +429,7 @@ public static class TerrainTileBuilder
                         ? routeCorridors.Sample(world, corridorSegments)
                         : TerrainRouteCorridorSample.None;
 
-                    if (IsNearPlannedPoint(world, plannedPoints, profile.ChunkSize * 0.28f))
+                    if (IsInsidePointFootprint(world, plannedPoints, profile, minimumInfluence: 0.08f))
                     {
                         continue;
                     }
@@ -654,17 +678,29 @@ public static class TerrainTileBuilder
         scatter.Add(new TerrainScatterInstance(TerrainScatterKind.Landmark, best.LocalPosition, rotation, scale, tint, best.Kind));
     }
 
-    private static bool IsNearPlannedPoint(Vector2 world, TerrainWorldPointOfInterest[] plannedPoints, float radius)
+    private static bool IsInsidePointFootprint(
+        Vector2 world,
+        TerrainWorldPointOfInterest[] plannedPoints,
+        TerrainGenerationProfile profile,
+        float minimumInfluence)
     {
         if (plannedPoints.Length == 0)
         {
             return false;
         }
 
-        float radiusSquared = radius * radius;
         foreach (TerrainWorldPointOfInterest point in plannedPoints)
         {
-            if (world.DistanceSquaredTo(point.WorldPosition) <= radiusSquared)
+            float radius = TerrainPointOfInterestIndex.FootprintRadiusFor(point, profile);
+            float distance = world.DistanceTo(point.WorldPosition);
+            if (distance > radius)
+            {
+                continue;
+            }
+
+            float coreRadius = radius * 0.46f;
+            float influence = 1.0f - Mathf.SmoothStep(coreRadius, radius, distance);
+            if (influence >= minimumInfluence)
             {
                 return true;
             }
@@ -880,6 +916,71 @@ public static class TerrainTileBuilder
         return Mathf.Lerp(height, corridor.TargetHeight, strength);
     }
 
+    private static TerrainPointFootprintSample SamplePointFootprint(
+        Vector2 world,
+        TerrainWorldPointOfInterest[] points,
+        TerrainGenerationProfile profile)
+    {
+        TerrainPointFootprintSample best = TerrainPointFootprintSample.None;
+
+        foreach (TerrainWorldPointOfInterest point in points)
+        {
+            float radius = TerrainPointOfInterestIndex.FootprintRadiusFor(point, profile);
+            float distance = world.DistanceTo(point.WorldPosition);
+            if (distance > radius)
+            {
+                continue;
+            }
+
+            float coreRadius = radius * 0.46f;
+            float coreStrength = 1.0f - Mathf.SmoothStep(0.0f, coreRadius, distance);
+            float influence = 1.0f - Mathf.SmoothStep(coreRadius, radius, distance);
+            if (coreStrength > 0.0f)
+            {
+                influence = Mathf.Max(influence, coreStrength);
+            }
+
+            if (influence <= best.Influence)
+            {
+                continue;
+            }
+
+            float targetHeight = TargetHeightForFootprint(point, profile);
+            best = new TerrainPointFootprintSample(point.Kind, point.SettlementTier, influence, coreStrength, targetHeight);
+        }
+
+        return best;
+    }
+
+    private static float TargetHeightForFootprint(TerrainWorldPointOfInterest point, TerrainGenerationProfile profile)
+    {
+        float landHeight = Mathf.Max(point.Height, profile.SeaLevel + 8.0f);
+        return point.SettlementTier switch
+        {
+            TerrainSettlementTier.Town => landHeight + 1.2f,
+            TerrainSettlementTier.Village => landHeight + 0.6f,
+            TerrainSettlementTier.OasisHub => Mathf.Max(point.Height - 1.5f, profile.SeaLevel + 4.0f),
+            _ => point.Kind == TerrainPointOfInterestKind.Oasis
+                ? Mathf.Max(point.Height - 2.0f, profile.SeaLevel + 3.0f)
+                : landHeight
+        };
+    }
+
+    private static float ApplyPointFootprintHeight(float height, TerrainPointFootprintSample footprint)
+    {
+        float strength = footprint.SettlementTier switch
+        {
+            TerrainSettlementTier.Town => footprint.CoreStrength * 0.86f + footprint.Influence * 0.28f,
+            TerrainSettlementTier.Village => footprint.CoreStrength * 0.76f + footprint.Influence * 0.24f,
+            TerrainSettlementTier.OasisHub => footprint.CoreStrength * 0.62f + footprint.Influence * 0.30f,
+            _ => footprint.Kind == TerrainPointOfInterestKind.Oasis
+                ? footprint.CoreStrength * 0.54f + footprint.Influence * 0.28f
+                : footprint.CoreStrength * 0.48f + footprint.Influence * 0.18f
+        };
+
+        return Mathf.Lerp(height, footprint.TargetHeight, Mathf.Clamp(strength, 0.0f, 0.88f));
+    }
+
     private static Color BlendRouteSurfaceColor(Color baseColor, TerrainRouteCorridorSample corridor)
     {
         Color routeColor = corridor.Kind switch
@@ -895,8 +996,41 @@ public static class TerrainTileBuilder
         return baseColor.Lerp(routeColor, blend);
     }
 
+    private static Color BlendPointFootprintColor(Color baseColor, TerrainPointFootprintSample footprint)
+    {
+        Color footprintColor = footprint.SettlementTier switch
+        {
+            TerrainSettlementTier.Town => new Color(0.54f, 0.40f, 0.27f),
+            TerrainSettlementTier.Village => new Color(0.48f, 0.38f, 0.24f),
+            TerrainSettlementTier.OasisHub => new Color(0.18f, 0.54f, 0.42f),
+            _ => footprint.Kind == TerrainPointOfInterestKind.Oasis
+                ? new Color(0.20f, 0.50f, 0.40f)
+                : new Color(0.44f, 0.36f, 0.25f)
+        };
+
+        float blend = Mathf.Clamp(footprint.CoreStrength * 0.44f + footprint.Influence * 0.26f, 0.0f, 0.66f);
+        return baseColor.Lerp(footprintColor, blend);
+    }
+
     private static int Index(int x, int z, int vertexCountPerSide)
     {
         return z * vertexCountPerSide + x;
+    }
+
+    private readonly record struct TerrainPointFootprintSample(
+        TerrainPointOfInterestKind Kind,
+        TerrainSettlementTier SettlementTier,
+        float Influence,
+        float CoreStrength,
+        float TargetHeight)
+    {
+        public static TerrainPointFootprintSample None { get; } = new(
+            TerrainPointOfInterestKind.Vista,
+            TerrainSettlementTier.None,
+            0.0f,
+            0.0f,
+            0.0f);
+
+        public bool HasInfluence => Influence > 0.0f;
     }
 }

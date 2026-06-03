@@ -110,6 +110,10 @@ double clamp_value(double p_value, double p_min, double p_max) {
 	return std::max(p_min, std::min(p_max, p_value));
 }
 
+double lerp_value(double p_from, double p_to, double p_weight) {
+	return p_from + (p_to - p_from) * p_weight;
+}
+
 double smooth_step(double p_from, double p_to, double p_value) {
 	if (p_to <= p_from) {
 		return p_value < p_from ? 0.0 : 1.0;
@@ -142,7 +146,8 @@ double sample_height_unbalanced(
 		double p_z,
 		const NativeTerrainProfile &p_profile,
 		bool p_include_micro,
-		double &r_mountains) {
+		double &r_mountains,
+		double &r_alpine) {
 	double warped_x = 0.0;
 	double warped_z = 0.0;
 	domain_warp(
@@ -160,6 +165,14 @@ double sample_height_unbalanced(
 			p_profile.seed + 11,
 			6);
 	continent = clamp_value((continent + 1.0) * 0.5, 0.0, 1.0);
+
+	const double island_noise = ridged(
+			(warped_x + 2509.0) / (p_profile.continent_scale * 0.46),
+			(warped_z - 1877.0) / (p_profile.continent_scale * 0.46),
+			p_profile.seed + 233,
+			4);
+	const double island = smooth_step(0.63, 0.86, island_noise) *
+			(1.0 - smooth_step(0.38, 0.58, continent));
 
 	const double basin = smooth_step(0.18, 0.82, continent);
 	const double shelf = smooth_step(0.35, 0.72, continent);
@@ -206,6 +219,56 @@ double sample_height_unbalanced(
 	double river = std::max(main_river, tributary * 0.58);
 	river = clamp_value(river * smooth_step(0.21, 0.72, continent) * p_profile.river_strength * 1.24, 0.0, 1.0);
 
+	double climate_warp_x = 0.0;
+	double climate_warp_z = 0.0;
+	domain_warp(
+			p_x,
+			p_z,
+			p_profile.continent_scale * 0.58,
+			p_profile.continent_scale * 0.075,
+			p_profile.seed + 307,
+			climate_warp_x,
+			climate_warp_z);
+	const double base_moisture = clamp_value(
+			fbm(
+					(climate_warp_x - 1301.0) / 1350.0,
+					(climate_warp_z + 661.0) / 1350.0,
+					p_profile.seed + 83,
+					5) *
+							0.5 +
+					0.5,
+			0.0,
+			1.0);
+	const double latitude = std::abs(std::sin(p_z / 9000.0));
+	const double temperature_noise = fbm(
+			(climate_warp_x + 379.0) / 4200.0,
+			(climate_warp_z - 919.0) / 4200.0,
+			p_profile.seed + 317,
+			4);
+	const double base_temperature = clamp_value(1.0 - latitude + temperature_noise * 0.16 - 0.04, 0.0, 1.0);
+	const double aridity = (1.0 - smooth_step(0.30, 0.58, base_moisture)) *
+			smooth_step(0.52, 0.84, base_temperature) *
+			smooth_step(0.33, 0.78, continent + island * 0.22);
+	const double lowland_mask = smooth_step(0.36, 0.72, continent + island * 0.25) *
+			(1.0 - smooth_step(0.22, 0.50, mountains));
+	const double plains = lowland_mask *
+			(1.0 - aridity * 0.62) *
+			(1.0 - smooth_step(0.55, 0.82, base_moisture));
+	const double wetland = smooth_step(0.66, 0.88, base_moisture + river * 0.20) *
+			lowland_mask *
+			smooth_step(0.25, 0.68, continent + island * 0.20);
+	const double hills = smooth_step(0.16, 0.38, mountains) *
+			(1.0 - smooth_step(0.48, 0.72, mountains)) *
+			smooth_step(0.42, 0.78, continent + island * 0.18);
+	const double alpine = smooth_step(0.48, 0.76, mountains) *
+			smooth_step(0.52, 0.86, continent + island * 0.12);
+	r_alpine = alpine;
+	const double dune_detail = ridged(
+			(p_x + 541.0) / 360.0,
+			(p_z - 877.0) / 360.0,
+			p_profile.seed + 353,
+			3);
+
 	const double micro = p_include_micro ?
 			fbm(
 					p_x / 118.0,
@@ -214,11 +277,34 @@ double sample_height_unbalanced(
 					4) :
 			0.0;
 
+	const double lowland_flatness = clamp_value(
+			std::max(plains * 0.80, std::max(aridity * 0.72, wetland * 0.68)) *
+					(1.0 - smooth_step(0.32, 0.64, mountains)),
+			0.0,
+			1.0);
+	const double mountain_factor = lerp_value(0.48, 1.14, clamp_value(alpine + hills * 0.24, 0.0, 1.0));
+	const double shelf_factor = lerp_value(0.20, 0.34, 1.0 - lowland_flatness);
+	const double detail_factor = p_profile.detail_weight *
+			lerp_value(0.42, 1.16, clamp_value(alpine + hills * 0.45, 0.0, 1.0)) *
+			lerp_value(1.0, 0.62, lowland_flatness);
+
 	double height =
 			((basin - 0.44) * p_profile.height_scale * 0.72) +
-			(shelf * broad * p_profile.height_scale * 0.34) +
-			(mountains * p_profile.height_scale * 1.08) +
-			(micro * p_profile.height_scale * p_profile.detail_weight);
+			(shelf * broad * p_profile.height_scale * shelf_factor) +
+			(mountains * p_profile.height_scale * mountain_factor) +
+			(micro * p_profile.height_scale * detail_factor) +
+			(island * p_profile.height_scale * 0.36);
+
+	const double lowland_target =
+			((basin - 0.46) * p_profile.height_scale * 0.44) +
+			((broad - 0.50) * p_profile.height_scale * 0.10) +
+			(island * p_profile.height_scale * 0.25);
+	height = lerp_value(height, lowland_target, lowland_flatness * 0.62);
+	height += aridity * (dune_detail - 0.40) * p_profile.height_scale * 0.075;
+	height -= wetland *
+			smooth_step(0.26, 0.72, continent + island * 0.20) *
+			p_profile.height_scale *
+			0.045;
 
 	const double shallow_shelf = shelf * (1.0 - smooth_step(0.14, 0.46, mountains));
 	const double waterline_proximity = 1.0 - smooth_step(p_profile.sea_level + 52.0, p_profile.sea_level + 220.0, height);
@@ -244,7 +330,8 @@ double compute_land_balance_offset(const NativeTerrainProfile &p_profile) {
 			const double world_x = (tx - 0.5) * extent;
 			const double world_z = (ty - 0.5) * extent;
 			double mountains = 0.0;
-			const double height = sample_height_unbalanced(world_x, world_z, p_profile, false, mountains);
+			double alpine = 0.0;
+			const double height = sample_height_unbalanced(world_x, world_z, p_profile, false, mountains, alpine);
 			if (height >= p_profile.sea_level + 3.0) {
 				land_count++;
 			}
@@ -258,10 +345,11 @@ double compute_land_balance_offset(const NativeTerrainProfile &p_profile) {
 
 double sample_height_native(double p_x, double p_z, const NativeTerrainProfile &p_profile) {
 	double mountains = 0.0;
-	double height = sample_height_unbalanced(p_x, p_z, p_profile, true, mountains);
+	double alpine = 0.0;
+	double height = sample_height_unbalanced(p_x, p_z, p_profile, true, mountains, alpine);
 	height -= p_profile.land_balance_offset;
 
-	const double terrace_mask = smooth_step(0.52, 0.86, mountains) * p_profile.vista_frequency;
+	const double terrace_mask = smooth_step(0.52, 0.86, mountains) * p_profile.vista_frequency * lerp_value(0.55, 1.0, alpine);
 	return terrace(height, std::max(12.0, p_profile.terrace_strength), terrace_mask * 0.38);
 }
 

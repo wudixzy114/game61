@@ -35,17 +35,27 @@ public sealed class TerrainPointOfInterestIndex
 
         foreach (TerrainWorldPointOfInterest point in plan.PointsOfInterest)
         {
-            TerrainTileCoord coord = new(
-                Mathf.FloorToInt(point.WorldPosition.X / profile.ChunkSize),
-                Mathf.FloorToInt(point.WorldPosition.Y / profile.ChunkSize));
+            float footprintRadius = FootprintRadiusFor(point, profile);
+            int minX = Mathf.FloorToInt((point.WorldPosition.X - footprintRadius) / profile.ChunkSize);
+            int maxX = Mathf.FloorToInt((point.WorldPosition.X + footprintRadius) / profile.ChunkSize);
+            int minZ = Mathf.FloorToInt((point.WorldPosition.Y - footprintRadius) / profile.ChunkSize);
+            int maxZ = Mathf.FloorToInt((point.WorldPosition.Y + footprintRadius) / profile.ChunkSize);
 
-            if (!buckets.TryGetValue(coord, out List<TerrainWorldPointOfInterest>? points))
+            for (int z = minZ; z <= maxZ; z++)
             {
-                points = new List<TerrainWorldPointOfInterest>(2);
-                buckets.Add(coord, points);
+                for (int x = minX; x <= maxX; x++)
+                {
+                    TerrainTileCoord coord = new(x, z);
+                    if (!buckets.TryGetValue(coord, out List<TerrainWorldPointOfInterest>? points))
+                    {
+                        points = new List<TerrainWorldPointOfInterest>(2);
+                        buckets.Add(coord, points);
+                    }
+
+                    points.Add(point);
+                }
             }
 
-            points.Add(point);
             hash = AppendPointHash(hash, point);
         }
 
@@ -63,6 +73,25 @@ public sealed class TerrainPointOfInterestIndex
         return _pointsByCoord.TryGetValue(coord, out TerrainWorldPointOfInterest[]? points)
             ? points
             : NoPoints;
+    }
+
+    public static float FootprintRadiusFor(TerrainWorldPointOfInterest point, TerrainGenerationProfile profile)
+    {
+        float chunkSize = profile.ChunkSize;
+        return point.SettlementTier switch
+        {
+            TerrainSettlementTier.Town => chunkSize * 0.42f,
+            TerrainSettlementTier.Village => chunkSize * 0.32f,
+            TerrainSettlementTier.OasisHub => chunkSize * 0.38f,
+            _ => point.Kind switch
+            {
+                TerrainPointOfInterestKind.Oasis => chunkSize * 0.30f,
+                TerrainPointOfInterestKind.SettlementCandidate => chunkSize * 0.26f,
+                TerrainPointOfInterestKind.CoastalLanding => chunkSize * 0.20f,
+                TerrainPointOfInterestKind.RiverCrossing => chunkSize * 0.18f,
+                _ => chunkSize * 0.16f
+            }
+        };
     }
 
     private static int StartHash(TerrainGenerationProfile profile, TerrainWorldPlan plan)
@@ -89,6 +118,7 @@ public sealed class TerrainPointOfInterestIndex
             hash = (hash * 397) ^ FloatHash(point.WorldPosition.X);
             hash = (hash * 397) ^ FloatHash(point.WorldPosition.Y);
             hash = (hash * 397) ^ FloatHash(point.Score);
+            hash = (hash * 397) ^ (int)point.SettlementTier;
             return hash;
         }
     }
