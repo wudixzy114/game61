@@ -11,10 +11,13 @@ public enum TerrainScatterKind
     HazardOutcrop,
     GrassTuft,
     DesertShrub,
+    CactusCluster,
     ReedCluster,
     SnowClump,
+    AlpinePine,
     CoastalPalm,
     Driftwood,
+    MangroveRoot,
     Landmark
 }
 

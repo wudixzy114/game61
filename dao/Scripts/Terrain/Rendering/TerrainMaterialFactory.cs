@@ -94,6 +94,13 @@ public static class TerrainMaterialFactory
                 Roughness = 0.94f,
                 Metallic = 0.0f
             },
+            TerrainScatterKind.CactusCluster => new StandardMaterial3D
+            {
+                AlbedoColor = Colors.White,
+                VertexColorUseAsAlbedo = true,
+                Roughness = 0.90f,
+                Metallic = 0.0f
+            },
             TerrainScatterKind.ReedCluster => new StandardMaterial3D
             {
                 AlbedoColor = Colors.White,
@@ -108,6 +115,13 @@ public static class TerrainMaterialFactory
                 Roughness = 0.76f,
                 Metallic = 0.0f
             },
+            TerrainScatterKind.AlpinePine => new StandardMaterial3D
+            {
+                AlbedoColor = Colors.White,
+                VertexColorUseAsAlbedo = true,
+                Roughness = 0.88f,
+                Metallic = 0.0f
+            },
             TerrainScatterKind.CoastalPalm => new StandardMaterial3D
             {
                 AlbedoColor = Colors.White,
@@ -120,6 +134,13 @@ public static class TerrainMaterialFactory
                 AlbedoColor = Colors.White,
                 VertexColorUseAsAlbedo = true,
                 Roughness = 0.94f,
+                Metallic = 0.0f
+            },
+            TerrainScatterKind.MangroveRoot => new StandardMaterial3D
+            {
+                AlbedoColor = Colors.White,
+                VertexColorUseAsAlbedo = true,
+                Roughness = 0.96f,
                 Metallic = 0.0f
             },
             _ => CreateRockMaterial()

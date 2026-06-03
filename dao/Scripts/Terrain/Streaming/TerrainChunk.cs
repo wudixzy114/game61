@@ -313,6 +313,16 @@ public partial class TerrainChunk : Node3D
                 RadialSegments = 6,
                 Rings = 3
             },
+            TerrainScatterKind.CactusCluster => new CylinderMesh
+            {
+                TopRadius = 0.16f,
+                BottomRadius = 0.24f,
+                Height = 1.46f,
+                RadialSegments = 6,
+                Rings = 1,
+                CapTop = true,
+                CapBottom = true
+            },
             TerrainScatterKind.ReedCluster => new CylinderMesh
             {
                 TopRadius = 0.18f,
@@ -330,6 +340,16 @@ public partial class TerrainChunk : Node3D
                 RadialSegments = 7,
                 Rings = 3
             },
+            TerrainScatterKind.AlpinePine => new CylinderMesh
+            {
+                TopRadius = 0.02f,
+                BottomRadius = 0.38f,
+                Height = 1.74f,
+                RadialSegments = 7,
+                Rings = 1,
+                CapTop = true,
+                CapBottom = true
+            },
             TerrainScatterKind.CoastalPalm => new CylinderMesh
             {
                 TopRadius = 0.10f,
@@ -341,6 +361,7 @@ public partial class TerrainChunk : Node3D
                 CapBottom = true
             },
             TerrainScatterKind.Driftwood => new BoxMesh { Size = new Vector3(1.28f, 0.20f, 0.38f) },
+            TerrainScatterKind.MangroveRoot => new BoxMesh { Size = new Vector3(1.12f, 0.42f, 0.86f) },
             _ => new SphereMesh
             {
                 Radius = 0.5f,
@@ -370,10 +391,13 @@ public partial class TerrainChunk : Node3D
             TerrainScatterKind.HazardOutcrop => new ScatterVisual("HazardOutcrops", 0.44f, new Vector3(1.20f, 0.82f, 1.05f), 80.0f),
             TerrainScatterKind.GrassTuft => new ScatterVisual("GrassTufts", 0.28f, new Vector3(0.76f, 0.62f, 0.76f), 42.0f),
             TerrainScatterKind.DesertShrub => new ScatterVisual("DesertShrubs", 0.22f, new Vector3(1.12f, 0.64f, 1.12f), 42.0f),
+            TerrainScatterKind.CactusCluster => new ScatterVisual("CactusClusters", 0.74f, new Vector3(0.70f, 1.42f, 0.70f), 58.0f),
             TerrainScatterKind.ReedCluster => new ScatterVisual("ReedClusters", 0.42f, new Vector3(0.72f, 0.96f, 0.72f), 52.0f),
             TerrainScatterKind.SnowClump => new ScatterVisual("SnowClumps", 0.18f, new Vector3(1.18f, 0.48f, 1.18f), 42.0f),
+            TerrainScatterKind.AlpinePine => new ScatterVisual("AlpinePines", 0.84f, new Vector3(0.82f, 1.36f, 0.82f), 68.0f),
             TerrainScatterKind.CoastalPalm => new ScatterVisual("CoastalPalms", 0.92f, new Vector3(0.82f, 1.42f, 0.82f), 72.0f),
             TerrainScatterKind.Driftwood => new ScatterVisual("Driftwood", 0.12f, new Vector3(1.52f, 0.32f, 0.64f), 36.0f),
+            TerrainScatterKind.MangroveRoot => new ScatterVisual("MangroveRoots", 0.24f, new Vector3(1.18f, 0.70f, 0.92f), 42.0f),
             _ => new ScatterVisual(kind.ToString(), 0.35f, Vector3.One, 64.0f)
         };
     }

@@ -762,7 +762,7 @@ static TerrainBiomeScatterSmokeReport ValidateBiomeScatterMaterialization(
 
     if (coords.Count == 0)
     {
-        return new TerrainBiomeScatterSmokeReport(false, 0, 0, 0, 0, 0, 0, 0, 0, 0, "no biome scatter candidate tiles found");
+        return new TerrainBiomeScatterSmokeReport(false, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "no biome scatter candidate tiles found");
     }
 
     TerrainPointOfInterestIndex poiIndex = TerrainPointOfInterestIndex.FromPlan(plan, profile);
@@ -790,21 +790,36 @@ static TerrainBiomeScatterSmokeReport ValidateBiomeScatterMaterialization(
 
     int grassTuftCount = scatterCounts[(int)TerrainScatterKind.GrassTuft];
     int desertShrubCount = scatterCounts[(int)TerrainScatterKind.DesertShrub];
+    int cactusClusterCount = scatterCounts[(int)TerrainScatterKind.CactusCluster];
     int reedClusterCount = scatterCounts[(int)TerrainScatterKind.ReedCluster];
     int snowClumpCount = scatterCounts[(int)TerrainScatterKind.SnowClump];
+    int alpinePineCount = scatterCounts[(int)TerrainScatterKind.AlpinePine];
     int coastalPalmCount = scatterCounts[(int)TerrainScatterKind.CoastalPalm];
     int driftwoodCount = scatterCounts[(int)TerrainScatterKind.Driftwood];
-    int biomeScatterCount = grassTuftCount + desertShrubCount + reedClusterCount + snowClumpCount + coastalPalmCount + driftwoodCount;
+    int mangroveRootCount = scatterCounts[(int)TerrainScatterKind.MangroveRoot];
+    int biomeScatterCount =
+        grassTuftCount +
+        desertShrubCount +
+        cactusClusterCount +
+        reedClusterCount +
+        snowClumpCount +
+        alpinePineCount +
+        coastalPalmCount +
+        driftwoodCount +
+        mangroveRootCount;
     bool passed =
         grassTuftCount > 0 &&
         desertShrubCount > 0 &&
+        cactusClusterCount > 0 &&
         reedClusterCount > 0 &&
         snowClumpCount > 0 &&
+        alpinePineCount > 0 &&
         coastalPalmCount > 0 &&
         driftwoodCount > 0 &&
-        biomeScatterCount >= 36;
+        mangroveRootCount > 0 &&
+        biomeScatterCount >= 54;
     string reason = passed
-        ? "biome surface scatter materialized across plains, desert, wetland, snowfield, coast, and island terrain"
+        ? "biome surface scatter materialized across plains, desert, wetland, snowfield, coast, island, and alpine terrain"
         : "one or more biome surface scatter kinds did not materialize";
 
     return new TerrainBiomeScatterSmokeReport(
@@ -813,10 +828,13 @@ static TerrainBiomeScatterSmokeReport ValidateBiomeScatterMaterialization(
         sampledTiles,
         grassTuftCount,
         desertShrubCount,
+        cactusClusterCount,
         reedClusterCount,
         snowClumpCount,
+        alpinePineCount,
         coastalPalmCount,
         driftwoodCount,
+        mangroveRootCount,
         biomeScatterCount,
         reason);
 }
@@ -906,7 +924,8 @@ static void PrintBiomeScatterSmoke(TerrainBiomeScatterSmokeReport report)
     Console.WriteLine(
         $"Biome scatter smoke: {(report.Passed ? "PASS" : "FAIL")} " +
         $"tiles {report.SampledTileCount}/{report.CandidateTileCount}, " +
-        $"grass/desert/reeds/snow/palms/driftwood {report.GrassTuftCount}/{report.DesertShrubCount}/{report.ReedClusterCount}/{report.SnowClumpCount}/{report.CoastalPalmCount}/{report.DriftwoodCount}, " +
+        $"grass/desert/cactus/reeds/snow/alpine/palms/driftwood/mangrove " +
+        $"{report.GrassTuftCount}/{report.DesertShrubCount}/{report.CactusClusterCount}/{report.ReedClusterCount}/{report.SnowClumpCount}/{report.AlpinePineCount}/{report.CoastalPalmCount}/{report.DriftwoodCount}/{report.MangroveRootCount}, " +
         $"total {report.BiomeScatterCount} ({report.Reason})");
 }
 
@@ -1829,10 +1848,13 @@ internal readonly record struct TerrainBiomeScatterSmokeReport(
     int SampledTileCount,
     int GrassTuftCount,
     int DesertShrubCount,
+    int CactusClusterCount,
     int ReedClusterCount,
     int SnowClumpCount,
+    int AlpinePineCount,
     int CoastalPalmCount,
     int DriftwoodCount,
+    int MangroveRootCount,
     int BiomeScatterCount,
     string Reason);
 
