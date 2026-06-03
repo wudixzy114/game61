@@ -11,6 +11,9 @@ if "api_version" not in ARGUMENTS and "custom_api_file" not in ARGUMENTS:
 
 env = SConscript("godot-cpp/SConstruct")
 
+# Keep generated library names in sync with dao/bin/dao.gdextension.
+env["SHLIBPREFIX"] = ""
+
 env.Append(CPPPATH=["src"])
 
 object_dir = "build/src{}".format(env["suffix"])
