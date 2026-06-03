@@ -1,4 +1,5 @@
 using Godot;
+using Dao.Terrain.Generation;
 
 namespace Dao.Terrain.Rendering;
 
@@ -47,6 +48,42 @@ public static class TerrainMaterialFactory
             Roughness = 0.96f,
             Metallic = 0.0f
         };
+    }
+
+    public static StandardMaterial3D CreateScatterMaterial(TerrainScatterKind kind)
+    {
+        StandardMaterial3D material = kind switch
+        {
+            TerrainScatterKind.Tree => CreateTreeMaterial(),
+            TerrainScatterKind.Rock => CreateRockMaterial(),
+            TerrainScatterKind.Understory => new StandardMaterial3D
+            {
+                AlbedoColor = Colors.White,
+                VertexColorUseAsAlbedo = true,
+                Roughness = 0.88f,
+                Metallic = 0.0f
+            },
+            TerrainScatterKind.ResourceNode => new StandardMaterial3D
+            {
+                AlbedoColor = Colors.White,
+                VertexColorUseAsAlbedo = true,
+                Roughness = 0.82f,
+                Metallic = 0.0f,
+                EmissionEnabled = true,
+                Emission = new Color(0.12f, 0.16f, 0.06f),
+                EmissionEnergyMultiplier = 0.10f
+            },
+            TerrainScatterKind.HazardOutcrop => new StandardMaterial3D
+            {
+                AlbedoColor = Colors.White,
+                VertexColorUseAsAlbedo = true,
+                Roughness = 0.98f,
+                Metallic = 0.0f
+            },
+            _ => CreateRockMaterial()
+        };
+
+        return material;
     }
 
     public static StandardMaterial3D CreateLandmarkMaterial()

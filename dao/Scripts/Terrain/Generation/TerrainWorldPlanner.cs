@@ -49,6 +49,10 @@ public readonly record struct TerrainWorldRegion(
     float River,
     float ScenicPotential,
     float Traversability,
+    float Exposure,
+    float ResourcePotential,
+    float HazardPotential,
+    float EncounterPotential,
     TerrainLandscapeKind LandscapeKind,
     TerrainWorldRegionKind RegionKind);
 
@@ -84,7 +88,8 @@ public sealed class TerrainWorldPlan
         TerrainWorldPointOfInterest[] pointsOfInterest,
         TerrainWorldRoute[] routes,
         TerrainQualityReport qualityReport,
-        TerrainWorldPlanningReport planningReport)
+        TerrainWorldPlanningReport planningReport,
+        TerrainExperienceReport experienceReport)
     {
         Center = center;
         WorldSize = worldSize;
@@ -94,6 +99,7 @@ public sealed class TerrainWorldPlan
         Routes = routes;
         QualityReport = qualityReport;
         PlanningReport = planningReport;
+        ExperienceReport = experienceReport;
     }
 
     public Vector2 Center { get; }
@@ -104,6 +110,7 @@ public sealed class TerrainWorldPlan
     public TerrainWorldRoute[] Routes { get; }
     public TerrainQualityReport QualityReport { get; }
     public TerrainWorldPlanningReport PlanningReport { get; }
+    public TerrainExperienceReport ExperienceReport { get; }
 }
 
 public readonly record struct TerrainWorldPlanningThresholds(
@@ -198,6 +205,10 @@ public static class TerrainWorldPlanner
                     field.River,
                     field.ScenicPotential,
                     field.Traversability,
+                    field.Exposure,
+                    field.ResourcePotential,
+                    field.HazardPotential,
+                    field.EncounterPotential,
                     field.LandscapeKind,
                     ClassifyRegion(field));
                 AddPoiCandidates(candidates, profile, field, x, y);
@@ -208,6 +219,7 @@ public static class TerrainWorldPlanner
         TerrainWorldRoute[] routes = BuildRoutes(points, fields, profile, resolution, safeMaxRoutes);
         TerrainQualityReport qualityReport = TerrainQualityAnalyzer.Analyze(profile, center, safeWorldSize, resolution);
         TerrainWorldPlanningReport planningReport = AnalyzePlanning(points, routes, safeWorldSize);
+        TerrainExperienceReport experienceReport = TerrainExperienceAnalyzer.Analyze(regions, points, routes, planningReport);
 
         return new TerrainWorldPlan(
             center,
@@ -217,7 +229,8 @@ public static class TerrainWorldPlanner
             points,
             routes,
             qualityReport,
-            planningReport);
+            planningReport,
+            experienceReport);
     }
 
     public static TerrainWorldPlan CreateOpenWorldPlan(

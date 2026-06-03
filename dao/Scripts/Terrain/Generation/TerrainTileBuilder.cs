@@ -370,7 +370,7 @@ public static class TerrainTileBuilder
         out TerrainScatterInstance[] scatterInstances,
         out TerrainLandmarkData[] landmarks)
     {
-        var scatter = new List<TerrainScatterInstance>(96);
+        var scatter = new List<TerrainScatterInstance>(160);
         var landmarkList = new List<TerrainLandmarkData>(4);
         Vector2 origin = coord.Origin(profile.ChunkSize);
         bool hasCorridors = corridorSegments.Length > 0;
@@ -430,6 +430,7 @@ public static class TerrainTileBuilder
                     }
                     else if ((slope > 0.35f ||
                             height > profile.SeaLevel + 360.0f ||
+                            field.HazardPotential > 0.56f ||
                             field.LandscapeKind is TerrainLandscapeKind.Canyon or TerrainLandscapeKind.Highlands or TerrainLandscapeKind.MountainMassif) &&
                         roll < 0.38f)
                     {
@@ -437,6 +438,21 @@ public static class TerrainTileBuilder
                         float rotation = Hash01(coord.X, coord.Z, x * 2467 + z * 6421, profile.Seed + 67) * Mathf.Pi * 2.0f;
                         Color tint = new Color(0.36f, 0.35f, 0.32f).Lerp(new Color(0.55f, 0.54f, 0.49f), Mathf.Clamp(slope, 0.0f, 1.0f));
                         scatter.Add(new TerrainScatterInstance(TerrainScatterKind.Rock, new Vector3(localX, height, localZ), rotation, scale, tint));
+                    }
+
+                    if (lod <= 1)
+                    {
+                        AddGameplayScatter(
+                            coord,
+                            profile,
+                            x,
+                            z,
+                            localX,
+                            localZ,
+                            height,
+                            slope,
+                            field,
+                            scatter);
                     }
                 }
             }
@@ -453,6 +469,57 @@ public static class TerrainTileBuilder
 
         scatterInstances = scatter.ToArray();
         landmarks = landmarkList.ToArray();
+    }
+
+    private static void AddGameplayScatter(
+        TerrainTileCoord coord,
+        TerrainGenerationProfile profile,
+        int cellX,
+        int cellZ,
+        float localX,
+        float localZ,
+        float height,
+        float slope,
+        TerrainWorldField field,
+        List<TerrainScatterInstance> scatter)
+    {
+        float understoryRoll = Hash01(coord.X, coord.Z, cellX * 2711 + cellZ * 2797, profile.Seed + 149);
+        if (slope < 0.22f &&
+            field.ResourcePotential > 0.42f &&
+            field.Moisture > 0.50f &&
+            field.Temperature > 0.24f &&
+            field.LandscapeKind is TerrainLandscapeKind.ForestBasin or TerrainLandscapeKind.Wetland or TerrainLandscapeKind.RiverValley &&
+            understoryRoll < Mathf.Lerp(0.08f, 0.46f, field.ResourcePotential))
+        {
+            float scale = 0.55f + Hash01(coord.X, coord.Z, cellX * 3253 + cellZ * 3307, profile.Seed + 151) * 0.95f;
+            float rotation = Hash01(coord.X, coord.Z, cellX * 3533 + cellZ * 3581, profile.Seed + 157) * Mathf.Pi * 2.0f;
+            Color tint = new Color(0.18f, 0.36f, 0.16f).Lerp(new Color(0.34f, 0.50f, 0.22f), field.ResourcePotential);
+            scatter.Add(new TerrainScatterInstance(TerrainScatterKind.Understory, new Vector3(localX, height, localZ), rotation, scale, tint));
+        }
+
+        float resourceRoll = Hash01(coord.X, coord.Z, cellX * 3761 + cellZ * 3851, profile.Seed + 163);
+        if (field.ResourcePotential > 0.62f &&
+            field.Traversability > 0.34f &&
+            slope < 0.30f &&
+            resourceRoll < Mathf.Lerp(0.04f, 0.24f, field.ResourcePotential))
+        {
+            float scale = 0.95f + Hash01(coord.X, coord.Z, cellX * 4001 + cellZ * 4027, profile.Seed + 167) * 1.45f;
+            float rotation = Hash01(coord.X, coord.Z, cellX * 4211 + cellZ * 4241, profile.Seed + 173) * Mathf.Pi * 2.0f;
+            Color tint = new Color(0.28f, 0.48f, 0.22f).Lerp(new Color(0.62f, 0.54f, 0.30f), Mathf.Clamp(field.ResourcePotential, 0.0f, 1.0f));
+            scatter.Add(new TerrainScatterInstance(TerrainScatterKind.ResourceNode, new Vector3(localX, height, localZ), rotation, scale, tint));
+        }
+
+        float hazardRoll = Hash01(coord.X, coord.Z, cellX * 4441 + cellZ * 4481, profile.Seed + 181);
+        if (field.HazardPotential > 0.48f &&
+            field.EncounterPotential > 0.40f &&
+            (slope > 0.24f || field.Exposure > 0.46f) &&
+            hazardRoll < Mathf.Lerp(0.05f, 0.30f, field.HazardPotential))
+        {
+            float scale = 0.85f + Hash01(coord.X, coord.Z, cellX * 4651 + cellZ * 4721, profile.Seed + 191) * 1.80f;
+            float rotation = Hash01(coord.X, coord.Z, cellX * 4861 + cellZ * 4931, profile.Seed + 193) * Mathf.Pi * 2.0f;
+            Color tint = new Color(0.38f, 0.30f, 0.27f).Lerp(new Color(0.64f, 0.58f, 0.50f), Mathf.Clamp(field.Exposure, 0.0f, 1.0f));
+            scatter.Add(new TerrainScatterInstance(TerrainScatterKind.HazardOutcrop, new Vector3(localX, height, localZ), rotation, scale, tint));
+        }
     }
 
     private static void AddPlannedPoiLandmarks(
@@ -702,6 +769,10 @@ public static class TerrainTileBuilder
         float temperature = Bilinear(a.Temperature, b.Temperature, c.Temperature, d.Temperature, tx, tz);
         float scenicPotential = Bilinear(a.ScenicPotential, b.ScenicPotential, c.ScenicPotential, d.ScenicPotential, tx, tz);
         float traversability = Bilinear(a.Traversability, b.Traversability, c.Traversability, d.Traversability, tx, tz);
+        float exposure = Bilinear(a.Exposure, b.Exposure, c.Exposure, d.Exposure, tx, tz);
+        float resourcePotential = Bilinear(a.ResourcePotential, b.ResourcePotential, c.ResourcePotential, d.ResourcePotential, tx, tz);
+        float hazardPotential = Bilinear(a.HazardPotential, b.HazardPotential, c.HazardPotential, d.HazardPotential, tx, tz);
+        float encounterPotential = Bilinear(a.EncounterPotential, b.EncounterPotential, c.EncounterPotential, d.EncounterPotential, tx, tz);
 
         TerrainWorldField nearest = fields[Index(
             Mathf.Clamp(Mathf.RoundToInt(gx), 0, resolution),
@@ -715,7 +786,11 @@ public static class TerrainTileBuilder
             Moisture = moisture,
             Temperature = temperature,
             ScenicPotential = scenicPotential,
-            Traversability = traversability
+            Traversability = traversability,
+            Exposure = exposure,
+            ResourcePotential = resourcePotential,
+            HazardPotential = hazardPotential,
+            EncounterPotential = encounterPotential
         };
     }
 

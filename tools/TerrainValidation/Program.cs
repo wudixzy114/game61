@@ -13,12 +13,14 @@ int seedStep = Math.Max(1, GetIntArg(args, "--seed-step", 10_007));
 bool verbose = HasFlag(args, "--verbose");
 bool skipCorridorSmoke = HasFlag(args, "--skip-corridor-smoke");
 bool skipPoiTileSmoke = HasFlag(args, "--skip-poi-tile-smoke");
+bool skipGameplayScatterSmoke = HasFlag(args, "--skip-gameplay-scatter-smoke");
 bool nativeSmoke = HasFlag(args, "--native-smoke");
 
 int failures = 0;
 TerrainValidationAggregate aggregate = new();
 TerrainRouteCorridorSmokeReport? corridorSmokeReport = null;
 TerrainPoiTileSmokeReport? poiTileSmokeReport = null;
+TerrainGameplayScatterSmokeReport? gameplayScatterSmokeReport = null;
 TerrainNativeSamplerSmokeReport? nativeSmokeReport = null;
 
 for (int i = 0; i < seedCount; i++)
@@ -53,6 +55,16 @@ for (int i = 0; i < seedCount; i++)
             failures++;
         }
     }
+
+    if (i == 0 && !skipGameplayScatterSmoke)
+    {
+        gameplayScatterSmokeReport = ValidateGameplayScatterMaterialization(seedProfile, result.Plan);
+        PrintGameplayScatterSmoke(gameplayScatterSmokeReport.Value);
+        if (!gameplayScatterSmokeReport.Value.Passed)
+        {
+            failures++;
+        }
+    }
 }
 
 if (nativeSmoke)
@@ -65,7 +77,7 @@ if (nativeSmoke)
     }
 }
 
-PrintAggregate(aggregate, seedCount, failures, corridorSmokeReport, poiTileSmokeReport, nativeSmokeReport);
+PrintAggregate(aggregate, seedCount, failures, corridorSmokeReport, poiTileSmokeReport, gameplayScatterSmokeReport, nativeSmokeReport);
 return failures == 0 ? 0 : 1;
 
 static TerrainValidationResult ValidateSeed(TerrainGenerationProfile profile, float worldSize)
@@ -73,21 +85,24 @@ static TerrainValidationResult ValidateSeed(TerrainGenerationProfile profile, fl
     TerrainWorldPlan plan = TerrainWorldPlanner.CreateOpenWorldPlan(profile, Vector2.Zero, worldSize);
     TerrainQualityGateResult qualityGate = TerrainQualityAnalyzer.ValidateOpenWorldDefault(plan.QualityReport);
     TerrainWorldPlanningGateResult planningGate = TerrainWorldPlanner.ValidateOpenWorldPlanning(plan);
+    TerrainExperienceGateResult experienceGate = TerrainExperienceAnalyzer.ValidateOpenWorldDefault(plan.ExperienceReport);
     TerrainPointOfInterestArchetypeValidationReport archetypeGate = TerrainPointOfInterestArchetypeCatalog.ValidatePlanReadiness(plan);
-    return new TerrainValidationResult(profile.Seed, plan, qualityGate, planningGate, archetypeGate);
+    return new TerrainValidationResult(profile.Seed, plan, qualityGate, planningGate, experienceGate, archetypeGate);
 }
 
 static void PrintSeedResult(TerrainValidationResult result, bool detailed)
 {
     TerrainQualityReport quality = result.QualityGate.Report;
     TerrainWorldPlanningReport planning = result.PlanningGate.Report;
+    TerrainExperienceReport experience = result.ExperienceGate.Report;
     Console.WriteLine(
         $"Seed {result.Seed}: {(result.Passed ? "PASS" : "FAIL")} " +
         $"land {quality.LandRatio:0.000}, scenic {quality.ScenicRatio:0.000}, " +
         $"traversable {quality.TraversableLandRatio:0.000}, POIs {planning.PointOfInterestCount}, " +
         $"routes {planning.RouteCount}, connected {planning.ConnectedPointRatio:0.000}, " +
         $"coverage {planning.PointOfInterestWorldCoverage:0.000}/{planning.RouteWorldCoverage:0.000}, " +
-        $"archetypes {(result.ArchetypeGate.Passed ? "PASS" : "FAIL")}");
+        $"encounter {experience.AverageEncounterPotential:0.000}, rhythm {experience.RouteRhythmScore:0.000}, " +
+        $"experience {(result.ExperienceGate.Passed ? "PASS" : "FAIL")}, archetypes {(result.ArchetypeGate.Passed ? "PASS" : "FAIL")}");
 
     if (result.Passed && !detailed)
     {
@@ -107,6 +122,11 @@ static void PrintSeedResult(TerrainValidationResult result, bool detailed)
     Console.WriteLine($"Connected point ratio: {planning.ConnectedPointRatio:0.000}");
     Console.WriteLine($"World coverage POIs/routes: {planning.PointOfInterestWorldCoverage:0.000} / {planning.RouteWorldCoverage:0.000}");
     Console.WriteLine($"Average route scenic/traversability: {planning.AverageRouteScenicPotential:0.000} / {planning.AverageRouteTraversability:0.000}");
+    Console.WriteLine("Open world experience gate:");
+    Console.Write(result.ExperienceGate.Summary);
+    Console.WriteLine($"Encounter/resource/hazard rich regions: {experience.EncounterRichRegionRatio:0.000} / {experience.ResourceRichRegionRatio:0.000} / {experience.HazardRichRegionRatio:0.000}");
+    Console.WriteLine($"Average exposure/resource/hazard/encounter: {experience.AverageExposure:0.000} / {experience.AverageResourcePotential:0.000} / {experience.AverageHazardPotential:0.000} / {experience.AverageEncounterPotential:0.000}");
+    Console.WriteLine($"Route rhythm / POI value / risk reward / scenic anchors: {experience.RouteRhythmScore:0.000} / {experience.PointOfInterestValue:0.000} / {experience.RiskRewardBalance:0.000} / {experience.ScenicAnchorRatio:0.000}");
     Console.WriteLine("Runtime archetype gate:");
     Console.WriteLine(result.ArchetypeGate.Summary);
 }
@@ -293,6 +313,140 @@ static void PrintPoiTileSmoke(TerrainPoiTileSmokeReport report)
         $"landmark scatter {report.LandmarkScatterCount} ({report.Reason})");
 }
 
+static TerrainGameplayScatterSmokeReport ValidateGameplayScatterMaterialization(
+    TerrainGenerationProfile profile,
+    TerrainWorldPlan plan)
+{
+    var coords = new HashSet<TerrainTileCoord>();
+    AddGameplayScatterCandidateCoords(plan, profile, coords, maxCoords: 96);
+
+    if (coords.Count == 0)
+    {
+        return new TerrainGameplayScatterSmokeReport(false, 0, 0, 0, 0, 0, 0, "no gameplay scatter candidate tiles found");
+    }
+
+    TerrainPointOfInterestIndex poiIndex = TerrainPointOfInterestIndex.FromPlan(plan, profile);
+    TerrainRouteCorridorIndex corridorIndex = TerrainRouteCorridorIndex.FromPlan(plan, profile);
+    Span<int> scatterCounts = stackalloc int[8];
+    int sampledTiles = 0;
+
+    foreach (TerrainTileCoord coord in coords)
+    {
+        TerrainTileData data = TerrainTileBuilder.Build(
+            coord,
+            lod: 0,
+            profile,
+            includeCollision: false,
+            corridorIndex,
+            poiIndex);
+
+        sampledTiles++;
+        foreach (TerrainScatterInstance scatter in data.ScatterInstances)
+        {
+            int kindIndex = Mathf.Clamp((int)scatter.Kind, 0, scatterCounts.Length - 1);
+            scatterCounts[kindIndex]++;
+        }
+    }
+
+    int understoryCount = scatterCounts[(int)TerrainScatterKind.Understory];
+    int resourceNodeCount = scatterCounts[(int)TerrainScatterKind.ResourceNode];
+    int hazardOutcropCount = scatterCounts[(int)TerrainScatterKind.HazardOutcrop];
+    int totalGameplayScatter = understoryCount + resourceNodeCount + hazardOutcropCount;
+    bool passed = understoryCount > 0 && resourceNodeCount > 0 && hazardOutcropCount > 0 && totalGameplayScatter >= 12;
+    string reason = passed
+        ? "gameplay scatter materialized from resource and hazard fields"
+        : "one or more gameplay scatter kinds did not materialize";
+
+    return new TerrainGameplayScatterSmokeReport(
+        passed,
+        coords.Count,
+        sampledTiles,
+        understoryCount,
+        resourceNodeCount,
+        hazardOutcropCount,
+        totalGameplayScatter,
+        reason);
+}
+
+static void AddGameplayScatterCandidateCoords(
+    TerrainWorldPlan plan,
+    TerrainGenerationProfile profile,
+    HashSet<TerrainTileCoord> coords,
+    int maxCoords)
+{
+    var candidates = new List<GameplayScatterRegionCandidate>(plan.Regions.Length);
+    foreach (TerrainWorldRegion region in plan.Regions)
+    {
+        if (region.RegionKind == TerrainWorldRegionKind.Ocean)
+        {
+            continue;
+        }
+
+        float score =
+            region.ResourcePotential * 0.34f +
+            region.HazardPotential * 0.28f +
+            region.EncounterPotential * 0.28f +
+            region.Exposure * 0.10f;
+        candidates.Add(new GameplayScatterRegionCandidate(region.WorldPosition, score));
+    }
+
+    candidates.Sort((a, b) => b.Score.CompareTo(a.Score));
+
+    foreach (GameplayScatterRegionCandidate candidate in candidates)
+    {
+        if (coords.Count >= maxCoords)
+        {
+            return;
+        }
+
+        AddWorldCoord(coords, candidate.WorldPosition, profile);
+    }
+
+    foreach (TerrainWorldPointOfInterest point in plan.PointsOfInterest)
+    {
+        if (coords.Count >= maxCoords)
+        {
+            return;
+        }
+
+        AddWorldCoord(coords, point.WorldPosition, profile);
+    }
+
+    foreach (TerrainWorldRoute route in plan.Routes)
+    {
+        if (coords.Count >= maxCoords)
+        {
+            return;
+        }
+
+        if (route.Waypoints.Length == 0)
+        {
+            continue;
+        }
+
+        AddWorldCoord(coords, route.Waypoints[route.Waypoints.Length / 2], profile);
+    }
+}
+
+static void AddWorldCoord(
+    HashSet<TerrainTileCoord> coords,
+    Vector2 world,
+    TerrainGenerationProfile profile)
+{
+    coords.Add(new TerrainTileCoord(
+        Mathf.FloorToInt(world.X / profile.ChunkSize),
+        Mathf.FloorToInt(world.Y / profile.ChunkSize)));
+}
+
+static void PrintGameplayScatterSmoke(TerrainGameplayScatterSmokeReport report)
+{
+    Console.WriteLine(
+        $"Gameplay scatter smoke: {(report.Passed ? "PASS" : "FAIL")} " +
+        $"tiles {report.SampledTileCount}/{report.CandidateTileCount}, " +
+        $"understory/resource/hazard {report.UnderstoryCount}/{report.ResourceNodeCount}/{report.HazardOutcropCount}, " +
+        $"total {report.TotalGameplayScatterCount} ({report.Reason})");
+}
+
 static TerrainNativeSamplerSmokeReport ValidateNativeSamplerParity(TerrainGenerationProfile profile)
 {
     TerrainGenerationProfile nativeProfile = profile with { UseNativeSamplerWhenAvailable = true };
@@ -354,6 +508,7 @@ static void PrintAggregate(
     int failures,
     TerrainRouteCorridorSmokeReport? corridorSmokeReport,
     TerrainPoiTileSmokeReport? poiTileSmokeReport,
+    TerrainGameplayScatterSmokeReport? gameplayScatterSmokeReport,
     TerrainNativeSamplerSmokeReport? nativeSmokeReport)
 {
     Console.WriteLine();
@@ -368,6 +523,10 @@ static void PrintAggregate(
     Console.WriteLine($"Route coverage min/avg/max: {aggregate.MinRouteWorldCoverage:0.000} / {aggregate.AverageRouteWorldCoverage:0.000} / {aggregate.MaxRouteWorldCoverage:0.000}");
     Console.WriteLine($"Route scenic min/avg/max: {aggregate.MinRouteScenicPotential:0.000} / {aggregate.AverageRouteScenicPotential:0.000} / {aggregate.MaxRouteScenicPotential:0.000}");
     Console.WriteLine($"Route traversability min/avg/max: {aggregate.MinRouteTraversability:0.000} / {aggregate.AverageRouteTraversability:0.000} / {aggregate.MaxRouteTraversability:0.000}");
+    Console.WriteLine($"Encounter potential min/avg/max: {aggregate.MinEncounterPotential:0.000} / {aggregate.AverageEncounterPotential:0.000} / {aggregate.MaxEncounterPotential:0.000}");
+    Console.WriteLine($"Route rhythm min/avg/max: {aggregate.MinRouteRhythmScore:0.000} / {aggregate.AverageRouteRhythmScore:0.000} / {aggregate.MaxRouteRhythmScore:0.000}");
+    Console.WriteLine($"Risk reward min/avg/max: {aggregate.MinRiskRewardBalance:0.000} / {aggregate.AverageRiskRewardBalance:0.000} / {aggregate.MaxRiskRewardBalance:0.000}");
+    Console.WriteLine($"Experience readiness: {(aggregate.ExperienceFailureCount == 0 ? "PASS" : "FAIL")} ({seedCount - aggregate.ExperienceFailureCount}/{seedCount} seeds passed)");
     Console.WriteLine($"Runtime archetype readiness: {(aggregate.ArchetypeFailureCount == 0 ? "PASS" : "FAIL")} ({seedCount - aggregate.ArchetypeFailureCount}/{seedCount} seeds covered)");
     if (corridorSmokeReport is not null)
     {
@@ -376,6 +535,10 @@ static void PrintAggregate(
     if (poiTileSmokeReport is not null)
     {
         Console.WriteLine($"POI tile landmark smoke: {(poiTileSmokeReport.Value.Passed ? "PASS" : "FAIL")}");
+    }
+    if (gameplayScatterSmokeReport is not null)
+    {
+        Console.WriteLine($"Gameplay scatter smoke: {(gameplayScatterSmokeReport.Value.Passed ? "PASS" : "FAIL")}");
     }
     if (nativeSmokeReport is not null)
     {
@@ -463,9 +626,10 @@ internal readonly record struct TerrainValidationResult(
     TerrainWorldPlan Plan,
     TerrainQualityGateResult QualityGate,
     TerrainWorldPlanningGateResult PlanningGate,
+    TerrainExperienceGateResult ExperienceGate,
     TerrainPointOfInterestArchetypeValidationReport ArchetypeGate)
 {
-    public bool Passed => QualityGate.Passed && PlanningGate.Passed && ArchetypeGate.Passed;
+    public bool Passed => QualityGate.Passed && PlanningGate.Passed && ExperienceGate.Passed && ArchetypeGate.Passed;
 }
 
 internal readonly record struct TerrainRouteCorridorSmokeReport(
@@ -487,6 +651,20 @@ internal readonly record struct TerrainPoiTileSmokeReport(
     int DistinctScatterLandmarkKinds,
     int LandmarkScatterCount,
     string Reason);
+
+internal readonly record struct TerrainGameplayScatterSmokeReport(
+    bool Passed,
+    int CandidateTileCount,
+    int SampledTileCount,
+    int UnderstoryCount,
+    int ResourceNodeCount,
+    int HazardOutcropCount,
+    int TotalGameplayScatterCount,
+    string Reason);
+
+internal readonly record struct GameplayScatterRegionCandidate(
+    Vector2 WorldPosition,
+    float Score);
 
 internal readonly record struct TerrainNativeSamplerSmokeReport(
     bool Passed,
@@ -511,6 +689,9 @@ internal sealed class TerrainValidationAggregate
     private double _routeWorldCoverageSum;
     private double _routeScenicPotentialSum;
     private double _routeTraversabilitySum;
+    private double _encounterPotentialSum;
+    private double _routeRhythmScoreSum;
+    private double _riskRewardBalanceSum;
 
     public float MinLandRatio { get; private set; } = float.PositiveInfinity;
     public float MaxLandRatio { get; private set; } = float.NegativeInfinity;
@@ -532,6 +713,13 @@ internal sealed class TerrainValidationAggregate
     public float MaxRouteScenicPotential { get; private set; } = float.NegativeInfinity;
     public float MinRouteTraversability { get; private set; } = float.PositiveInfinity;
     public float MaxRouteTraversability { get; private set; } = float.NegativeInfinity;
+    public float MinEncounterPotential { get; private set; } = float.PositiveInfinity;
+    public float MaxEncounterPotential { get; private set; } = float.NegativeInfinity;
+    public float MinRouteRhythmScore { get; private set; } = float.PositiveInfinity;
+    public float MaxRouteRhythmScore { get; private set; } = float.NegativeInfinity;
+    public float MinRiskRewardBalance { get; private set; } = float.PositiveInfinity;
+    public float MaxRiskRewardBalance { get; private set; } = float.NegativeInfinity;
+    public int ExperienceFailureCount { get; private set; }
     public int ArchetypeFailureCount { get; private set; }
 
     public double AverageLandRatio => Average(_landRatioSum);
@@ -544,11 +732,15 @@ internal sealed class TerrainValidationAggregate
     public double AverageRouteWorldCoverage => Average(_routeWorldCoverageSum);
     public double AverageRouteScenicPotential => Average(_routeScenicPotentialSum);
     public double AverageRouteTraversability => Average(_routeTraversabilitySum);
+    public double AverageEncounterPotential => Average(_encounterPotentialSum);
+    public double AverageRouteRhythmScore => Average(_routeRhythmScoreSum);
+    public double AverageRiskRewardBalance => Average(_riskRewardBalanceSum);
 
     public void Add(TerrainValidationResult result)
     {
         TerrainQualityReport quality = result.QualityGate.Report;
         TerrainWorldPlanningReport planning = result.PlanningGate.Report;
+        TerrainExperienceReport experience = result.ExperienceGate.Report;
         _count++;
         _landRatioSum += quality.LandRatio;
         _scenicRatioSum += quality.ScenicRatio;
@@ -560,6 +752,9 @@ internal sealed class TerrainValidationAggregate
         _routeWorldCoverageSum += planning.RouteWorldCoverage;
         _routeScenicPotentialSum += planning.AverageRouteScenicPotential;
         _routeTraversabilitySum += planning.AverageRouteTraversability;
+        _encounterPotentialSum += experience.AverageEncounterPotential;
+        _routeRhythmScoreSum += experience.RouteRhythmScore;
+        _riskRewardBalanceSum += experience.RiskRewardBalance;
 
         MinLandRatio = Math.Min(MinLandRatio, quality.LandRatio);
         MaxLandRatio = Math.Max(MaxLandRatio, quality.LandRatio);
@@ -581,6 +776,17 @@ internal sealed class TerrainValidationAggregate
         MaxRouteScenicPotential = Math.Max(MaxRouteScenicPotential, planning.AverageRouteScenicPotential);
         MinRouteTraversability = Math.Min(MinRouteTraversability, planning.AverageRouteTraversability);
         MaxRouteTraversability = Math.Max(MaxRouteTraversability, planning.AverageRouteTraversability);
+        MinEncounterPotential = Math.Min(MinEncounterPotential, experience.AverageEncounterPotential);
+        MaxEncounterPotential = Math.Max(MaxEncounterPotential, experience.AverageEncounterPotential);
+        MinRouteRhythmScore = Math.Min(MinRouteRhythmScore, experience.RouteRhythmScore);
+        MaxRouteRhythmScore = Math.Max(MaxRouteRhythmScore, experience.RouteRhythmScore);
+        MinRiskRewardBalance = Math.Min(MinRiskRewardBalance, experience.RiskRewardBalance);
+        MaxRiskRewardBalance = Math.Max(MaxRiskRewardBalance, experience.RiskRewardBalance);
+
+        if (!result.ExperienceGate.Passed)
+        {
+            ExperienceFailureCount++;
+        }
 
         if (!result.ArchetypeGate.Passed)
         {

@@ -9,12 +9,10 @@ public partial class TerrainChunk : Node3D
 {
     private MeshInstance3D? _meshInstance;
     private StaticBody3D? _staticBody;
-    private MultiMeshInstance3D? _treeScatter;
-    private MultiMeshInstance3D? _rockScatter;
+    private readonly Dictionary<TerrainScatterKind, MultiMeshInstance3D> _scatterNodes = new();
     private readonly Dictionary<TerrainLandmarkKind, MultiMeshInstance3D> _landmarkScatter = new();
 
-    private static Mesh? _treeMesh;
-    private static Mesh? _rockMesh;
+    private static readonly Dictionary<TerrainScatterKind, Mesh> ScatterMeshes = new();
     private static readonly Dictionary<TerrainLandmarkKind, Mesh> LandmarkMeshes = new();
 
     public TerrainTileCoord Coord { get; private set; }
@@ -46,30 +44,51 @@ public partial class TerrainChunk : Node3D
 
     private void RebuildScatter(TerrainTileData data)
     {
-        _treeScatter = RebuildScatterKind(
-            data,
-            TerrainScatterKind.Tree,
-            _treeScatter,
-            "Trees",
-            GetTreeMesh(),
-            1.18f);
-        _rockScatter = RebuildScatterKind(
-            data,
-            TerrainScatterKind.Rock,
-            _rockScatter,
-            "Rocks",
-            GetRockMesh(),
-            0.38f);
+        RebuildSurfaceScatter(data);
         RebuildLandmarkScatter(data);
+    }
+
+    private void RebuildSurfaceScatter(TerrainTileData data)
+    {
+        var activeKinds = new HashSet<TerrainScatterKind>();
+        foreach (TerrainScatterInstance instance in data.ScatterInstances)
+        {
+            if (instance.Kind != TerrainScatterKind.Landmark)
+            {
+                activeKinds.Add(instance.Kind);
+            }
+        }
+
+        var staleKinds = new List<TerrainScatterKind>();
+        foreach (TerrainScatterKind kind in _scatterNodes.Keys)
+        {
+            if (!activeKinds.Contains(kind))
+            {
+                staleKinds.Add(kind);
+            }
+        }
+
+        foreach (TerrainScatterKind kind in staleKinds)
+        {
+            _scatterNodes[kind].QueueFree();
+            _scatterNodes.Remove(kind);
+        }
+
+        foreach (TerrainScatterKind kind in activeKinds)
+        {
+            _scatterNodes.TryGetValue(kind, out MultiMeshInstance3D? existing);
+            MultiMeshInstance3D? rebuilt = RebuildScatterKind(data, kind, existing);
+            if (rebuilt is not null)
+            {
+                _scatterNodes[kind] = rebuilt;
+            }
+        }
     }
 
     private MultiMeshInstance3D? RebuildScatterKind(
         TerrainTileData data,
         TerrainScatterKind kind,
-        MultiMeshInstance3D? existing,
-        string nodeName,
-        Mesh mesh,
-        float verticalOffset)
+        MultiMeshInstance3D? existing)
     {
         int count = 0;
         foreach (TerrainScatterInstance instance in data.ScatterInstances)
@@ -90,16 +109,17 @@ public partial class TerrainChunk : Node3D
             return null;
         }
 
-        existing ??= CreateScatterNode(nodeName);
+        ScatterVisual visual = VisualForScatter(kind);
+        existing ??= CreateScatterNode(visual.NodeName);
 
         var multimesh = new MultiMesh
         {
             TransformFormat = MultiMesh.TransformFormatEnum.Transform3D,
             UseColors = true,
-            Mesh = mesh,
+            Mesh = GetScatterMesh(kind),
             CustomAabb = new Aabb(
                 new Vector3(0.0f, data.MinHeight - 8.0f, 0.0f),
-                new Vector3(data.ChunkSize, data.MaxHeight - data.MinHeight + 96.0f, data.ChunkSize))
+                new Vector3(data.ChunkSize, data.MaxHeight - data.MinHeight + visual.AabbHeightPadding, data.ChunkSize))
         };
 
         multimesh.InstanceCount = count;
@@ -114,10 +134,10 @@ public partial class TerrainChunk : Node3D
             }
 
             var basis = new Basis(Vector3.Up, instance.RotationY)
-                .Scaled(Vector3.One * instance.UniformScale);
+                .Scaled(visual.AxisScale * instance.UniformScale);
             var transform = new Transform3D(
                 basis,
-                instance.LocalPosition + Vector3.Up * verticalOffset * instance.UniformScale);
+                instance.LocalPosition + Vector3.Up * visual.VerticalOffset * instance.UniformScale);
 
             multimesh.SetInstanceTransform(index, transform);
             multimesh.SetInstanceColor(index, instance.Color);
@@ -233,46 +253,78 @@ public partial class TerrainChunk : Node3D
         return node;
     }
 
-    private static Mesh GetTreeMesh()
+    private static Mesh GetScatterMesh(TerrainScatterKind kind)
     {
-        if (_treeMesh is not null)
+        if (ScatterMeshes.TryGetValue(kind, out Mesh? cached))
         {
-            return _treeMesh;
+            return cached;
         }
 
-        var mesh = new CylinderMesh
+        Mesh mesh = kind switch
         {
-            TopRadius = 0.0f,
-            BottomRadius = 0.42f,
-            Height = 2.35f,
-            RadialSegments = 7,
-            Rings = 1,
-            CapBottom = true,
-            Material = TerrainMaterialFactory.CreateTreeMaterial()
+            TerrainScatterKind.Tree => new CylinderMesh
+            {
+                TopRadius = 0.0f,
+                BottomRadius = 0.42f,
+                Height = 2.35f,
+                RadialSegments = 7,
+                Rings = 1,
+                CapBottom = true
+            },
+            TerrainScatterKind.Rock => new SphereMesh
+            {
+                Radius = 0.72f,
+                Height = 0.86f,
+                RadialSegments = 8,
+                Rings = 4
+            },
+            TerrainScatterKind.Understory => new CylinderMesh
+            {
+                TopRadius = 0.22f,
+                BottomRadius = 0.46f,
+                Height = 0.84f,
+                RadialSegments = 6,
+                Rings = 1,
+                CapTop = true,
+                CapBottom = true
+            },
+            TerrainScatterKind.ResourceNode => new SphereMesh
+            {
+                Radius = 0.54f,
+                Height = 0.88f,
+                RadialSegments = 7,
+                Rings = 4
+            },
+            TerrainScatterKind.HazardOutcrop => new BoxMesh { Size = new Vector3(0.92f, 0.68f, 0.76f) },
+            _ => new SphereMesh
+            {
+                Radius = 0.5f,
+                Height = 0.8f,
+                RadialSegments = 6,
+                Rings = 3
+            }
         };
 
-        _treeMesh = mesh;
+        if (mesh is PrimitiveMesh primitiveMesh)
+        {
+            primitiveMesh.Material = TerrainMaterialFactory.CreateScatterMaterial(kind);
+        }
+
+        ScatterMeshes[kind] = mesh;
         return mesh;
     }
 
-    private static Mesh GetRockMesh()
+    private static ScatterVisual VisualForScatter(TerrainScatterKind kind)
     {
-        if (_rockMesh is not null)
+        return kind switch
         {
-            return _rockMesh;
-        }
-
-        var mesh = new SphereMesh
-        {
-            Radius = 0.72f,
-            Height = 0.86f,
-            RadialSegments = 8,
-            Rings = 4,
-            Material = TerrainMaterialFactory.CreateRockMaterial()
+            TerrainScatterKind.Tree => new ScatterVisual("Trees", 1.18f, Vector3.One, 96.0f),
+            TerrainScatterKind.Rock => new ScatterVisual("Rocks", 0.38f, Vector3.One, 96.0f),
+            TerrainScatterKind.Understory => new ScatterVisual("Understory", 0.32f, new Vector3(0.82f, 0.74f, 0.82f), 48.0f),
+            TerrainScatterKind.ResourceNode => new ScatterVisual("ResourceNodes", 0.38f, new Vector3(1.05f, 0.78f, 1.05f), 64.0f),
+            TerrainScatterKind.HazardOutcrop => new ScatterVisual("HazardOutcrops", 0.44f, new Vector3(1.20f, 0.82f, 1.05f), 80.0f),
+            _ => new ScatterVisual(kind.ToString(), 0.35f, Vector3.One, 64.0f)
         };
-
-        _rockMesh = mesh;
-        return mesh;
     }
 
     private static Mesh GetLandmarkMesh(TerrainLandmarkKind kind)
@@ -393,4 +445,10 @@ public partial class TerrainChunk : Node3D
         _staticBody.AddChild(collisionShape);
         AddChild(_staticBody);
     }
+
+    private readonly record struct ScatterVisual(
+        string NodeName,
+        float VerticalOffset,
+        Vector3 AxisScale,
+        float AabbHeightPadding);
 }
