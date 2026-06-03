@@ -9,6 +9,12 @@ public enum TerrainScatterKind
     Understory,
     ResourceNode,
     HazardOutcrop,
+    GrassTuft,
+    DesertShrub,
+    ReedCluster,
+    SnowClump,
+    CoastalPalm,
+    Driftwood,
     Landmark
 }
 
@@ -25,7 +31,19 @@ public enum TerrainLandmarkKind
     Oasis,
     Village,
     Town,
-    OasisHub
+    OasisHub,
+    VillageHouse,
+    TownBlock,
+    OasisCanopy,
+    SettlementPlaza,
+    OasisPool,
+    Waterfall,
+    RoadMarker,
+    BridgeSpan,
+    DuneCrest,
+    DesertMonolith,
+    CanyonNeedle,
+    IceSpire
 }
 
 public readonly record struct TerrainScatterInstance(

@@ -107,7 +107,24 @@ public static class NativeTerrainBridge
         int expectedCount = width * width * TerrainWorldFieldSampler.NativeFieldGridStride;
         samples = new float[expectedCount];
 
+        return TrySampleFieldGrid(coord, resolution, profile, samples, expectedCount);
+    }
+
+    public static bool TrySampleFieldGrid(
+        TerrainTileCoord coord,
+        int resolution,
+        TerrainGenerationProfile profile,
+        float[] samples,
+        int expectedCount)
+    {
+        EnsureInitialized();
+
         if (!_initialized || !_available || _sampleFieldGridV1 is null)
+        {
+            return false;
+        }
+
+        if (samples.Length < expectedCount)
         {
             return false;
         }

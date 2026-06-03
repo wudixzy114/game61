@@ -80,6 +80,48 @@ public static class TerrainMaterialFactory
                 Roughness = 0.98f,
                 Metallic = 0.0f
             },
+            TerrainScatterKind.GrassTuft => new StandardMaterial3D
+            {
+                AlbedoColor = Colors.White,
+                VertexColorUseAsAlbedo = true,
+                Roughness = 0.90f,
+                Metallic = 0.0f
+            },
+            TerrainScatterKind.DesertShrub => new StandardMaterial3D
+            {
+                AlbedoColor = Colors.White,
+                VertexColorUseAsAlbedo = true,
+                Roughness = 0.94f,
+                Metallic = 0.0f
+            },
+            TerrainScatterKind.ReedCluster => new StandardMaterial3D
+            {
+                AlbedoColor = Colors.White,
+                VertexColorUseAsAlbedo = true,
+                Roughness = 0.88f,
+                Metallic = 0.0f
+            },
+            TerrainScatterKind.SnowClump => new StandardMaterial3D
+            {
+                AlbedoColor = Colors.White,
+                VertexColorUseAsAlbedo = true,
+                Roughness = 0.76f,
+                Metallic = 0.0f
+            },
+            TerrainScatterKind.CoastalPalm => new StandardMaterial3D
+            {
+                AlbedoColor = Colors.White,
+                VertexColorUseAsAlbedo = true,
+                Roughness = 0.86f,
+                Metallic = 0.0f
+            },
+            TerrainScatterKind.Driftwood => new StandardMaterial3D
+            {
+                AlbedoColor = Colors.White,
+                VertexColorUseAsAlbedo = true,
+                Roughness = 0.94f,
+                Metallic = 0.0f
+            },
             _ => CreateRockMaterial()
         };
 

@@ -12,9 +12,10 @@ public readonly record struct TerrainRouteCorridorSample(
     float Distance,
     float TargetHeight,
     float ScenicPotential,
-    float Traversability)
+    float Traversability,
+    Vector2 Direction)
 {
-    public static TerrainRouteCorridorSample None { get; } = new(false, TerrainRouteKind.PrimaryTrail, 0.0f, 0.0f, float.PositiveInfinity, 0.0f, 0.0f, 0.0f);
+    public static TerrainRouteCorridorSample None { get; } = new(false, TerrainRouteKind.PrimaryTrail, 0.0f, 0.0f, float.PositiveInfinity, 0.0f, 0.0f, 0.0f, Vector2.Zero);
 }
 
 public readonly record struct TerrainRouteCorridorSegment(
@@ -142,6 +143,10 @@ public sealed class TerrainRouteCorridorIndex
             influence = Mathf.Clamp(influence, 0.0f, 1.0f);
             core = Mathf.Clamp(core, 0.0f, 1.0f);
             float targetHeight = Mathf.Lerp(segment.FromHeight, segment.ToHeight, t);
+            Vector2 segmentDirection = segment.To - segment.From;
+            Vector2 direction = segmentDirection.LengthSquared() > 0.0001f
+                ? segmentDirection.Normalized()
+                : Vector2.Zero;
 
             if (influence <= best.Influence && distance >= best.Distance)
             {
@@ -156,7 +161,8 @@ public sealed class TerrainRouteCorridorIndex
                 distance,
                 targetHeight,
                 segment.ScenicPotential,
-                segment.Traversability);
+                segment.Traversability,
+                direction);
         }
 
         return best;
