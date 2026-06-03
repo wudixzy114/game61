@@ -27,6 +27,7 @@ public partial class TerrainWorld : Node3D
     private TerrainGenerationProfile _profile;
     private TerrainWorldPlan? _worldPlan;
     private TerrainRouteCorridorIndex _routeCorridors = TerrainRouteCorridorIndex.Empty;
+    private TerrainPointOfInterestIndex _pointOfInterestIndex = TerrainPointOfInterestIndex.Empty;
     private Node3D? _focus;
     private Material _terrainMaterial = null!;
     private Material _waterMaterial = null!;
@@ -38,7 +39,7 @@ public partial class TerrainWorld : Node3D
     {
         Settings ??= new TerrainSettings();
         _profile = Settings.Snapshot();
-        RebuildRouteCorridors();
+        RebuildPlanIndices();
         if (_profile.UseNativeSamplerWhenAvailable)
         {
             NativeTerrainBridge.EnsureInitialized();
@@ -92,10 +93,10 @@ public partial class TerrainWorld : Node3D
     public void SetWorldPlan(TerrainWorldPlan? worldPlan)
     {
         _worldPlan = worldPlan;
-        int previousKey = _routeCorridors.CacheKey;
-        RebuildRouteCorridors();
+        int previousKey = TerrainFeatureKey;
+        RebuildPlanIndices();
 
-        if (!_isReady || previousKey == _routeCorridors.CacheKey)
+        if (!_isReady || previousKey == TerrainFeatureKey)
         {
             return;
         }
@@ -110,7 +111,7 @@ public partial class TerrainWorld : Node3D
     {
         Settings ??= new TerrainSettings();
         _profile = Settings.Snapshot();
-        RebuildRouteCorridors();
+        RebuildPlanIndices();
         if (_profile.UseNativeSamplerWhenAvailable)
         {
             NativeTerrainBridge.EnsureInitialized();
@@ -185,12 +186,13 @@ public partial class TerrainWorld : Node3D
             .ToList();
         int cachedApplied = 0;
         TerrainRouteCorridorIndex routeCorridors = _routeCorridors;
-        int routeCorridorKey = routeCorridors.CacheKey;
+        TerrainPointOfInterestIndex pointOfInterestIndex = _pointOfInterestIndex;
+        int terrainFeatureKey = TerrainFeatureKey;
 
         foreach (TerrainTileCoord coord in sorted)
         {
             DesiredTileRequest request = GetDesiredRequest(coord, center);
-            TerrainTileCacheKey cacheKey = new(coord, request.Lod, request.IncludeCollision, _profile, routeCorridorKey);
+            TerrainTileCacheKey cacheKey = new(coord, request.Lod, request.IncludeCollision, _profile, terrainFeatureKey);
 
             if (_chunks.TryGetValue(coord, out TerrainChunk? chunk) &&
                 chunk.Lod == request.Lod &&
@@ -216,7 +218,7 @@ public partial class TerrainWorld : Node3D
                 existing.Lod == request.Lod &&
                 existing.IncludeCollision == request.IncludeCollision &&
                 existing.Profile.Equals(_profile) &&
-                existing.RouteCorridorKey == routeCorridorKey)
+                existing.TerrainFeatureKey == terrainFeatureKey)
             {
                 continue;
             }
@@ -233,10 +235,10 @@ public partial class TerrainWorld : Node3D
                 request.Lod,
                 request.IncludeCollision,
                 jobProfile,
-                routeCorridorKey,
+                terrainFeatureKey,
                 cancellation,
                 Task.Run(
-                    () => TerrainTileBuilder.Build(coord, request.Lod, jobProfile, request.IncludeCollision, routeCorridors, cancellation.Token),
+                    () => TerrainTileBuilder.Build(coord, request.Lod, jobProfile, request.IncludeCollision, routeCorridors, pointOfInterestIndex, cancellation.Token),
                     cancellation.Token));
         }
     }
@@ -276,14 +278,14 @@ public partial class TerrainWorld : Node3D
             TerrainTileData data = job.Task.Result;
             job.Cancellation.Dispose();
 
-            if (job.Profile.Equals(_profile) && job.RouteCorridorKey == _routeCorridors.CacheKey)
+            if (job.Profile.Equals(_profile) && job.TerrainFeatureKey == TerrainFeatureKey)
             {
-                StoreCachedTile(data, job.Profile, job.IncludeCollision, job.RouteCorridorKey);
+                StoreCachedTile(data, job.Profile, job.IncludeCollision, job.TerrainFeatureKey);
             }
 
             if (!_desiredCoords.Contains(job.Coord) ||
                 !job.Profile.Equals(_profile) ||
-                job.RouteCorridorKey != _routeCorridors.CacheKey)
+                job.TerrainFeatureKey != TerrainFeatureKey)
             {
                 continue;
             }
@@ -342,7 +344,7 @@ public partial class TerrainWorld : Node3D
             if (request.Lod != job.Lod ||
                 request.IncludeCollision != job.IncludeCollision ||
                 !job.Profile.Equals(_profile) ||
-                job.RouteCorridorKey != _routeCorridors.CacheKey)
+                job.TerrainFeatureKey != TerrainFeatureKey)
             {
                 _jobs.Remove(job.Coord);
                 RetireJob(job);
@@ -409,7 +411,7 @@ public partial class TerrainWorld : Node3D
         TerrainTileData data,
         TerrainGenerationProfile profile,
         bool includeCollision,
-        int routeCorridorKey)
+        int terrainFeatureKey)
     {
         int limit = Mathf.Max(0, _profile.MaxCachedTileData);
         if (limit == 0)
@@ -417,7 +419,7 @@ public partial class TerrainWorld : Node3D
             return;
         }
 
-        TerrainTileCacheKey key = new(data.Coord, data.Lod, includeCollision, profile, routeCorridorKey);
+        TerrainTileCacheKey key = new(data.Coord, data.Lod, includeCollision, profile, terrainFeatureKey);
         if (_tileCache.ContainsKey(key))
         {
             _tileCache[key] = data;
@@ -469,12 +471,17 @@ public partial class TerrainWorld : Node3D
         _chunks.Clear();
     }
 
-    private void RebuildRouteCorridors()
+    private void RebuildPlanIndices()
     {
         _routeCorridors = _worldPlan is null
             ? TerrainRouteCorridorIndex.Empty
             : TerrainRouteCorridorIndex.FromPlan(_worldPlan, _profile);
+        _pointOfInterestIndex = _worldPlan is null
+            ? TerrainPointOfInterestIndex.Empty
+            : TerrainPointOfInterestIndex.FromPlan(_worldPlan, _profile);
     }
+
+    private int TerrainFeatureKey => HashCode.Combine(_routeCorridors.CacheKey, _pointOfInterestIndex.CacheKey);
 
     private void CancelAllJobs()
     {
@@ -523,7 +530,7 @@ public partial class TerrainWorld : Node3D
         int Lod,
         bool IncludeCollision,
         TerrainGenerationProfile Profile,
-        int RouteCorridorKey,
+        int TerrainFeatureKey,
         CancellationTokenSource Cancellation,
         Task<TerrainTileData> Task);
 
@@ -533,5 +540,5 @@ public partial class TerrainWorld : Node3D
         int Lod,
         bool IncludeCollision,
         TerrainGenerationProfile Profile,
-        int RouteCorridorKey);
+        int TerrainFeatureKey);
 }

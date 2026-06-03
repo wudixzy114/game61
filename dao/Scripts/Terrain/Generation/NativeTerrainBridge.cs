@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices;
 using Godot;
@@ -28,6 +29,8 @@ public static class NativeTerrainBridge
         TerrainGenerationProfile profile,
         out float[] heights)
     {
+        EnsureInitialized();
+
         int width = resolution + 1;
         int expectedCount = width * width;
         heights = new float[expectedCount];
@@ -48,6 +51,7 @@ public static class NativeTerrainBridge
                 resolution,
                 profile.ChunkSize,
                 profile.HeightScale,
+                profile.SeaLevel,
                 profile.ContinentScale,
                 profile.MountainScale,
                 profile.MountainWeight,
@@ -99,29 +103,67 @@ public static class NativeTerrainBridge
 
         foreach (string candidate in candidates)
         {
-            string path = ProjectSettings.GlobalizePath($"res://bin/{candidate}");
-            if (!File.Exists(path))
+            foreach (string path in CandidateLibraryPaths(candidate))
             {
-                continue;
-            }
+                if (!File.Exists(path))
+                {
+                    continue;
+                }
 
-            if (!NativeLibrary.TryLoad(path, out IntPtr handle))
-            {
-                continue;
-            }
+                if (!NativeLibrary.TryLoad(path, out IntPtr handle))
+                {
+                    continue;
+                }
 
-            if (!NativeLibrary.TryGetExport(handle, "dao_native_sample_height_grid", out IntPtr gridExport))
-            {
-                NativeLibrary.Free(handle);
-                continue;
-            }
+                if (!NativeLibrary.TryGetExport(handle, "dao_native_sample_height_grid", out IntPtr gridExport))
+                {
+                    NativeLibrary.Free(handle);
+                    continue;
+                }
 
-            _libraryHandle = handle;
-            _sampleHeightGrid = Marshal.GetDelegateForFunctionPointer<SampleHeightGridDelegate>(gridExport);
-            return true;
+                _libraryHandle = handle;
+                _sampleHeightGrid = Marshal.GetDelegateForFunctionPointer<SampleHeightGridDelegate>(gridExport);
+                return true;
+            }
         }
 
         return false;
+    }
+
+    private static string[] CandidateLibraryPaths(string fileName)
+    {
+        var paths = new List<string>(16);
+        AddCandidate(paths, Path.Combine(System.Environment.CurrentDirectory, "bin", fileName));
+        AddCandidate(paths, Path.Combine(System.Environment.CurrentDirectory, "dao", "bin", fileName));
+        AddCandidate(paths, Path.Combine(AppContext.BaseDirectory, "bin", fileName));
+        AddCandidate(paths, Path.Combine(AppContext.BaseDirectory, "dao", "bin", fileName));
+
+        DirectoryInfo? directory = new(AppContext.BaseDirectory);
+        for (int i = 0; i < 8 && directory is not null; i++)
+        {
+            AddCandidate(paths, Path.Combine(directory.FullName, "bin", fileName));
+            AddCandidate(paths, Path.Combine(directory.FullName, "dao", "bin", fileName));
+            directory = directory.Parent;
+        }
+
+        return paths.ToArray();
+    }
+
+    private static void AddCandidate(List<string> paths, string path)
+    {
+        string fullPath = Path.GetFullPath(path);
+        foreach (string existing in paths)
+        {
+            if (string.Equals(existing, fullPath, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+        }
+
+        if (fullPath.Length > 0)
+        {
+            paths.Add(fullPath);
+        }
     }
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
@@ -132,6 +174,7 @@ public static class NativeTerrainBridge
         int resolution,
         double chunkSize,
         double heightScale,
+        double seaLevel,
         double continentScale,
         double mountainScale,
         double mountainWeight,

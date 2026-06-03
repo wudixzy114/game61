@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Dao.Terrain.Generation;
 using Dao.Terrain.Rendering;
 using Godot;
@@ -10,11 +11,11 @@ public partial class TerrainChunk : Node3D
     private StaticBody3D? _staticBody;
     private MultiMeshInstance3D? _treeScatter;
     private MultiMeshInstance3D? _rockScatter;
-    private MultiMeshInstance3D? _landmarkScatter;
+    private readonly Dictionary<TerrainLandmarkKind, MultiMeshInstance3D> _landmarkScatter = new();
 
     private static Mesh? _treeMesh;
     private static Mesh? _rockMesh;
-    private static Mesh? _landmarkMesh;
+    private static readonly Dictionary<TerrainLandmarkKind, Mesh> LandmarkMeshes = new();
 
     public TerrainTileCoord Coord { get; private set; }
     public int Lod { get; private set; }
@@ -59,13 +60,7 @@ public partial class TerrainChunk : Node3D
             "Rocks",
             GetRockMesh(),
             0.38f);
-        _landmarkScatter = RebuildScatterKind(
-            data,
-            TerrainScatterKind.Landmark,
-            _landmarkScatter,
-            "Landmarks",
-            GetLandmarkMesh(),
-            1.30f);
+        RebuildLandmarkScatter(data);
     }
 
     private MultiMeshInstance3D? RebuildScatterKind(
@@ -133,6 +128,104 @@ public partial class TerrainChunk : Node3D
         return existing;
     }
 
+    private void RebuildLandmarkScatter(TerrainTileData data)
+    {
+        var activeKinds = new HashSet<TerrainLandmarkKind>();
+        foreach (TerrainScatterInstance instance in data.ScatterInstances)
+        {
+            if (instance.Kind == TerrainScatterKind.Landmark)
+            {
+                activeKinds.Add(instance.LandmarkKind);
+            }
+        }
+
+        var staleKinds = new List<TerrainLandmarkKind>();
+        foreach (TerrainLandmarkKind kind in _landmarkScatter.Keys)
+        {
+            if (!activeKinds.Contains(kind))
+            {
+                staleKinds.Add(kind);
+            }
+        }
+
+        foreach (TerrainLandmarkKind kind in staleKinds)
+        {
+            _landmarkScatter[kind].QueueFree();
+            _landmarkScatter.Remove(kind);
+        }
+
+        foreach (TerrainLandmarkKind kind in activeKinds)
+        {
+            _landmarkScatter.TryGetValue(kind, out MultiMeshInstance3D? existing);
+            MultiMeshInstance3D? rebuilt = RebuildLandmarkKind(data, kind, existing);
+            if (rebuilt is not null)
+            {
+                _landmarkScatter[kind] = rebuilt;
+            }
+        }
+    }
+
+    private MultiMeshInstance3D? RebuildLandmarkKind(
+        TerrainTileData data,
+        TerrainLandmarkKind landmarkKind,
+        MultiMeshInstance3D? existing)
+    {
+        int count = 0;
+        foreach (TerrainScatterInstance instance in data.ScatterInstances)
+        {
+            if (instance.Kind == TerrainScatterKind.Landmark && instance.LandmarkKind == landmarkKind)
+            {
+                count++;
+            }
+        }
+
+        if (count == 0)
+        {
+            if (existing is not null)
+            {
+                existing.QueueFree();
+            }
+
+            return null;
+        }
+
+        existing ??= CreateScatterNode($"Landmarks_{landmarkKind}");
+
+        var multimesh = new MultiMesh
+        {
+            TransformFormat = MultiMesh.TransformFormatEnum.Transform3D,
+            UseColors = true,
+            Mesh = GetLandmarkMesh(landmarkKind),
+            CustomAabb = new Aabb(
+                new Vector3(0.0f, data.MinHeight - 8.0f, 0.0f),
+                new Vector3(data.ChunkSize, data.MaxHeight - data.MinHeight + 132.0f, data.ChunkSize))
+        };
+
+        multimesh.InstanceCount = count;
+        multimesh.VisibleInstanceCount = count;
+
+        int index = 0;
+        foreach (TerrainScatterInstance instance in data.ScatterInstances)
+        {
+            if (instance.Kind != TerrainScatterKind.Landmark || instance.LandmarkKind != landmarkKind)
+            {
+                continue;
+            }
+
+            Basis basis = BasisForLandmark(landmarkKind, instance.RotationY, instance.UniformScale);
+            var transform = new Transform3D(
+                basis,
+                instance.LocalPosition + Vector3.Up * LandmarkVerticalOffset(landmarkKind, instance.UniformScale));
+
+            multimesh.SetInstanceTransform(index, transform);
+            multimesh.SetInstanceColor(index, instance.Color);
+            index++;
+        }
+
+        existing.Multimesh = multimesh;
+        return existing;
+    }
+
     private MultiMeshInstance3D CreateScatterNode(string nodeName)
     {
         var node = new MultiMeshInstance3D { Name = nodeName };
@@ -182,21 +275,95 @@ public partial class TerrainChunk : Node3D
         return mesh;
     }
 
-    private static Mesh GetLandmarkMesh()
+    private static Mesh GetLandmarkMesh(TerrainLandmarkKind kind)
     {
-        if (_landmarkMesh is not null)
+        if (LandmarkMeshes.TryGetValue(kind, out Mesh? cached))
         {
-            return _landmarkMesh;
+            return cached;
         }
 
-        var mesh = new BoxMesh
+        Mesh mesh = kind switch
         {
-            Size = new Vector3(0.78f, 2.6f, 0.78f),
-            Material = TerrainMaterialFactory.CreateLandmarkMaterial()
+            TerrainLandmarkKind.Settlement => new BoxMesh { Size = new Vector3(1.75f, 0.72f, 1.45f) },
+            TerrainLandmarkKind.Vista => new CylinderMesh
+            {
+                TopRadius = 0.12f,
+                BottomRadius = 0.48f,
+                Height = 2.85f,
+                RadialSegments = 8,
+                Rings = 1,
+                CapTop = true,
+                CapBottom = true
+            },
+            TerrainLandmarkKind.RiverCrossing => new BoxMesh { Size = new Vector3(2.45f, 0.22f, 0.72f) },
+            TerrainLandmarkKind.MountainPass => new CylinderMesh
+            {
+                TopRadius = 0.32f,
+                BottomRadius = 0.82f,
+                Height = 1.65f,
+                RadialSegments = 7,
+                Rings = 1,
+                CapTop = true,
+                CapBottom = true
+            },
+            TerrainLandmarkKind.CoastalLanding => new CylinderMesh
+            {
+                TopRadius = 0.62f,
+                BottomRadius = 0.82f,
+                Height = 0.48f,
+                RadialSegments = 10,
+                Rings = 1,
+                CapTop = true,
+                CapBottom = true
+            },
+            TerrainLandmarkKind.ResourceGrove => new SphereMesh
+            {
+                Radius = 0.88f,
+                Height = 1.35f,
+                RadialSegments = 9,
+                Rings = 5
+            },
+            TerrainLandmarkKind.CanyonOverlook => new BoxMesh { Size = new Vector3(1.85f, 0.38f, 1.15f) },
+            _ => new BoxMesh { Size = new Vector3(0.78f, 2.6f, 0.78f) }
         };
 
-        _landmarkMesh = mesh;
+        if (mesh is PrimitiveMesh primitiveMesh)
+        {
+            primitiveMesh.Material = TerrainMaterialFactory.CreateLandmarkMaterial();
+        }
+
+        LandmarkMeshes[kind] = mesh;
         return mesh;
+    }
+
+    private static Basis BasisForLandmark(TerrainLandmarkKind kind, float rotationY, float scale)
+    {
+        Vector3 axisScale = kind switch
+        {
+            TerrainLandmarkKind.Settlement => new Vector3(scale * 1.25f, scale * 0.62f, scale),
+            TerrainLandmarkKind.RiverCrossing => new Vector3(scale * 1.55f, scale * 0.30f, scale * 0.78f),
+            TerrainLandmarkKind.ResourceGrove => new Vector3(scale * 0.95f, scale * 1.18f, scale * 0.95f),
+            TerrainLandmarkKind.CanyonOverlook => new Vector3(scale * 1.45f, scale * 0.36f, scale),
+            TerrainLandmarkKind.Vista => new Vector3(scale * 0.86f, scale * 1.42f, scale * 0.86f),
+            _ => Vector3.One * scale
+        };
+
+        return new Basis(Vector3.Up, rotationY).Scaled(axisScale);
+    }
+
+    private static float LandmarkVerticalOffset(TerrainLandmarkKind kind, float scale)
+    {
+        float multiplier = kind switch
+        {
+            TerrainLandmarkKind.RiverCrossing => 0.18f,
+            TerrainLandmarkKind.CoastalLanding => 0.22f,
+            TerrainLandmarkKind.CanyonOverlook => 0.28f,
+            TerrainLandmarkKind.Settlement => 0.34f,
+            TerrainLandmarkKind.ResourceGrove => 0.72f,
+            _ => 0.64f
+        };
+
+        return multiplier * scale;
     }
 
     private void RebuildCollision(TerrainTileData data)

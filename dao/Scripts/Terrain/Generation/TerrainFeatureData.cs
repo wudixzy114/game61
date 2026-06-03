@@ -11,10 +11,14 @@ public enum TerrainScatterKind
 
 public enum TerrainLandmarkKind
 {
+    Settlement,
     Vista,
     RiverCrossing,
     MountainPass,
-    AncientStone
+    AncientStone,
+    CoastalLanding,
+    ResourceGrove,
+    CanyonOverlook
 }
 
 public readonly record struct TerrainScatterInstance(
@@ -22,7 +26,19 @@ public readonly record struct TerrainScatterInstance(
     Vector3 LocalPosition,
     float RotationY,
     float UniformScale,
-    Color Color);
+    Color Color,
+    TerrainLandmarkKind LandmarkKind)
+{
+    public TerrainScatterInstance(
+        TerrainScatterKind kind,
+        Vector3 localPosition,
+        float rotationY,
+        float uniformScale,
+        Color color)
+        : this(kind, localPosition, rotationY, uniformScale, color, TerrainLandmarkKind.AncientStone)
+    {
+    }
+}
 
 public readonly record struct TerrainLandmarkData(
     TerrainLandmarkKind Kind,

@@ -94,7 +94,8 @@ public partial class TerrainDemo : Node3D
             $"Open world terrain plan {status}: " +
             $"{planningGate.Report.PointOfInterestCount} POIs, {planningGate.Report.RouteCount} routes, " +
             $"land {qualityGate.Report.LandRatio:0.000}, scenic {qualityGate.Report.ScenicRatio:0.000}, " +
-            $"connected {planningGate.Report.ConnectedPointRatio:0.000}.");
+            $"connected {planningGate.Report.ConnectedPointRatio:0.000}, " +
+            $"coverage {planningGate.Report.PointOfInterestWorldCoverage:0.000}/{planningGate.Report.RouteWorldCoverage:0.000}.");
 
         if (!planningGate.Passed || !qualityGate.Passed)
         {

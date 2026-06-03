@@ -18,7 +18,7 @@ public partial class TerrainWorldPlanOverlay : Node3D
     [Export(PropertyHint.Range, "0,120,1")] public float MarkerHeightOffset { get; set; } = 16.0f;
     [Export(PropertyHint.Range, "0,80,1")] public float AnchorHeightOffset { get; set; } = 3.0f;
 
-    private readonly Dictionary<TerrainPointOfInterestKind, MultiMeshInstance3D> _pointMarkers = new();
+    private readonly Dictionary<TerrainPointOfInterestVisualKind, MultiMeshInstance3D> _pointMarkers = new();
     private MeshInstance3D? _routeRibbons;
     private Node3D? _anchorRoot;
     private TerrainWorldPlan? _plan;
@@ -82,29 +82,30 @@ public partial class TerrainWorldPlanOverlay : Node3D
 
     private void BuildPointMarkers(TerrainWorldPlan plan, TerrainGenerationProfile profile)
     {
-        var byKind = new Dictionary<TerrainPointOfInterestKind, List<TerrainWorldPointOfInterest>>();
+        var byVisualKind = new Dictionary<TerrainPointOfInterestVisualKind, List<TerrainWorldPointOfInterest>>();
         foreach (TerrainWorldPointOfInterest point in plan.PointsOfInterest)
         {
-            if (!byKind.TryGetValue(point.Kind, out List<TerrainWorldPointOfInterest>? points))
+            TerrainPointOfInterestArchetype archetype = TerrainPointOfInterestArchetypeCatalog.Get(point.Kind);
+            if (!byVisualKind.TryGetValue(archetype.VisualKind, out List<TerrainWorldPointOfInterest>? points))
             {
                 points = new List<TerrainWorldPointOfInterest>();
-                byKind.Add(point.Kind, points);
+                byVisualKind.Add(archetype.VisualKind, points);
             }
 
             points.Add(point);
         }
 
-        Mesh markerMesh = CreateMarkerMesh();
         Material material = TerrainMaterialFactory.CreatePlanMarkerMaterial();
 
-        foreach ((TerrainPointOfInterestKind kind, List<TerrainWorldPointOfInterest> points) in byKind)
+        foreach ((TerrainPointOfInterestVisualKind visualKind, List<TerrainWorldPointOfInterest> points) in byVisualKind)
         {
+            Mesh markerMesh = CreateMarkerMesh(visualKind);
             var multimesh = new MultiMesh
             {
                 TransformFormat = MultiMesh.TransformFormatEnum.Transform3D,
                 UseColors = true,
                 Mesh = markerMesh,
-                CustomAabb = PlanAabb(plan, profile, MarkerBaseScale * 8.0f + MarkerHeightOffset)
+                CustomAabb = PlanAabb(plan, profile, MarkerBaseScale * 10.0f + MarkerHeightOffset)
             };
 
             multimesh.InstanceCount = points.Count;
@@ -113,22 +114,23 @@ public partial class TerrainWorldPlanOverlay : Node3D
             for (int i = 0; i < points.Count; i++)
             {
                 TerrainWorldPointOfInterest point = points[i];
-                Vector3 position = PositionFor(point.WorldPosition, profile, MarkerHeightOffset);
-                float scale = MarkerBaseScale * Mathf.Lerp(0.72f, 1.34f, point.Score);
-                var basis = Basis.Identity.Scaled(new Vector3(scale, scale * 2.4f, scale));
+                TerrainPointOfInterestArchetype archetype = TerrainPointOfInterestArchetypeCatalog.Get(point.Kind);
+                Vector3 position = PositionFor(point.WorldPosition, profile, MarkerHeightOffset + archetype.VerticalOffset);
+                float uniformScale = archetype.VisualScale * Mathf.Lerp(0.86f, 1.22f, point.Score);
+                Basis basis = BasisForVisual(archetype.VisualKind, uniformScale);
                 multimesh.SetInstanceTransform(i, new Transform3D(basis, position));
-                multimesh.SetInstanceColor(i, ColorForPoint(point.Kind, point.Score));
+                multimesh.SetInstanceColor(i, ColorForPoint(archetype, point.Score));
             }
 
             var instance = new MultiMeshInstance3D
             {
-                Name = $"POI_{kind}",
+                Name = $"POI_{visualKind}",
                 Multimesh = multimesh,
                 MaterialOverride = material
             };
 
             AddChild(instance);
-            _pointMarkers.Add(kind, instance);
+            _pointMarkers.Add(visualKind, instance);
         }
     }
 
@@ -225,7 +227,8 @@ public partial class TerrainWorldPlanOverlay : Node3D
         {
             var anchor = new TerrainWorldPointOfInterestAnchor();
             poiRoot.AddChild(anchor);
-            anchor.Configure(point, PositionFor(point.WorldPosition, profile, AnchorHeightOffset));
+            TerrainPointOfInterestArchetype archetype = TerrainPointOfInterestArchetypeCatalog.Get(point.Kind);
+            anchor.Configure(point, PositionFor(point.WorldPosition, profile, AnchorHeightOffset + archetype.VerticalOffset));
         }
 
         var routeRoot = new Node3D { Name = "Routes" };
@@ -255,16 +258,64 @@ public partial class TerrainWorldPlanOverlay : Node3D
         return new Vector3(world.X, height + heightOffset, world.Y);
     }
 
-    private static Mesh CreateMarkerMesh()
+    private static Mesh CreateMarkerMesh(TerrainPointOfInterestVisualKind visualKind)
     {
-        return new CylinderMesh
+        return visualKind switch
         {
-            TopRadius = 0.0f,
-            BottomRadius = 0.42f,
-            Height = 1.0f,
-            RadialSegments = 8,
-            Rings = 1,
-            CapBottom = true
+            TerrainPointOfInterestVisualKind.Settlement => new BoxMesh { Size = new Vector3(1.3f, 0.55f, 1.3f) },
+            TerrainPointOfInterestVisualKind.RiverCrossing => new BoxMesh { Size = new Vector3(1.65f, 0.16f, 0.62f) },
+            TerrainPointOfInterestVisualKind.CoastalLanding => new CylinderMesh
+            {
+                TopRadius = 0.34f,
+                BottomRadius = 0.58f,
+                Height = 0.44f,
+                RadialSegments = 9,
+                Rings = 1,
+                CapTop = true,
+                CapBottom = true
+            },
+            TerrainPointOfInterestVisualKind.ResourceGrove => new SphereMesh
+            {
+                Radius = 0.62f,
+                Height = 1.05f,
+                RadialSegments = 8,
+                Rings = 4
+            },
+            TerrainPointOfInterestVisualKind.AncientSite => new BoxMesh { Size = new Vector3(0.72f, 1.65f, 0.72f) },
+            TerrainPointOfInterestVisualKind.MountainPass => new CylinderMesh
+            {
+                TopRadius = 0.28f,
+                BottomRadius = 0.72f,
+                Height = 1.15f,
+                RadialSegments = 8,
+                Rings = 1,
+                CapTop = true,
+                CapBottom = true
+            },
+            TerrainPointOfInterestVisualKind.CanyonOverlook => new BoxMesh { Size = new Vector3(1.2f, 0.35f, 0.92f) },
+            _ => new CylinderMesh
+            {
+                TopRadius = 0.0f,
+                BottomRadius = 0.42f,
+                Height = 1.0f,
+                RadialSegments = 8,
+                Rings = 1,
+                CapBottom = true
+            }
+        };
+    }
+
+    private static Basis BasisForVisual(TerrainPointOfInterestVisualKind visualKind, float scale)
+    {
+        return visualKind switch
+        {
+            TerrainPointOfInterestVisualKind.Settlement => Basis.Identity.Scaled(new Vector3(scale * 1.2f, scale * 0.62f, scale * 1.2f)),
+            TerrainPointOfInterestVisualKind.RiverCrossing => Basis.Identity.Scaled(new Vector3(scale * 1.45f, scale * 0.28f, scale * 0.62f)),
+            TerrainPointOfInterestVisualKind.ResourceGrove => Basis.Identity.Scaled(new Vector3(scale * 0.92f, scale * 1.30f, scale * 0.92f)),
+            TerrainPointOfInterestVisualKind.AncientSite => Basis.Identity.Scaled(new Vector3(scale * 0.72f, scale * 1.72f, scale * 0.72f)),
+            TerrainPointOfInterestVisualKind.CanyonOverlook => Basis.Identity.Scaled(new Vector3(scale * 1.35f, scale * 0.46f, scale * 0.92f)),
+            TerrainPointOfInterestVisualKind.VistaSpire => Basis.Identity.Scaled(new Vector3(scale, scale * 2.65f, scale)),
+            _ => Basis.Identity.Scaled(new Vector3(scale, scale * 1.4f, scale))
         };
     }
 
@@ -283,22 +334,9 @@ public partial class TerrainWorldPlanOverlay : Node3D
             new Vector3(maxX - minX, maxY - minY, maxZ - minZ));
     }
 
-    private static Color ColorForPoint(TerrainPointOfInterestKind kind, float score)
+    private static Color ColorForPoint(TerrainPointOfInterestArchetype archetype, float score)
     {
-        Color baseColor = kind switch
-        {
-            TerrainPointOfInterestKind.SettlementCandidate => new Color(0.95f, 0.68f, 0.22f),
-            TerrainPointOfInterestKind.Vista => new Color(1.0f, 0.9f, 0.26f),
-            TerrainPointOfInterestKind.RiverCrossing => new Color(0.22f, 0.74f, 0.96f),
-            TerrainPointOfInterestKind.MountainPass => new Color(0.70f, 0.62f, 1.0f),
-            TerrainPointOfInterestKind.CoastalLanding => new Color(0.26f, 0.58f, 0.95f),
-            TerrainPointOfInterestKind.ResourceGrove => new Color(0.32f, 0.78f, 0.36f),
-            TerrainPointOfInterestKind.AncientSite => new Color(0.94f, 0.56f, 0.30f),
-            TerrainPointOfInterestKind.CanyonOverlook => new Color(0.96f, 0.42f, 0.22f),
-            _ => Colors.White
-        };
-
-        return baseColor.Lerp(Colors.White, Mathf.Clamp((score - 0.5f) * 0.32f, 0.0f, 0.16f));
+        return archetype.Color.Lerp(Colors.White, Mathf.Clamp((score - 0.5f) * 0.32f, 0.0f, 0.16f));
     }
 
     private static Color ColorForRoute(TerrainRouteKind kind, float scenic)

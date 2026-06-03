@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Godot;
 
 namespace Dao.Terrain.Generation;
@@ -34,6 +35,8 @@ public readonly record struct TerrainWorldField(
 
 public static class TerrainWorldFieldSampler
 {
+    private static readonly ConcurrentDictionary<TerrainGenerationProfile, float> LandBalanceOffsets = new();
+
     public static TerrainWorldField Sample(Vector2 world, TerrainGenerationProfile profile)
     {
         TerrainShapeTerms terms = SampleShapeTerms(world, profile, includeMicroDetail: true);
@@ -122,17 +125,63 @@ public static class TerrainWorldFieldSampler
 
     private static float BuildHeight(TerrainShapeTerms terms, TerrainGenerationProfile profile)
     {
+        float height = BuildUnbalancedHeight(terms, profile);
+        height -= GetLandBalanceOffset(profile);
+
+        float terraceMask = Mathf.SmoothStep(0.52f, 0.86f, terms.Mountains) * profile.VistaFrequency;
+        return ProceduralNoise.Terrace(height, Mathf.Max(12.0f, profile.TerraceStrength), terraceMask * 0.38f);
+    }
+
+    private static float BuildUnbalancedHeight(TerrainShapeTerms terms, TerrainGenerationProfile profile)
+    {
         float height =
             ((terms.Basin - 0.44f) * profile.HeightScale * 0.72f) +
             (terms.Shelf * terms.BroadElevation * profile.HeightScale * 0.34f) +
             (terms.Mountains * profile.HeightScale * 1.08f) +
             (terms.MicroDetail * profile.HeightScale * profile.DetailWeight);
 
+        float shallowShelf = terms.Shelf * (1.0f - Mathf.SmoothStep(0.14f, 0.46f, terms.Mountains));
+        float waterlineProximity = 1.0f - Mathf.SmoothStep(profile.SeaLevel + 52.0f, profile.SeaLevel + 220.0f, height);
+        height -= shallowShelf * waterlineProximity * profile.HeightScale * 0.035f;
+
         float valleyCarve = terms.River * profile.RiverCarveDepth * (0.35f + terms.Mountains * 0.85f);
         height -= valleyCarve * profile.ValleyWeight;
 
-        float terraceMask = Mathf.SmoothStep(0.52f, 0.86f, terms.Mountains) * profile.VistaFrequency;
-        return ProceduralNoise.Terrace(height, Mathf.Max(12.0f, profile.TerraceStrength), terraceMask * 0.38f);
+        return height;
+    }
+
+    private static float GetLandBalanceOffset(TerrainGenerationProfile profile)
+    {
+        return LandBalanceOffsets.GetOrAdd(profile, ComputeLandBalanceOffset);
+    }
+
+    private static float ComputeLandBalanceOffset(TerrainGenerationProfile profile)
+    {
+        const int resolution = 17;
+        const float targetLandRatio = 0.58f;
+        const float correctionStrength = 0.36f;
+        float extent = Mathf.Max(profile.ChunkSize * 48.0f, profile.ContinentScale * 2.2f);
+        int landCount = 0;
+
+        for (int y = 0; y < resolution; y++)
+        {
+            for (int x = 0; x < resolution; x++)
+            {
+                float tx = x / (float)(resolution - 1);
+                float ty = y / (float)(resolution - 1);
+                Vector2 world = new((tx - 0.5f) * extent, (ty - 0.5f) * extent);
+                TerrainShapeTerms terms = SampleShapeTerms(world, profile, includeMicroDetail: false);
+                float height = BuildUnbalancedHeight(terms, profile);
+                if (height >= profile.SeaLevel + 3.0f)
+                {
+                    landCount++;
+                }
+            }
+        }
+
+        float landRatio = landCount / (float)(resolution * resolution);
+        float offset = (landRatio - targetLandRatio) * profile.HeightScale * correctionStrength;
+        return Mathf.Clamp(offset, profile.HeightScale * -0.075f, profile.HeightScale * 0.075f);
     }
 
     private static TerrainWorldField BuildField(

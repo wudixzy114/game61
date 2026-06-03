@@ -25,6 +25,18 @@ public static class TerrainTileBuilder
         TerrainRouteCorridorIndex routeCorridors,
         CancellationToken cancellationToken = default)
     {
+        return Build(coord, lod, profile, includeCollision, routeCorridors, TerrainPointOfInterestIndex.Empty, cancellationToken);
+    }
+
+    public static TerrainTileData Build(
+        TerrainTileCoord coord,
+        int lod,
+        TerrainGenerationProfile profile,
+        bool includeCollision,
+        TerrainRouteCorridorIndex routeCorridors,
+        TerrainPointOfInterestIndex pointOfInterestIndex,
+        CancellationToken cancellationToken = default)
+    {
         cancellationToken.ThrowIfCancellationRequested();
 
         int resolution = profile.ResolutionForLod(lod);
@@ -143,6 +155,7 @@ public static class TerrainTileBuilder
             surfaceNormals,
             routeCorridors,
             corridorSegments,
+            pointOfInterestIndex,
             cancellationToken,
             out TerrainScatterInstance[] scatterInstances,
             out TerrainLandmarkData[] landmarks);
@@ -352,6 +365,7 @@ public static class TerrainTileBuilder
         Vector3[] normals,
         TerrainRouteCorridorIndex routeCorridors,
         TerrainRouteCorridorSegment[] corridorSegments,
+        TerrainPointOfInterestIndex pointOfInterestIndex,
         CancellationToken cancellationToken,
         out TerrainScatterInstance[] scatterInstances,
         out TerrainLandmarkData[] landmarks)
@@ -360,6 +374,7 @@ public static class TerrainTileBuilder
         var landmarkList = new List<TerrainLandmarkData>(4);
         Vector2 origin = coord.Origin(profile.ChunkSize);
         bool hasCorridors = corridorSegments.Length > 0;
+        TerrainWorldPointOfInterest[] plannedPoints = pointOfInterestIndex.GetPoints(coord);
 
         if (lod <= 2)
         {
@@ -389,6 +404,11 @@ public static class TerrainTileBuilder
                     TerrainRouteCorridorSample corridor = hasCorridors
                         ? routeCorridors.Sample(world, corridorSegments)
                         : TerrainRouteCorridorSample.None;
+
+                    if (IsNearPlannedPoint(world, plannedPoints, profile.ChunkSize * 0.28f))
+                    {
+                        continue;
+                    }
 
                     if (corridor.HasInfluence && (corridor.CoreStrength > 0.04f || corridor.Influence > 0.58f))
                     {
@@ -424,11 +444,70 @@ public static class TerrainTileBuilder
 
         if (lod <= 1)
         {
-            AddBestLandmark(coord, profile, resolution, vertexCountPerSide, step, heights, fields, normals, cancellationToken, scatter, landmarkList);
+            AddPlannedPoiLandmarks(coord, profile, resolution, vertexCountPerSide, step, heights, fields, normals, plannedPoints, scatter, landmarkList);
+            if (landmarkList.Count == 0)
+            {
+                AddBestLandmark(coord, profile, resolution, vertexCountPerSide, step, heights, fields, normals, cancellationToken, scatter, landmarkList);
+            }
         }
 
         scatterInstances = scatter.ToArray();
         landmarks = landmarkList.ToArray();
+    }
+
+    private static void AddPlannedPoiLandmarks(
+        TerrainTileCoord coord,
+        TerrainGenerationProfile profile,
+        int resolution,
+        int vertexCountPerSide,
+        float step,
+        float[] heights,
+        TerrainWorldField[] fields,
+        Vector3[] normals,
+        TerrainWorldPointOfInterest[] plannedPoints,
+        List<TerrainScatterInstance> scatter,
+        List<TerrainLandmarkData> landmarks)
+    {
+        if (plannedPoints.Length == 0)
+        {
+            return;
+        }
+
+        Vector2 origin = coord.Origin(profile.ChunkSize);
+        foreach (TerrainWorldPointOfInterest point in plannedPoints)
+        {
+            float localX = point.WorldPosition.X - origin.X;
+            float localZ = point.WorldPosition.Y - origin.Y;
+            if (localX < 0.0f || localZ < 0.0f || localX > profile.ChunkSize || localZ > profile.ChunkSize)
+            {
+                continue;
+            }
+
+            float height = SampleHeightBilinear(localX, localZ, resolution, step, heights, vertexCountPerSide);
+            if (height < profile.SeaLevel - 2.0f)
+            {
+                continue;
+            }
+
+            Vector3 normal = SampleNearestNormal(localX, localZ, resolution, step, normals, vertexCountPerSide);
+            float slope = 1.0f - Mathf.Clamp(normal.Y, 0.0f, 1.0f);
+            TerrainWorldField field = SampleFieldBilinear(localX, localZ, resolution, step, fields, vertexCountPerSide);
+            TerrainLandmarkKind kind = LandmarkKindFor(point.Kind);
+            float score = Mathf.Clamp(
+                point.Score * 0.70f +
+                field.ScenicPotential * 0.16f +
+                field.Traversability * 0.10f +
+                (1.0f - Mathf.Clamp(slope * 1.8f, 0.0f, 1.0f)) * 0.04f,
+                0.0f,
+                1.0f);
+            float rotation = Hash01(coord.X, coord.Z, point.Id * 104_729, profile.Seed + 211) * Mathf.Pi * 2.0f;
+            float scale = LandmarkScaleFor(kind, point.Score);
+            Color tint = LandmarkColorFor(kind, field);
+
+            var localPosition = new Vector3(localX, height, localZ);
+            landmarks.Add(new TerrainLandmarkData(kind, localPosition, score, $"POI_{point.Id:00}_{point.Kind}"));
+            scatter.Add(new TerrainScatterInstance(TerrainScatterKind.Landmark, localPosition, rotation, scale, tint, kind));
+        }
     }
 
     private static void AddBestLandmark(
@@ -505,7 +584,76 @@ public static class TerrainTileBuilder
         Color tint = best.Kind == TerrainLandmarkKind.RiverCrossing
             ? new Color(0.42f, 0.48f, 0.45f)
             : new Color(0.52f, 0.50f, 0.44f);
-        scatter.Add(new TerrainScatterInstance(TerrainScatterKind.Landmark, best.LocalPosition, rotation, scale, tint));
+        scatter.Add(new TerrainScatterInstance(TerrainScatterKind.Landmark, best.LocalPosition, rotation, scale, tint, best.Kind));
+    }
+
+    private static bool IsNearPlannedPoint(Vector2 world, TerrainWorldPointOfInterest[] plannedPoints, float radius)
+    {
+        if (plannedPoints.Length == 0)
+        {
+            return false;
+        }
+
+        float radiusSquared = radius * radius;
+        foreach (TerrainWorldPointOfInterest point in plannedPoints)
+        {
+            if (world.DistanceSquaredTo(point.WorldPosition) <= radiusSquared)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static TerrainLandmarkKind LandmarkKindFor(TerrainPointOfInterestKind kind)
+    {
+        return kind switch
+        {
+            TerrainPointOfInterestKind.SettlementCandidate => TerrainLandmarkKind.Settlement,
+            TerrainPointOfInterestKind.Vista => TerrainLandmarkKind.Vista,
+            TerrainPointOfInterestKind.RiverCrossing => TerrainLandmarkKind.RiverCrossing,
+            TerrainPointOfInterestKind.MountainPass => TerrainLandmarkKind.MountainPass,
+            TerrainPointOfInterestKind.CoastalLanding => TerrainLandmarkKind.CoastalLanding,
+            TerrainPointOfInterestKind.ResourceGrove => TerrainLandmarkKind.ResourceGrove,
+            TerrainPointOfInterestKind.CanyonOverlook => TerrainLandmarkKind.CanyonOverlook,
+            _ => TerrainLandmarkKind.AncientStone
+        };
+    }
+
+    private static float LandmarkScaleFor(TerrainLandmarkKind kind, float score)
+    {
+        float quality = Mathf.Lerp(0.88f, 1.24f, Mathf.Clamp(score, 0.0f, 1.0f));
+        float baseScale = kind switch
+        {
+            TerrainLandmarkKind.Settlement => 7.8f,
+            TerrainLandmarkKind.Vista => 6.6f,
+            TerrainLandmarkKind.RiverCrossing => 6.2f,
+            TerrainLandmarkKind.MountainPass => 7.0f,
+            TerrainLandmarkKind.CoastalLanding => 7.4f,
+            TerrainLandmarkKind.ResourceGrove => 6.8f,
+            TerrainLandmarkKind.CanyonOverlook => 7.2f,
+            _ => 7.0f
+        };
+
+        return baseScale * quality;
+    }
+
+    private static Color LandmarkColorFor(TerrainLandmarkKind kind, TerrainWorldField field)
+    {
+        Color baseColor = kind switch
+        {
+            TerrainLandmarkKind.Settlement => new Color(0.70f, 0.52f, 0.32f),
+            TerrainLandmarkKind.Vista => new Color(0.86f, 0.74f, 0.30f),
+            TerrainLandmarkKind.RiverCrossing => new Color(0.42f, 0.48f, 0.45f),
+            TerrainLandmarkKind.MountainPass => new Color(0.56f, 0.54f, 0.62f),
+            TerrainLandmarkKind.CoastalLanding => new Color(0.46f, 0.58f, 0.64f),
+            TerrainLandmarkKind.ResourceGrove => new Color(0.28f, 0.54f, 0.28f),
+            TerrainLandmarkKind.CanyonOverlook => new Color(0.66f, 0.38f, 0.24f),
+            _ => new Color(0.52f, 0.50f, 0.44f)
+        };
+
+        return baseColor.Lerp(Colors.White, Mathf.Clamp(field.ScenicPotential * 0.12f, 0.0f, 0.12f));
     }
 
     private static float SampleHeightBilinear(float localX, float localZ, int resolution, float step, float[] heights, int vertexCountPerSide)

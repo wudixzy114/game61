@@ -12,7 +12,9 @@ namespace {
 
 struct NativeTerrainProfile {
 	int32_t seed = 613061;
+	double chunk_size = 192.0;
 	double height_scale = 780.0;
+	double sea_level = -18.0;
 	double continent_scale = 5200.0;
 	double mountain_scale = 1800.0;
 	double mountain_weight = 0.72;
@@ -22,6 +24,7 @@ struct NativeTerrainProfile {
 	double river_strength = 0.58;
 	double river_carve_depth = 115.0;
 	double terrace_strength = 72.0;
+	double land_balance_offset = 0.0;
 };
 
 int fast_floor(double p_value) {
@@ -134,7 +137,12 @@ void domain_warp(double p_x, double p_z, double p_scale, double p_amplitude, int
 	r_z = p_z + wz * p_amplitude;
 }
 
-double sample_height_native(double p_x, double p_z, const NativeTerrainProfile &p_profile) {
+double sample_height_unbalanced(
+		double p_x,
+		double p_z,
+		const NativeTerrainProfile &p_profile,
+		bool p_include_micro,
+		double &r_mountains) {
 	double warped_x = 0.0;
 	double warped_z = 0.0;
 	domain_warp(
@@ -173,6 +181,7 @@ double sample_height_native(double p_x, double p_z, const NativeTerrainProfile &
 			7);
 	const double mountain_mask = smooth_step(0.42, 0.86, continent);
 	const double mountains = ridge * mountain_mask * p_profile.mountain_weight;
+	r_mountains = mountains;
 
 	const double broad = fbm(
 								 warped_x / (p_profile.mountain_scale * 1.75),
@@ -197,11 +206,13 @@ double sample_height_native(double p_x, double p_z, const NativeTerrainProfile &
 	double river = std::max(main_river, tributary * 0.58);
 	river = clamp_value(river * smooth_step(0.21, 0.72, continent) * p_profile.river_strength * 1.24, 0.0, 1.0);
 
-	const double micro = fbm(
-			p_x / 118.0,
-			p_z / 118.0,
-			p_profile.seed + 71,
-			4);
+	const double micro = p_include_micro ?
+			fbm(
+					p_x / 118.0,
+					p_z / 118.0,
+					p_profile.seed + 71,
+					4) :
+			0.0;
 
 	double height =
 			((basin - 0.44) * p_profile.height_scale * 0.72) +
@@ -209,8 +220,46 @@ double sample_height_native(double p_x, double p_z, const NativeTerrainProfile &
 			(mountains * p_profile.height_scale * 1.08) +
 			(micro * p_profile.height_scale * p_profile.detail_weight);
 
+	const double shallow_shelf = shelf * (1.0 - smooth_step(0.14, 0.46, mountains));
+	const double waterline_proximity = 1.0 - smooth_step(p_profile.sea_level + 52.0, p_profile.sea_level + 220.0, height);
+	height -= shallow_shelf * waterline_proximity * p_profile.height_scale * 0.035;
+
 	const double valley_carve = river * p_profile.river_carve_depth * (0.35 + mountains * 0.85);
 	height -= valley_carve * p_profile.valley_weight;
+
+	return height;
+}
+
+double compute_land_balance_offset(const NativeTerrainProfile &p_profile) {
+	constexpr int resolution = 17;
+	constexpr double target_land_ratio = 0.58;
+	constexpr double correction_strength = 0.36;
+	const double extent = std::max(p_profile.chunk_size * 48.0, p_profile.continent_scale * 2.2);
+	int land_count = 0;
+
+	for (int y = 0; y < resolution; y++) {
+		for (int x = 0; x < resolution; x++) {
+			const double tx = static_cast<double>(x) / static_cast<double>(resolution - 1);
+			const double ty = static_cast<double>(y) / static_cast<double>(resolution - 1);
+			const double world_x = (tx - 0.5) * extent;
+			const double world_z = (ty - 0.5) * extent;
+			double mountains = 0.0;
+			const double height = sample_height_unbalanced(world_x, world_z, p_profile, false, mountains);
+			if (height >= p_profile.sea_level + 3.0) {
+				land_count++;
+			}
+		}
+	}
+
+	const double land_ratio = static_cast<double>(land_count) / static_cast<double>(resolution * resolution);
+	const double offset = (land_ratio - target_land_ratio) * p_profile.height_scale * correction_strength;
+	return clamp_value(offset, p_profile.height_scale * -0.075, p_profile.height_scale * 0.075);
+}
+
+double sample_height_native(double p_x, double p_z, const NativeTerrainProfile &p_profile) {
+	double mountains = 0.0;
+	double height = sample_height_unbalanced(p_x, p_z, p_profile, true, mountains);
+	height -= p_profile.land_balance_offset;
 
 	const double terrace_mask = smooth_step(0.52, 0.86, mountains) * p_profile.vista_frequency;
 	return terrace(height, std::max(12.0, p_profile.terrace_strength), terrace_mask * 0.38);
@@ -218,7 +267,9 @@ double sample_height_native(double p_x, double p_z, const NativeTerrainProfile &
 
 NativeTerrainProfile make_profile(
 		int32_t p_seed,
+		double p_chunk_size,
 		double p_height_scale,
+		double p_sea_level,
 		double p_continent_scale,
 		double p_mountain_scale,
 		double p_mountain_weight,
@@ -230,7 +281,9 @@ NativeTerrainProfile make_profile(
 		double p_terrace_strength) {
 	NativeTerrainProfile profile;
 	profile.seed = p_seed;
+	profile.chunk_size = std::max(16.0, p_chunk_size);
 	profile.height_scale = p_height_scale;
+	profile.sea_level = p_sea_level;
 	profile.continent_scale = std::max(128.0, p_continent_scale);
 	profile.mountain_scale = std::max(64.0, p_mountain_scale);
 	profile.mountain_weight = clamp_value(p_mountain_weight, 0.0, 1.0);
@@ -240,6 +293,7 @@ NativeTerrainProfile make_profile(
 	profile.river_strength = clamp_value(p_river_strength, 0.0, 1.0);
 	profile.river_carve_depth = p_river_carve_depth;
 	profile.terrace_strength = p_terrace_strength;
+	profile.land_balance_offset = compute_land_balance_offset(profile);
 	return profile;
 }
 
@@ -254,7 +308,9 @@ void DaoExtension::_bind_methods() {
 					"x",
 					"z",
 					"seed",
+					"chunk_size",
 					"height_scale",
+					"sea_level",
 					"continent_scale",
 					"mountain_scale",
 					"mountain_weight",
@@ -275,6 +331,7 @@ void DaoExtension::_bind_methods() {
 					"resolution",
 					"chunk_size",
 					"height_scale",
+					"sea_level",
 					"continent_scale",
 					"mountain_scale",
 					"mountain_weight",
@@ -295,7 +352,9 @@ double DaoExtension::sample_height(
 		double p_x,
 		double p_z,
 		int32_t p_seed,
+		double p_chunk_size,
 		double p_height_scale,
+		double p_sea_level,
 		double p_continent_scale,
 		double p_mountain_scale,
 		double p_mountain_weight,
@@ -307,7 +366,9 @@ double DaoExtension::sample_height(
 		double p_terrace_strength) {
 	const NativeTerrainProfile profile = make_profile(
 			p_seed,
+			p_chunk_size,
 			p_height_scale,
+			p_sea_level,
 			p_continent_scale,
 			p_mountain_scale,
 			p_mountain_weight,
@@ -327,6 +388,7 @@ PackedFloat32Array DaoExtension::sample_height_grid(
 		int32_t p_resolution,
 		double p_chunk_size,
 		double p_height_scale,
+		double p_sea_level,
 		double p_continent_scale,
 		double p_mountain_scale,
 		double p_mountain_weight,
@@ -341,7 +403,9 @@ PackedFloat32Array DaoExtension::sample_height_grid(
 	const double step = p_chunk_size / static_cast<double>(resolution);
 	const NativeTerrainProfile profile = make_profile(
 			p_seed,
+			p_chunk_size,
 			p_height_scale,
+			p_sea_level,
 			p_continent_scale,
 			p_mountain_scale,
 			p_mountain_weight,
@@ -374,6 +438,7 @@ extern "C" GDE_EXPORT int dao_native_sample_height_grid(
 		int32_t p_resolution,
 		double p_chunk_size,
 		double p_height_scale,
+		double p_sea_level,
 		double p_continent_scale,
 		double p_mountain_scale,
 		double p_mountain_weight,
@@ -396,7 +461,9 @@ extern "C" GDE_EXPORT int dao_native_sample_height_grid(
 	const double step = p_chunk_size / static_cast<double>(resolution);
 	const NativeTerrainProfile profile = make_profile(
 			p_seed,
+			p_chunk_size,
 			p_height_scale,
+			p_sea_level,
 			p_continent_scale,
 			p_mountain_scale,
 			p_mountain_weight,

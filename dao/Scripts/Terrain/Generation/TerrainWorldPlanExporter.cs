@@ -140,6 +140,8 @@ public static class TerrainWorldPlanExporter
         builder.AppendLine(FormattableString.Invariant(
             $"Connected point ratio: {planning.ConnectedPointRatio:0.000}"));
         builder.AppendLine(FormattableString.Invariant(
+            $"World coverage POIs/routes: {planning.PointOfInterestWorldCoverage:0.000} / {planning.RouteWorldCoverage:0.000}"));
+        builder.AppendLine(FormattableString.Invariant(
             $"Average point score: {planning.AveragePointScore:0.000}"));
         builder.AppendLine(FormattableString.Invariant(
             $"Average route cost/scenic/traversability: {planning.AverageRouteCost:0.0} / {planning.AverageRouteScenicPotential:0.000} / {planning.AverageRouteTraversability:0.000}"));

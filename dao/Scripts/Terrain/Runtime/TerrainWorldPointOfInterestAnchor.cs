@@ -13,9 +13,15 @@ public partial class TerrainWorldPointOfInterestAnchor : Marker3D
     public float ScenicPotential { get; private set; }
     public float Traversability { get; private set; }
     public TerrainLandscapeKind LandscapeKind { get; private set; }
+    public TerrainPointOfInterestVisualKind VisualKind { get; private set; }
+    public string GameplayTag { get; private set; } = string.Empty;
+    public float InteractionRadius { get; private set; }
+    public int EncounterBudget { get; private set; }
 
     public void Configure(TerrainWorldPointOfInterest point, Vector3 worldPosition)
     {
+        TerrainPointOfInterestArchetype archetype = TerrainPointOfInterestArchetypeCatalog.Get(point.Kind);
+
         Id = point.Id;
         Kind = point.Kind;
         WorldPosition2D = point.WorldPosition;
@@ -24,15 +30,24 @@ public partial class TerrainWorldPointOfInterestAnchor : Marker3D
         ScenicPotential = point.ScenicPotential;
         Traversability = point.Traversability;
         LandscapeKind = point.LandscapeKind;
+        VisualKind = archetype.VisualKind;
+        GameplayTag = archetype.GameplayTag;
+        InteractionRadius = archetype.InteractionRadius;
+        EncounterBudget = archetype.EncounterBudget;
 
         Name = $"POI_{Id:00}_{Kind}";
         GlobalPosition = worldPosition;
         AddToGroup("terrain_poi");
+        AddToGroup(GameplayTag);
         SetMeta("terrain_poi_id", Id);
         SetMeta("terrain_poi_kind", Kind.ToString());
+        SetMeta("terrain_poi_visual", VisualKind.ToString());
+        SetMeta("terrain_poi_gameplay_tag", GameplayTag);
         SetMeta("terrain_poi_score", Score);
         SetMeta("terrain_poi_scenic", ScenicPotential);
         SetMeta("terrain_poi_traversability", Traversability);
         SetMeta("terrain_poi_landscape", LandscapeKind.ToString());
+        SetMeta("terrain_poi_interaction_radius", InteractionRadius);
+        SetMeta("terrain_poi_encounter_budget", EncounterBudget);
     }
 }

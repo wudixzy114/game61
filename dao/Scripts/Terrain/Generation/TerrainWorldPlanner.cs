@@ -112,15 +112,19 @@ public readonly record struct TerrainWorldPlanningThresholds(
     int MinRoutes,
     int MinRouteKinds,
     float MinConnectedPointRatio,
+    float MinPointOfInterestWorldCoverage,
+    float MinRouteWorldCoverage,
     float MinAverageRouteTraversability,
     float MinAverageRouteScenicPotential)
 {
     public static TerrainWorldPlanningThresholds OpenWorldDefault { get; } = new(
         MinPointsOfInterest: 18,
         MinPointOfInterestKinds: 5,
-        MinRoutes: 10,
+        MinRoutes: 48,
         MinRouteKinds: 3,
-        MinConnectedPointRatio: 0.55f,
+        MinConnectedPointRatio: 0.95f,
+        MinPointOfInterestWorldCoverage: 0.70f,
+        MinRouteWorldCoverage: 0.70f,
         MinAverageRouteTraversability: 0.34f,
         MinAverageRouteScenicPotential: 0.20f);
 }
@@ -131,6 +135,8 @@ public readonly record struct TerrainWorldPlanningReport(
     int RouteCount,
     int DistinctRouteKinds,
     float ConnectedPointRatio,
+    float PointOfInterestWorldCoverage,
+    float RouteWorldCoverage,
     float AveragePointScore,
     float AverageRouteCost,
     float AverageRouteScenicPotential,
@@ -201,7 +207,7 @@ public static class TerrainWorldPlanner
         TerrainWorldPointOfInterest[] points = SelectPointsOfInterest(candidates, profile, safeMaxPoints, cellSize);
         TerrainWorldRoute[] routes = BuildRoutes(points, fields, profile, resolution, safeMaxRoutes);
         TerrainQualityReport qualityReport = TerrainQualityAnalyzer.Analyze(profile, center, safeWorldSize, resolution);
-        TerrainWorldPlanningReport planningReport = AnalyzePlanning(points, routes);
+        TerrainWorldPlanningReport planningReport = AnalyzePlanning(points, routes, safeWorldSize);
 
         return new TerrainWorldPlan(
             center,
@@ -226,12 +232,12 @@ public static class TerrainWorldPlanner
             worldSize,
             planningResolution,
             maxPointsOfInterest: 48,
-            maxRoutes: 36);
+            maxRoutes: 64);
     }
 
     public static TerrainWorldPlanningReport AnalyzePlanning(TerrainWorldPlan plan)
     {
-        return AnalyzePlanning(plan.PointsOfInterest, plan.Routes);
+        return AnalyzePlanning(plan.PointsOfInterest, plan.Routes, plan.WorldSize);
     }
 
     public static TerrainWorldPlanningGateResult ValidatePlanning(
@@ -276,6 +282,20 @@ public static class TerrainWorldPlanner
             report.ConnectedPointRatio >= thresholds.MinConnectedPointRatio,
             $"{report.ConnectedPointRatio:0.000}",
             $">= {thresholds.MinConnectedPointRatio:0.000}",
+            ref passed);
+        AppendGate(
+            summary,
+            "point world coverage",
+            report.PointOfInterestWorldCoverage >= thresholds.MinPointOfInterestWorldCoverage,
+            $"{report.PointOfInterestWorldCoverage:0.000}",
+            $">= {thresholds.MinPointOfInterestWorldCoverage:0.000}",
+            ref passed);
+        AppendGate(
+            summary,
+            "route world coverage",
+            report.RouteWorldCoverage >= thresholds.MinRouteWorldCoverage,
+            $"{report.RouteWorldCoverage:0.000}",
+            $">= {thresholds.MinRouteWorldCoverage:0.000}",
             ref passed);
         AppendGate(
             summary,
@@ -557,12 +577,129 @@ public static class TerrainWorldPlanner
             remaining.Remove(bestTo);
         }
 
+        AddSecondaryRoutes(points, fields, profile, resolution, maxRoutes, routes);
         return routes.ToArray();
+    }
+
+    private static void AddSecondaryRoutes(
+        TerrainWorldPointOfInterest[] points,
+        TerrainWorldField[] fields,
+        TerrainGenerationProfile profile,
+        int resolution,
+        int maxRoutes,
+        List<TerrainWorldRoute> routes)
+    {
+        if (routes.Count >= maxRoutes || points.Length < 3)
+        {
+            return;
+        }
+
+        var existingEdges = new HashSet<long>();
+        var routeDegree = new int[points.Length];
+        foreach (TerrainWorldRoute route in routes)
+        {
+            existingEdges.Add(PointPairKey(route.FromPointId, route.ToPointId));
+            if ((uint)route.FromPointId < (uint)routeDegree.Length)
+            {
+                routeDegree[route.FromPointId]++;
+            }
+
+            if ((uint)route.ToPointId < (uint)routeDegree.Length)
+            {
+                routeDegree[route.ToPointId]++;
+            }
+        }
+
+        var candidates = new List<SecondaryRouteCandidate>(points.Length * 4);
+        float minDistance = profile.ChunkSize * 2.0f;
+        float idealDistance = profile.ChunkSize * 18.0f;
+        float maxDistance = profile.ChunkSize * 42.0f;
+
+        for (int from = 0; from < points.Length - 1; from++)
+        {
+            for (int to = from + 1; to < points.Length; to++)
+            {
+                long key = PointPairKey(points[from].Id, points[to].Id);
+                if (existingEdges.Contains(key))
+                {
+                    continue;
+                }
+
+                float distance = points[from].WorldPosition.DistanceTo(points[to].WorldPosition);
+                if (distance < minDistance || distance > maxDistance)
+                {
+                    continue;
+                }
+
+                candidates.Add(new SecondaryRouteCandidate(
+                    from,
+                    to,
+                    ScoreSecondaryRouteCandidate(points[from], points[to], routeDegree, distance, idealDistance)));
+            }
+        }
+
+        candidates.Sort((a, b) => b.Score.CompareTo(a.Score));
+
+        int testedCandidates = 0;
+        int maxCandidateTests = Mathf.Max(64, (maxRoutes - routes.Count) * 10);
+        foreach (SecondaryRouteCandidate candidate in candidates)
+        {
+            if (routes.Count >= maxRoutes || testedCandidates >= maxCandidateTests)
+            {
+                break;
+            }
+
+            TerrainWorldPointOfInterest from = points[candidate.FromIndex];
+            TerrainWorldPointOfInterest to = points[candidate.ToIndex];
+            long key = PointPairKey(from.Id, to.Id);
+            if (existingEdges.Contains(key))
+            {
+                continue;
+            }
+
+            testedCandidates++;
+            TerrainWorldRoute? route = TryBuildRoute(from, to, fields, profile, resolution);
+            if (route is null)
+            {
+                continue;
+            }
+
+            routes.Add(route.Value);
+            existingEdges.Add(key);
+            routeDegree[from.Id]++;
+            routeDegree[to.Id]++;
+        }
+    }
+
+    private static float ScoreSecondaryRouteCandidate(
+        TerrainWorldPointOfInterest from,
+        TerrainWorldPointOfInterest to,
+        int[] routeDegree,
+        float distance,
+        float idealDistance)
+    {
+        float endpointScore = (from.Score + to.Score) * 0.5f;
+        float scenicScore = (from.ScenicPotential + to.ScenicPotential) * 0.5f;
+        float traversalScore = (from.Traversability + to.Traversability) * 0.5f;
+        int fromDegree = (uint)from.Id < (uint)routeDegree.Length ? routeDegree[from.Id] : 0;
+        int toDegree = (uint)to.Id < (uint)routeDegree.Length ? routeDegree[to.Id] : 0;
+        float underConnectedScore = 1.0f / (1.0f + Mathf.Min(fromDegree, toDegree));
+        float kindVariety = from.Kind == to.Kind ? 0.0f : 1.0f;
+        float distanceScore = 1.0f - Mathf.Clamp(Mathf.Abs(distance - idealDistance) / Mathf.Max(1.0f, idealDistance), 0.0f, 1.0f);
+
+        return
+            endpointScore * 0.28f +
+            scenicScore * 0.26f +
+            traversalScore * 0.16f +
+            underConnectedScore * 0.18f +
+            kindVariety * 0.06f +
+            distanceScore * 0.06f;
     }
 
     private static TerrainWorldPlanningReport AnalyzePlanning(
         TerrainWorldPointOfInterest[] points,
-        TerrainWorldRoute[] routes)
+        TerrainWorldRoute[] routes,
+        float worldSize)
     {
         Span<int> poiCounts = stackalloc int[8];
         Span<int> routeCounts = stackalloc int[5];
@@ -600,6 +737,8 @@ public static class TerrainWorldPlanner
             routes.Length,
             distinctRouteKinds,
             points.Length == 0 ? 0.0f : connected.Count / (float)points.Length,
+            ComputePointCoverage(points, worldSize),
+            ComputeRouteCoverage(routes, worldSize),
             scoreSum * invPoiCount,
             routeCostSum * invRouteCount,
             routeScenicSum * invRouteCount,
@@ -617,6 +756,71 @@ public static class TerrainWorldPlanner
             routeCounts[(int)TerrainRouteKind.RidgePass],
             routeCounts[(int)TerrainRouteKind.CoastalPath],
             routeCounts[(int)TerrainRouteKind.ScenicTrail]);
+    }
+
+    private static float ComputePointCoverage(
+        TerrainWorldPointOfInterest[] points,
+        float worldSize)
+    {
+        if (points.Length == 0)
+        {
+            return 0.0f;
+        }
+
+        float minX = float.PositiveInfinity;
+        float maxX = float.NegativeInfinity;
+        float minY = float.PositiveInfinity;
+        float maxY = float.NegativeInfinity;
+
+        foreach (TerrainWorldPointOfInterest point in points)
+        {
+            minX = Mathf.Min(minX, point.WorldPosition.X);
+            maxX = Mathf.Max(maxX, point.WorldPosition.X);
+            minY = Mathf.Min(minY, point.WorldPosition.Y);
+            maxY = Mathf.Max(maxY, point.WorldPosition.Y);
+        }
+
+        return ComputeNormalizedCoverage(minX, maxX, minY, maxY, worldSize);
+    }
+
+    private static float ComputeRouteCoverage(
+        TerrainWorldRoute[] routes,
+        float worldSize)
+    {
+        bool hasWaypoint = false;
+        float minX = float.PositiveInfinity;
+        float maxX = float.NegativeInfinity;
+        float minY = float.PositiveInfinity;
+        float maxY = float.NegativeInfinity;
+
+        foreach (TerrainWorldRoute route in routes)
+        {
+            foreach (Vector2 waypoint in route.Waypoints)
+            {
+                hasWaypoint = true;
+                minX = Mathf.Min(minX, waypoint.X);
+                maxX = Mathf.Max(maxX, waypoint.X);
+                minY = Mathf.Min(minY, waypoint.Y);
+                maxY = Mathf.Max(maxY, waypoint.Y);
+            }
+        }
+
+        return hasWaypoint
+            ? ComputeNormalizedCoverage(minX, maxX, minY, maxY, worldSize)
+            : 0.0f;
+    }
+
+    private static float ComputeNormalizedCoverage(
+        float minX,
+        float maxX,
+        float minY,
+        float maxY,
+        float worldSize)
+    {
+        float safeWorldSize = Mathf.Max(1.0f, worldSize);
+        float coverageX = Mathf.Clamp((maxX - minX) / safeWorldSize, 0.0f, 1.0f);
+        float coverageY = Mathf.Clamp((maxY - minY) / safeWorldSize, 0.0f, 1.0f);
+        return Mathf.Clamp(Mathf.Sqrt((coverageX * coverageX) + (coverageY * coverageY)) / 1.4142135f, 0.0f, 1.0f);
     }
 
     private static TerrainWorldRoute? TryBuildRoute(
@@ -884,6 +1088,13 @@ public static class TerrainWorldPlanner
         return y * resolution + x;
     }
 
+    private static long PointPairKey(int a, int b)
+    {
+        int min = Math.Min(a, b);
+        int max = Math.Max(a, b);
+        return ((long)min << 32) | (uint)max;
+    }
+
     private static float Hash01(int x, int y, int seed)
     {
         unchecked
@@ -935,6 +1146,11 @@ public static class TerrainWorldPlanner
             .Append(expected)
             .AppendLine();
     }
+
+    private readonly record struct SecondaryRouteCandidate(
+        int FromIndex,
+        int ToIndex,
+        float Score);
 
     private readonly record struct PoiCandidate(
         TerrainPointOfInterestKind Kind,
