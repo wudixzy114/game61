@@ -510,6 +510,9 @@ public static partial class TerrainTileBuilder
             TerrainLandmarkKind.DesertMonolith => 5.8f,
             TerrainLandmarkKind.CanyonNeedle => 6.2f,
             TerrainLandmarkKind.IceSpire => 5.6f,
+            TerrainLandmarkKind.NaturalArch => 6.0f,
+            TerrainLandmarkKind.GeothermalSpring => 5.2f,
+            TerrainLandmarkKind.GlacialRidge => 5.8f,
             _ => 7.0f
         };
 
@@ -543,6 +546,9 @@ public static partial class TerrainTileBuilder
             TerrainLandmarkKind.DesertMonolith => new Color(0.62f, 0.42f, 0.24f),
             TerrainLandmarkKind.CanyonNeedle => new Color(0.58f, 0.36f, 0.24f),
             TerrainLandmarkKind.IceSpire => new Color(0.62f, 0.76f, 0.86f),
+            TerrainLandmarkKind.NaturalArch => new Color(0.66f, 0.44f, 0.28f),
+            TerrainLandmarkKind.GeothermalSpring => new Color(0.24f, 0.58f, 0.62f),
+            TerrainLandmarkKind.GlacialRidge => new Color(0.70f, 0.82f, 0.88f),
             _ => new Color(0.52f, 0.50f, 0.44f)
         };
 
