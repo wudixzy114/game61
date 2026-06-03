@@ -9,6 +9,7 @@ using Godot;
 
 namespace Dao.Terrain.Streaming;
 
+/// <summary>Streaming terrain world that manages chunk loading/unloading, tile caching, and asynchronous generation job scheduling.</summary>
 [GlobalClass]
 public partial class TerrainWorld : Node3D
 {
@@ -84,12 +85,14 @@ public partial class TerrainWorld : Node3D
         DisposeCompletedRetiredJobs();
     }
 
+    /// <summary>Sets the camera or player focus node and forces a streaming update.</summary>
     public void SetFocus(Node3D focus)
     {
         _focus = focus;
         UpdateStreaming(force: true);
     }
 
+    /// <summary>Sets or clears the world plan, rebuilding corridor and POI indices and invalidating the tile cache.</summary>
     public void SetWorldPlan(TerrainWorldPlan? worldPlan)
     {
         _worldPlan = worldPlan;
@@ -107,6 +110,7 @@ public partial class TerrainWorld : Node3D
         UpdateStreaming(force: true);
     }
 
+    /// <summary>Regenerates the terrain profile and rebuilds all streaming state.</summary>
     public void Regenerate()
     {
         Settings ??= new TerrainSettings();

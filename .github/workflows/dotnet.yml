@@ -66,5 +66,9 @@ jobs:
       - name: Build
         run: dotnet build tools/TerrainValidation/TerrainValidation.csproj --configuration ${{ env.CONFIGURATION }} --no-restore -m:1 -p:UseSharedCompilation=false -warnaserror
 
+      - name: Verify XML documentation file was generated
+        run: test -f dao/.godot/mono/temp/bin/${{ env.CONFIGURATION }}/dao.xml
+        shell: bash
+
       - name: Validate terrain generation
         run: dotnet run --project tools/TerrainValidation/TerrainValidation.csproj --configuration ${{ env.CONFIGURATION }} --no-build -- --seed-count 3

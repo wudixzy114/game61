@@ -6,6 +6,7 @@ using Godot;
 
 namespace Dao.Demo;
 
+/// <summary>Demo entry point that sets up a procedural terrain world with a fly camera, lighting, and optional open world plan overlay and export.</summary>
 [GlobalClass]
 public partial class TerrainDemo : Node3D
 {

@@ -2,6 +2,7 @@ using Godot;
 
 namespace Dao.Terrain.Generation;
 
+/// <summary>Selects which terrain attribute is visualized when exporting a map image.</summary>
 public enum TerrainMapLayer
 {
     Biome,
@@ -18,6 +19,7 @@ public enum TerrainMapLayer
     Landscape
 }
 
+/// <summary>A single terrain sample ready for map export with pre-computed color.</summary>
 public readonly record struct TerrainMapSample(
     Vector2 WorldPosition,
     float Height,
@@ -34,8 +36,10 @@ public readonly record struct TerrainMapSample(
     TerrainBiomeKind Biome,
     Color Color);
 
+/// <summary>Exports terrain data as colorized map images (biome, height, moisture, etc.) and samples individual points.</summary>
 public static class TerrainMapExporter
 {
+    /// <summary>Samples a single world point and produces a map-ready sample with surface color.</summary>
     public static TerrainMapSample SampleWorld(Vector2 world, TerrainGenerationProfile profile)
     {
         TerrainWorldField field = TerrainWorldFieldSampler.Sample(world, profile);
@@ -59,6 +63,7 @@ public static class TerrainMapExporter
             ColorForBiome(field.BiomeKind, terrainColor));
     }
 
+    /// <summary>Creates a biome-colored map image of the terrain.</summary>
     public static Image CreateBiomeMap(
         TerrainGenerationProfile profile,
         Vector2 center,
@@ -68,6 +73,7 @@ public static class TerrainMapExporter
         return CreateMap(profile, center, worldSize, imageSize, TerrainMapLayer.Biome);
     }
 
+    /// <summary>Creates a map image for the specified terrain layer.</summary>
     public static Image CreateMap(
         TerrainGenerationProfile profile,
         Vector2 center,
@@ -95,6 +101,7 @@ public static class TerrainMapExporter
         return image;
     }
 
+    /// <summary>Saves a PNG biome map to disk.</summary>
     public static Error SaveBiomeMap(
         TerrainGenerationProfile profile,
         Vector2 center,
@@ -105,6 +112,7 @@ public static class TerrainMapExporter
         return SaveMap(profile, center, worldSize, imageSize, TerrainMapLayer.Biome, outputPath);
     }
 
+    /// <summary>Saves a PNG map for the specified layer to disk.</summary>
     public static Error SaveMap(
         TerrainGenerationProfile profile,
         Vector2 center,

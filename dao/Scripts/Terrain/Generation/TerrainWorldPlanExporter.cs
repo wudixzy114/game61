@@ -5,6 +5,7 @@ using Godot;
 
 namespace Dao.Terrain.Generation;
 
+/// <summary>Carries the outcome of a world plan export operation, including gate validation results and file paths.</summary>
 public readonly record struct TerrainWorldPlanArtifactResult(
     TerrainWorldPlan Plan,
     TerrainWorldPlanningGateResult PlanningGate,
@@ -23,12 +24,14 @@ public readonly record struct TerrainWorldPlanArtifactResult(
         ReportSaveError == Error.Ok;
 }
 
+/// <summary>Exports open-world terrain plans as PNG maps and text reports, drawing routes and POI markers on the map.</summary>
 public static class TerrainWorldPlanExporter
 {
     private static readonly Color RouteShadow = new(0.02f, 0.018f, 0.014f, 0.70f);
     private static readonly Color MarkerOutline = new(0.03f, 0.025f, 0.018f, 0.86f);
     private static readonly Color MarkerCore = new(0.96f, 0.92f, 0.78f, 0.78f);
 
+    /// <summary>Creates a plan, validates it, and saves map + report artifacts.</summary>
     public static TerrainWorldPlanArtifactResult SaveOpenWorldArtifacts(
         TerrainGenerationProfile profile,
         Vector2 center,
@@ -41,6 +44,7 @@ public static class TerrainWorldPlanExporter
         return SaveOpenWorldArtifacts(plan, profile, imageSize, outputDirectory, baseLayer);
     }
 
+    /// <summary>Validates a plan and saves map + report artifacts to disk.</summary>
     public static TerrainWorldPlanArtifactResult SaveOpenWorldArtifacts(
         TerrainWorldPlan plan,
         TerrainGenerationProfile profile,
@@ -72,6 +76,7 @@ public static class TerrainWorldPlanExporter
             reportError);
     }
 
+    /// <summary>Saves a plan map (base layer + routes + POIs) as a PNG image.</summary>
     public static Error SavePlanMap(
         TerrainWorldPlan plan,
         TerrainGenerationProfile profile,
@@ -84,6 +89,7 @@ public static class TerrainWorldPlanExporter
         return image.SavePng(outputPath);
     }
 
+    /// <summary>Creates a plan map image with base layer terrain, route lines, and POI markers.</summary>
     public static Image CreatePlanMap(
         TerrainWorldPlan plan,
         TerrainGenerationProfile profile,
@@ -105,6 +111,7 @@ public static class TerrainWorldPlanExporter
         return image;
     }
 
+    /// <summary>Creates a detailed text report describing a world plan's quality, planning, and experience metrics.</summary>
     public static string CreateTextReport(
         TerrainWorldPlan plan,
         TerrainWorldPlanningGateResult planningGate,
@@ -216,6 +223,7 @@ public static class TerrainWorldPlanExporter
         return builder.ToString();
     }
 
+    /// <summary>Saves a text report to a file.</summary>
     public static Error SaveTextReport(
         TerrainWorldPlan plan,
         TerrainWorldPlanningGateResult planningGate,

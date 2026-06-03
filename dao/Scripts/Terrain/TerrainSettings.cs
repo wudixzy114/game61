@@ -2,6 +2,7 @@ using Godot;
 
 namespace Dao.Terrain;
 
+/// <summary>Godot resource that stores all terrain generation parameters and produces immutable <see cref="TerrainGenerationProfile"/> snapshots.</summary>
 [GlobalClass]
 public partial class TerrainSettings : Resource
 {
@@ -36,6 +37,7 @@ public partial class TerrainSettings : Resource
     [Export] public bool GenerateCollision { get; set; } = true;
     [Export] public bool UseNativeSamplerWhenAvailable { get; set; } = true;
 
+    /// <summary>Creates an immutable snapshot profile from the current settings, clamping values to valid ranges.</summary>
     public TerrainGenerationProfile Snapshot()
     {
         return new TerrainGenerationProfile(
@@ -65,6 +67,7 @@ public partial class TerrainSettings : Resource
     }
 }
 
+/// <summary>Immutable snapshot of all parameters needed to generate terrain. Produced by <see cref="TerrainSettings.Snapshot"/>.</summary>
 public readonly record struct TerrainGenerationProfile(
     int Seed,
     float ChunkSize,
@@ -90,6 +93,7 @@ public readonly record struct TerrainGenerationProfile(
     bool GenerateCollision,
     bool UseNativeSamplerWhenAvailable)
 {
+    /// <summary>Returns the tile vertex resolution for a given LOD (halved each step, minimum 8).</summary>
     public int ResolutionForLod(int lod)
     {
         int safeLod = Mathf.Clamp(lod, 0, MaxLod);

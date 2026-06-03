@@ -3,8 +3,10 @@ using Godot;
 
 namespace Dao.Terrain.Rendering;
 
+/// <summary>Creates Godot ArrayMesh instances from generated terrain tile data.</summary>
 public static class TerrainMeshBuilder
 {
+    /// <summary>Creates an ArrayMesh from the vertices, normals, UVs, colors, and indices in the tile data.</summary>
     public static ArrayMesh CreateMesh(TerrainTileData data)
     {
         var arrays = new Godot.Collections.Array();

@@ -3,6 +3,7 @@ using Godot;
 
 namespace Dao.Terrain.Generation;
 
+/// <summary>Broad landscape form classification for a terrain position.</summary>
 public enum TerrainLandscapeKind
 {
     Ocean,
@@ -18,6 +19,7 @@ public enum TerrainLandscapeKind
     VistaPlateau
 }
 
+/// <summary>Climate-based biome classification for a terrain position.</summary>
 public enum TerrainBiomeKind
 {
     Ocean,
@@ -34,6 +36,7 @@ public enum TerrainBiomeKind
     Snowfield
 }
 
+/// <summary>Complete set of derived terrain attributes sampled at a world position.</summary>
 public readonly record struct TerrainWorldField(
     Vector2 WorldPosition,
     float Height,
@@ -54,12 +57,14 @@ public readonly record struct TerrainWorldField(
     TerrainBiomeKind BiomeKind,
     TerrainLandscapeKind LandscapeKind);
 
+/// <summary>Primary sampler that computes all terrain field values (height, climate, resources, etc.) at any world coordinate.</summary>
 public static class TerrainWorldFieldSampler
 {
     public const int NativeFieldGridStride = 17;
 
     private static readonly ConcurrentDictionary<TerrainGenerationProfile, float> LandBalanceOffsets = new();
 
+    /// <summary>Full terrain sample at a world position, computing all field attributes including height.</summary>
     public static TerrainWorldField Sample(Vector2 world, TerrainGenerationProfile profile)
     {
         TerrainShapeTerms terms = SampleShapeTerms(world, profile, includeMicroDetail: true);
@@ -67,12 +72,14 @@ public static class TerrainWorldFieldSampler
         return BuildField(world, profile, terms, height);
     }
 
+    /// <summary>Samples terrain fields using a precomputed height, skipping micro-detail for efficiency.</summary>
     public static TerrainWorldField SampleKnownHeight(Vector2 world, TerrainGenerationProfile profile, float height)
     {
         TerrainShapeTerms terms = SampleShapeTerms(world, profile, includeMicroDetail: false);
         return BuildField(world, profile, terms, height);
     }
 
+    /// <summary>Deserializes a <see cref="TerrainWorldField"/> from a native sampler's flat float array at the given index.</summary>
     public static TerrainWorldField SampleNativeFieldGrid(Vector2 world, TerrainGenerationProfile profile, float[] samples, int sampleIndex)
     {
         int offset = sampleIndex * NativeFieldGridStride;
@@ -98,6 +105,7 @@ public static class TerrainWorldFieldSampler
         return BuildField(world, profile, terms, height);
     }
 
+    /// <summary>Returns the cached land-balance height offset for the given profile (computes if needed).</summary>
     public static float LandBalanceOffsetFor(TerrainGenerationProfile profile)
     {
         return GetLandBalanceOffset(profile);

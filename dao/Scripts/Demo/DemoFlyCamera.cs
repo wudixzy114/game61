@@ -2,6 +2,7 @@ using Godot;
 
 namespace Dao.Demo;
 
+/// <summary>First-person fly camera for the terrain demo, with WASD movement, mouse look, and Ctrl sprint.</summary>
 [GlobalClass]
 public partial class DemoFlyCamera : Camera3D
 {

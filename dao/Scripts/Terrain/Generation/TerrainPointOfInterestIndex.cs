@@ -4,6 +4,7 @@ using Godot;
 
 namespace Dao.Terrain.Generation;
 
+/// <summary>Spatial index that maps tile coordinates to planned points of interest for per-tile footprint and landmark influence.</summary>
 public sealed class TerrainPointOfInterestIndex
 {
     private static readonly TerrainWorldPointOfInterest[] NoPoints = [];
@@ -18,11 +19,15 @@ public sealed class TerrainPointOfInterestIndex
         _pointsByCoord = pointsByCoord;
     }
 
+    /// <summary>An empty index with no POIs.</summary>
     public static TerrainPointOfInterestIndex Empty { get; } = new(0, []);
 
+    /// <summary>Hash-derived cache key to detect index changes.</summary>
     public int CacheKey { get; }
+    /// <summary>True if the index has at least one POI.</summary>
     public bool HasPoints => _pointsByCoord.Count > 0;
 
+    /// <summary>Builds a spatial POI index from a world plan, bucketing points by the tiles they influence.</summary>
     public static TerrainPointOfInterestIndex FromPlan(TerrainWorldPlan plan, TerrainGenerationProfile profile)
     {
         if (plan.PointsOfInterest.Length == 0)
@@ -68,6 +73,7 @@ public sealed class TerrainPointOfInterestIndex
         return new TerrainPointOfInterestIndex(hash == 0 ? 1 : hash, immutableBuckets);
     }
 
+    /// <summary>Returns all POIs whose footprint overlaps the given tile coordinate.</summary>
     public TerrainWorldPointOfInterest[] GetPoints(TerrainTileCoord coord)
     {
         return _pointsByCoord.TryGetValue(coord, out TerrainWorldPointOfInterest[]? points)
@@ -75,6 +81,7 @@ public sealed class TerrainPointOfInterestIndex
             : NoPoints;
     }
 
+    /// <summary>Returns the footprint (influence) radius for a POI based on its settlement tier or kind.</summary>
     public static float FootprintRadiusFor(TerrainWorldPointOfInterest point, TerrainGenerationProfile profile)
     {
         float chunkSize = profile.ChunkSize;

@@ -5,6 +5,7 @@ using Godot;
 
 namespace Dao.Terrain.Streaming;
 
+/// <summary>A single terrain tile in the streaming world, holding render mesh, scatter multimeshes, and collision.</summary>
 public partial class TerrainChunk : Node3D
 {
     private MeshInstance3D? _meshInstance;
@@ -19,6 +20,7 @@ public partial class TerrainChunk : Node3D
     public int Lod { get; private set; }
     public bool HasCollision { get; private set; }
 
+    /// <summary>Applies terrain tile data, rebuilding the render mesh, scatter instances, and collision geometry.</summary>
     public void Apply(TerrainTileData data, Material terrainMaterial)
     {
         Coord = data.Coord;

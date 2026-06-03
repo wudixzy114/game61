@@ -3,8 +3,10 @@ using Dao.Terrain.Generation;
 
 namespace Dao.Terrain.Rendering;
 
+/// <summary>Factory for creating StandardMaterial3D instances used by terrain, water, scatter, landmark, and plan overlay rendering.</summary>
 public static class TerrainMaterialFactory
 {
+    /// <summary>Creates the main terrain surface material using vertex colors for albedo.</summary>
     public static StandardMaterial3D CreateTerrainMaterial()
     {
         return new StandardMaterial3D
@@ -17,6 +19,7 @@ public static class TerrainMaterialFactory
         };
     }
 
+    /// <summary>Creates a semi-transparent water material.</summary>
     public static StandardMaterial3D CreateWaterMaterial()
     {
         return new StandardMaterial3D
@@ -28,6 +31,7 @@ public static class TerrainMaterialFactory
         };
     }
 
+    /// <summary>Creates a vertex-colored material for tree scatter meshes.</summary>
     public static StandardMaterial3D CreateTreeMaterial()
     {
         return new StandardMaterial3D
@@ -39,6 +43,7 @@ public static class TerrainMaterialFactory
         };
     }
 
+    /// <summary>Creates a vertex-colored material for rock scatter meshes.</summary>
     public static StandardMaterial3D CreateRockMaterial()
     {
         return new StandardMaterial3D
@@ -50,6 +55,7 @@ public static class TerrainMaterialFactory
         };
     }
 
+    /// <summary>Creates a material appropriate for the given scatter kind, with per-kind emission and roughness overrides.</summary>
     public static StandardMaterial3D CreateScatterMaterial(TerrainScatterKind kind)
     {
         StandardMaterial3D material = kind switch
@@ -149,6 +155,7 @@ public static class TerrainMaterialFactory
         return material;
     }
 
+    /// <summary>Creates a vertex-colored material with subtle emission for landmark meshes.</summary>
     public static StandardMaterial3D CreateLandmarkMaterial()
     {
         return new StandardMaterial3D
@@ -163,6 +170,7 @@ public static class TerrainMaterialFactory
         };
     }
 
+    /// <summary>Creates an unshaded, emissive material for plan overlay POI markers.</summary>
     public static StandardMaterial3D CreatePlanMarkerMaterial()
     {
         return new StandardMaterial3D
@@ -179,6 +187,7 @@ public static class TerrainMaterialFactory
         };
     }
 
+    /// <summary>Creates an unshaded, alpha-transparent material for plan overlay route ribbons.</summary>
     public static StandardMaterial3D CreatePlanRouteMaterial()
     {
         return new StandardMaterial3D

@@ -6,8 +6,10 @@ using Godot;
 
 namespace Dao.Terrain.Generation;
 
+/// <summary>Builds terrain tile meshes, heights, scatter, and landmarks from field data, route corridors, and POI footprints.</summary>
 public static partial class TerrainTileBuilder
 {
+    /// <summary>Builds a terrain tile without route or POI data.</summary>
     public static TerrainTileData Build(
         TerrainTileCoord coord,
         int lod,
@@ -18,6 +20,7 @@ public static partial class TerrainTileBuilder
         return Build(coord, lod, profile, includeCollision, TerrainRouteCorridorIndex.Empty, cancellationToken);
     }
 
+    /// <summary>Builds a terrain tile with route corridor data.</summary>
     public static TerrainTileData Build(
         TerrainTileCoord coord,
         int lod,
@@ -29,6 +32,7 @@ public static partial class TerrainTileBuilder
         return Build(coord, lod, profile, includeCollision, routeCorridors, TerrainPointOfInterestIndex.Empty, cancellationToken);
     }
 
+    /// <summary>Builds a terrain tile with both route corridor data and POI footprint data.</summary>
     public static TerrainTileData Build(
         TerrainTileCoord coord,
         int lod,

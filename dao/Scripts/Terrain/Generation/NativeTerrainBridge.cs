@@ -6,6 +6,7 @@ using Godot;
 
 namespace Dao.Terrain.Generation;
 
+/// <summary>Provides interop with a native (C++) terrain sampling library for accelerated height and field grid sampling.</summary>
 public static class NativeTerrainBridge
 {
     private static readonly object Lock = new();
@@ -16,6 +17,7 @@ public static class NativeTerrainBridge
     private static SampleHeightGridV2Delegate? _sampleHeightGridV2;
     private static SampleHeightGridDelegate? _sampleHeightGrid;
 
+    /// <summary>True if the native library was successfully loaded and at least one export is available.</summary>
     public static bool IsAvailable
     {
         get
@@ -25,6 +27,7 @@ public static class NativeTerrainBridge
         }
     }
 
+    /// <summary>Attempts to fill a height grid using the native sampler. Returns false if the native library is unavailable.</summary>
     public static bool TrySampleHeightGrid(
         TerrainTileCoord coord,
         int resolution,
@@ -95,6 +98,7 @@ public static class NativeTerrainBridge
         }
     }
 
+    /// <summary>Attempts to fill a full field grid (height + shape terms + climate) using the native sampler.</summary>
     public static bool TrySampleFieldGrid(
         TerrainTileCoord coord,
         int resolution,
@@ -110,6 +114,7 @@ public static class NativeTerrainBridge
         return TrySampleFieldGrid(coord, resolution, profile, samples, expectedCount);
     }
 
+    /// <summary>Attempts to write native field samples into a caller-provided buffer.</summary>
     public static bool TrySampleFieldGrid(
         TerrainTileCoord coord,
         int resolution,
@@ -162,6 +167,7 @@ public static class NativeTerrainBridge
         }
     }
 
+    /// <summary>Attempts to load the native library if not already initialized. Safe to call multiple times.</summary>
     public static void EnsureInitialized()
     {
         if (_initialized)

@@ -4,6 +4,7 @@ using Godot;
 
 namespace Dao.Terrain.Generation;
 
+/// <summary>Corridor influence sample at a single world point, including core strength and direction.</summary>
 public readonly record struct TerrainRouteCorridorSample(
     bool HasInfluence,
     TerrainRouteKind Kind,
@@ -18,6 +19,7 @@ public readonly record struct TerrainRouteCorridorSample(
     public static TerrainRouteCorridorSample None { get; } = new(false, TerrainRouteKind.PrimaryTrail, 0.0f, 0.0f, float.PositiveInfinity, 0.0f, 0.0f, 0.0f, Vector2.Zero);
 }
 
+/// <summary>A single corridor segment along a route between two waypoints.</summary>
 public readonly record struct TerrainRouteCorridorSegment(
     Vector2 From,
     Vector2 To,
@@ -29,6 +31,7 @@ public readonly record struct TerrainRouteCorridorSegment(
     float ScenicPotential,
     float Traversability);
 
+/// <summary>Spatial index that maps tile coordinates to route corridor segments for efficient per-tile sampling.</summary>
 public sealed class TerrainRouteCorridorIndex
 {
     private static readonly TerrainRouteCorridorSegment[] NoSegments = [];
@@ -43,11 +46,15 @@ public sealed class TerrainRouteCorridorIndex
         _segmentsByCoord = segmentsByCoord;
     }
 
+    /// <summary>An empty index with no segments.</summary>
     public static TerrainRouteCorridorIndex Empty { get; } = new(0, []);
 
+    /// <summary>Hash-derived cache key used to detect when the index has changed.</summary>
     public int CacheKey { get; }
+    /// <summary>True if the index contains at least one segment.</summary>
     public bool HasSegments => _segmentsByCoord.Count > 0;
 
+    /// <summary>Builds a corridor index from a world plan, segmenting all routes by tile coordinate.</summary>
     public static TerrainRouteCorridorIndex FromPlan(TerrainWorldPlan plan, TerrainGenerationProfile profile)
     {
         if (plan.Routes.Length == 0)
@@ -107,6 +114,7 @@ public sealed class TerrainRouteCorridorIndex
         return new TerrainRouteCorridorIndex(hash == 0 ? 1 : hash, immutableBuckets);
     }
 
+    /// <summary>Returns all corridor segments overlapping the given tile coordinate.</summary>
     public TerrainRouteCorridorSegment[] GetSegments(TerrainTileCoord coord)
     {
         return _segmentsByCoord.TryGetValue(coord, out TerrainRouteCorridorSegment[]? segments)
@@ -114,11 +122,13 @@ public sealed class TerrainRouteCorridorIndex
             : NoSegments;
     }
 
+    /// <summary>Samples corridor influence at a world position, looking up segments by tile coordinate.</summary>
     public TerrainRouteCorridorSample Sample(Vector2 world, TerrainTileCoord coord)
     {
         return Sample(world, GetSegments(coord));
     }
 
+    /// <summary>Samples corridor influence at a world position against a pre-resolved segment array.</summary>
     public TerrainRouteCorridorSample Sample(Vector2 world, TerrainRouteCorridorSegment[] segments)
     {
         if (segments.Length == 0)

@@ -4,6 +4,7 @@ using Godot;
 
 namespace Dao.Terrain.Generation;
 
+/// <summary>Partial class containing scenic landmark detection and scoring for tile generation.</summary>
 public static partial class TerrainTileBuilder
 {
     private static void AddBestLandmark(
