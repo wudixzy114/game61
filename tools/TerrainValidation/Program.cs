@@ -938,7 +938,7 @@ static TerrainScenicLandmarkSmokeReport ValidateScenicLandmarkMaterialization(
 
     if (coords.Count == 0)
     {
-        return new TerrainScenicLandmarkSmokeReport(false, 0, 0, 0, 0, 0, 0, 0, 0, 0, "no scenic natural landmark candidate tiles found");
+        return new TerrainScenicLandmarkSmokeReport(false, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "no scenic natural landmark candidate tiles found");
     }
 
     TerrainPointOfInterestIndex poiIndex = TerrainPointOfInterestIndex.FromPlan(plan, profile);
@@ -949,6 +949,9 @@ static TerrainScenicLandmarkSmokeReport ValidateScenicLandmarkMaterialization(
     int desertMonolithCount = 0;
     int canyonNeedleCount = 0;
     int iceSpireCount = 0;
+    int naturalArchCount = 0;
+    int geothermalSpringCount = 0;
+    int glacialRidgeCount = 0;
     int scenicLandmarkCount = 0;
 
     foreach (TerrainTileCoord coord in coords)
@@ -989,6 +992,18 @@ static TerrainScenicLandmarkSmokeReport ValidateScenicLandmarkMaterialization(
             {
                 iceSpireCount++;
             }
+            else if (scatter.LandmarkKind == TerrainLandmarkKind.NaturalArch)
+            {
+                naturalArchCount++;
+            }
+            else if (scatter.LandmarkKind == TerrainLandmarkKind.GeothermalSpring)
+            {
+                geothermalSpringCount++;
+            }
+            else if (scatter.LandmarkKind == TerrainLandmarkKind.GlacialRidge)
+            {
+                glacialRidgeCount++;
+            }
 
             if (scatter.LandmarkKind is
                 TerrainLandmarkKind.Waterfall or
@@ -996,6 +1011,9 @@ static TerrainScenicLandmarkSmokeReport ValidateScenicLandmarkMaterialization(
                 TerrainLandmarkKind.DesertMonolith or
                 TerrainLandmarkKind.CanyonNeedle or
                 TerrainLandmarkKind.IceSpire or
+                TerrainLandmarkKind.NaturalArch or
+                TerrainLandmarkKind.GeothermalSpring or
+                TerrainLandmarkKind.GlacialRidge or
                 TerrainLandmarkKind.Vista or
                 TerrainLandmarkKind.CanyonOverlook)
             {
@@ -1004,11 +1022,33 @@ static TerrainScenicLandmarkSmokeReport ValidateScenicLandmarkMaterialization(
         }
     }
 
-    int biomeScenicLandmarkCount = duneCrestCount + desertMonolithCount + canyonNeedleCount + iceSpireCount;
-    int distinctGeneratedKinds = CountPositive(waterfallCount, duneCrestCount, desertMonolithCount, canyonNeedleCount, iceSpireCount);
-    bool passed = waterfallCount > 0 && biomeScenicLandmarkCount > 0 && distinctGeneratedKinds >= 3 && scenicLandmarkCount >= waterfallCount + biomeScenicLandmarkCount;
+    int biomeScenicLandmarkCount =
+        duneCrestCount +
+        desertMonolithCount +
+        canyonNeedleCount +
+        iceSpireCount +
+        naturalArchCount +
+        geothermalSpringCount +
+        glacialRidgeCount;
+    int distinctGeneratedKinds = CountPositive(
+        waterfallCount,
+        duneCrestCount,
+        desertMonolithCount,
+        canyonNeedleCount,
+        iceSpireCount,
+        naturalArchCount,
+        geothermalSpringCount,
+        glacialRidgeCount);
+    bool passed =
+        waterfallCount > 0 &&
+        biomeScenicLandmarkCount > 0 &&
+        naturalArchCount > 0 &&
+        geothermalSpringCount > 0 &&
+        glacialRidgeCount > 0 &&
+        distinctGeneratedKinds >= 7 &&
+        scenicLandmarkCount >= waterfallCount + biomeScenicLandmarkCount;
     string reason = passed
-        ? "scenic natural landmarks materialized across water, desert, rock, and snow terrain"
+        ? "scenic natural landmarks materialized across water, desert, rock, geothermal, and snow terrain"
         : "generated scenic landmark variety did not materialize";
 
     return new TerrainScenicLandmarkSmokeReport(
@@ -1020,6 +1060,9 @@ static TerrainScenicLandmarkSmokeReport ValidateScenicLandmarkMaterialization(
         desertMonolithCount,
         canyonNeedleCount,
         iceSpireCount,
+        naturalArchCount,
+        geothermalSpringCount,
+        glacialRidgeCount,
         distinctGeneratedKinds,
         scenicLandmarkCount,
         reason);
@@ -1140,7 +1183,8 @@ static void PrintScenicLandmarkSmoke(TerrainScenicLandmarkSmokeReport report)
     Console.WriteLine(
         $"Scenic landmark smoke: {(report.Passed ? "PASS" : "FAIL")} " +
         $"tiles {report.SampledTileCount}/{report.CandidateTileCount}, " +
-        $"waterfalls/dunes/monoliths/needles/ice {report.WaterfallCount}/{report.DuneCrestCount}/{report.DesertMonolithCount}/{report.CanyonNeedleCount}/{report.IceSpireCount}, " +
+        $"waterfalls/dunes/monoliths/needles/ice/arches/springs/glacial " +
+        $"{report.WaterfallCount}/{report.DuneCrestCount}/{report.DesertMonolithCount}/{report.CanyonNeedleCount}/{report.IceSpireCount}/{report.NaturalArchCount}/{report.GeothermalSpringCount}/{report.GlacialRidgeCount}, " +
         $"distinct {report.DistinctGeneratedKindCount}, scenic landmarks {report.ScenicLandmarkCount} ({report.Reason})");
 }
 
@@ -1867,6 +1911,9 @@ internal readonly record struct TerrainScenicLandmarkSmokeReport(
     int DesertMonolithCount,
     int CanyonNeedleCount,
     int IceSpireCount,
+    int NaturalArchCount,
+    int GeothermalSpringCount,
+    int GlacialRidgeCount,
     int DistinctGeneratedKindCount,
     int ScenicLandmarkCount,
     string Reason);

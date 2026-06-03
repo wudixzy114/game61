@@ -131,6 +131,9 @@ public static partial class TerrainTileBuilder
             ConsiderNaturalLandmark(TerrainLandmarkKind.DesertMonolith, ScoreDesertMonolithLandmark(field, slope, elevation), ref kind, ref score);
             ConsiderNaturalLandmark(TerrainLandmarkKind.CanyonNeedle, ScoreCanyonNeedleLandmark(field, slope, elevation), ref kind, ref score);
             ConsiderNaturalLandmark(TerrainLandmarkKind.IceSpire, ScoreIceSpireLandmark(field, slope, elevation), ref kind, ref score);
+            ConsiderNaturalLandmark(TerrainLandmarkKind.NaturalArch, ScoreNaturalArchLandmark(field, slope, elevation), ref kind, ref score);
+            ConsiderNaturalLandmark(TerrainLandmarkKind.GeothermalSpring, ScoreGeothermalSpringLandmark(field, slope, elevation), ref kind, ref score);
+            ConsiderNaturalLandmark(TerrainLandmarkKind.GlacialRidge, ScoreGlacialRidgeLandmark(field, slope, elevation), ref kind, ref score);
 
             if (score > bestScore)
             {
@@ -252,6 +255,69 @@ public static partial class TerrainTileBuilder
             Mathf.Clamp(1.0f - field.Temperature, 0.0f, 1.0f) * 0.06f;
     }
 
+    private static float ScoreNaturalArchLandmark(TerrainWorldField field, float slope, float elevation)
+    {
+        bool rockArchTerrain = field.LandscapeKind is TerrainLandscapeKind.Canyon or TerrainLandscapeKind.Highlands or TerrainLandscapeKind.VistaPlateau;
+        bool desertArchTerrain = IsDesertLike(field) && field.Exposure > 0.58f && slope > 0.14f;
+        if ((!rockArchTerrain && !desertArchTerrain) || slope is < 0.10f or > 0.34f)
+        {
+            return 0.0f;
+        }
+
+        float slopeFit = 1.0f - Mathf.Clamp(Mathf.Abs(slope - 0.18f) * 3.6f, 0.0f, 1.0f);
+        float dryness = Mathf.Clamp(1.0f - field.Moisture, 0.0f, 1.0f);
+        return 0.42f +
+            field.ScenicPotential * 0.22f +
+            field.Exposure * 0.18f +
+            dryness * 0.10f +
+            elevation * 0.08f +
+            slopeFit * 0.12f;
+    }
+
+    private static float ScoreGeothermalSpringLandmark(TerrainWorldField field, float slope, float elevation)
+    {
+        bool springTerrain =
+            field.LandscapeKind is TerrainLandscapeKind.Highlands or TerrainLandscapeKind.MountainMassif or TerrainLandscapeKind.RiverValley or TerrainLandscapeKind.Snowfield ||
+            field.BiomeKind == TerrainBiomeKind.Snowfield;
+        if (!springTerrain || slope > 0.22f || field.Moisture < 0.34f || field.River > 0.62f)
+        {
+            return 0.0f;
+        }
+
+        float flatness = 1.0f - Mathf.Clamp(slope * 3.2f, 0.0f, 1.0f);
+        float thermalContrast = Mathf.Clamp(1.0f - field.Temperature, 0.0f, 1.0f) * 0.06f +
+            Mathf.Clamp(field.Temperature, 0.0f, 1.0f) * 0.04f;
+        return 0.32f +
+            field.ScenicPotential * 0.20f +
+            field.Moisture * 0.16f +
+            field.River * 0.10f +
+            elevation * 0.12f +
+            flatness * 0.10f +
+            thermalContrast;
+    }
+
+    private static float ScoreGlacialRidgeLandmark(TerrainWorldField field, float slope, float elevation)
+    {
+        if (field.BiomeKind != TerrainBiomeKind.Snowfield && field.LandscapeKind != TerrainLandscapeKind.Snowfield)
+        {
+            return 0.0f;
+        }
+
+        if (slope > 0.20f)
+        {
+            return 0.0f;
+        }
+
+        float ridgeFit = Mathf.Clamp((field.Exposure + elevation) * 0.5f, 0.0f, 1.0f);
+        float cold = Mathf.Clamp(1.0f - field.Temperature, 0.0f, 1.0f);
+        return 0.46f +
+            field.ScenicPotential * 0.18f +
+            field.Exposure * 0.22f +
+            elevation * 0.18f +
+            ridgeFit * 0.08f +
+            cold * 0.07f;
+    }
+
     private static bool IsDesertLike(TerrainWorldField field)
     {
         return field.BiomeKind is TerrainBiomeKind.Desert or TerrainBiomeKind.Oasis &&
@@ -268,6 +334,9 @@ public static partial class TerrainTileBuilder
             TerrainLandmarkKind.DesertMonolith => 0.66f,
             TerrainLandmarkKind.CanyonNeedle => 0.70f,
             TerrainLandmarkKind.IceSpire => 0.66f,
+            TerrainLandmarkKind.NaturalArch => 0.64f,
+            TerrainLandmarkKind.GeothermalSpring => 0.64f,
+            TerrainLandmarkKind.GlacialRidge => 0.64f,
             _ => 0.72f
         };
     }
@@ -281,6 +350,9 @@ public static partial class TerrainTileBuilder
             TerrainLandmarkKind.DesertMonolith => 3.6f + score * 2.8f,
             TerrainLandmarkKind.CanyonNeedle => 4.2f + score * 3.0f,
             TerrainLandmarkKind.IceSpire => 3.6f + score * 2.4f,
+            TerrainLandmarkKind.NaturalArch => 4.2f + score * 2.8f,
+            TerrainLandmarkKind.GeothermalSpring => 3.8f + score * 2.2f,
+            TerrainLandmarkKind.GlacialRidge => 4.4f + score * 2.6f,
             _ => 4.8f + score * 2.0f
         };
     }
@@ -294,6 +366,9 @@ public static partial class TerrainTileBuilder
             TerrainLandmarkKind.DesertMonolith => new Color(0.62f, 0.42f, 0.24f),
             TerrainLandmarkKind.CanyonNeedle => new Color(0.58f, 0.36f, 0.24f),
             TerrainLandmarkKind.IceSpire => new Color(0.62f, 0.76f, 0.86f),
+            TerrainLandmarkKind.NaturalArch => new Color(0.66f, 0.44f, 0.28f),
+            TerrainLandmarkKind.GeothermalSpring => new Color(0.24f, 0.58f, 0.62f),
+            TerrainLandmarkKind.GlacialRidge => new Color(0.70f, 0.82f, 0.88f),
             _ => new Color(0.52f, 0.50f, 0.44f)
         };
 
@@ -378,7 +453,10 @@ public static partial class TerrainTileBuilder
                     ScoreDuneCrestLandmark(field, slope, elevation) >= 0.56f ||
                     ScoreDesertMonolithLandmark(field, slope, elevation) >= 0.56f ||
                     ScoreCanyonNeedleLandmark(field, slope, elevation) >= 0.58f ||
-                    ScoreIceSpireLandmark(field, slope, elevation) >= 0.56f)
+                    ScoreIceSpireLandmark(field, slope, elevation) >= 0.56f ||
+                    ScoreNaturalArchLandmark(field, slope, elevation) >= 0.56f ||
+                    ScoreGeothermalSpringLandmark(field, slope, elevation) >= 0.54f ||
+                    ScoreGlacialRidgeLandmark(field, slope, elevation) >= 0.56f)
                 {
                     return true;
                 }

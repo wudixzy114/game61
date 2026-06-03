@@ -46,7 +46,10 @@ public enum TerrainLandmarkKind
     DuneCrest,
     DesertMonolith,
     CanyonNeedle,
-    IceSpire
+    IceSpire,
+    NaturalArch,
+    GeothermalSpring,
+    GlacialRidge
 }
 
 public readonly record struct TerrainScatterInstance(

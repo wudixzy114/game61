@@ -539,6 +539,18 @@ public partial class TerrainChunk : Node3D
                 CapTop = true,
                 CapBottom = true
             },
+            TerrainLandmarkKind.NaturalArch => new BoxMesh { Size = new Vector3(2.25f, 1.18f, 0.42f) },
+            TerrainLandmarkKind.GeothermalSpring => new CylinderMesh
+            {
+                TopRadius = 0.92f,
+                BottomRadius = 0.72f,
+                Height = 0.16f,
+                RadialSegments = 18,
+                Rings = 1,
+                CapTop = true,
+                CapBottom = true
+            },
+            TerrainLandmarkKind.GlacialRidge => new BoxMesh { Size = new Vector3(2.60f, 0.42f, 0.88f) },
             _ => new BoxMesh { Size = new Vector3(0.78f, 2.6f, 0.78f) }
         };
 
@@ -575,6 +587,9 @@ public partial class TerrainChunk : Node3D
             TerrainLandmarkKind.DesertMonolith => new Vector3(scale * 0.78f, scale * 1.85f, scale * 0.72f),
             TerrainLandmarkKind.CanyonNeedle => new Vector3(scale * 0.64f, scale * 2.18f, scale * 0.58f),
             TerrainLandmarkKind.IceSpire => new Vector3(scale * 0.52f, scale * 1.92f, scale * 0.52f),
+            TerrainLandmarkKind.NaturalArch => new Vector3(scale * 1.88f, scale * 1.08f, scale * 0.44f),
+            TerrainLandmarkKind.GeothermalSpring => new Vector3(scale * 1.42f, scale * 0.10f, scale * 1.42f),
+            TerrainLandmarkKind.GlacialRidge => new Vector3(scale * 2.18f, scale * 0.36f, scale * 0.88f),
             TerrainLandmarkKind.Vista => new Vector3(scale * 0.86f, scale * 1.42f, scale * 0.86f),
             _ => Vector3.One * scale
         };
@@ -607,6 +622,9 @@ public partial class TerrainChunk : Node3D
             TerrainLandmarkKind.DesertMonolith => 0.84f,
             TerrainLandmarkKind.CanyonNeedle => 1.06f,
             TerrainLandmarkKind.IceSpire => 0.96f,
+            TerrainLandmarkKind.NaturalArch => 0.46f,
+            TerrainLandmarkKind.GeothermalSpring => 0.04f,
+            TerrainLandmarkKind.GlacialRidge => 0.18f,
             _ => 0.64f
         };
 
