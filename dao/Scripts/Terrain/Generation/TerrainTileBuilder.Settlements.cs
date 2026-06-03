@@ -3,6 +3,7 @@ using Godot;
 
 namespace Dao.Terrain.Generation;
 
+/// <summary>Partial class handling POI settlement placement, interior scatter, footprints, and layout sampling for tile generation.</summary>
 public static partial class TerrainTileBuilder
 {
     private static void AddPlannedPoiLandmarks(

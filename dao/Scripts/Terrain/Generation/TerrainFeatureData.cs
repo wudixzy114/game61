@@ -2,6 +2,7 @@ using Godot;
 
 namespace Dao.Terrain.Generation;
 
+/// <summary>Categorizes the visual/gameplay type of a surface scatter instance.</summary>
 public enum TerrainScatterKind
 {
     Tree,
@@ -21,6 +22,7 @@ public enum TerrainScatterKind
     Landmark
 }
 
+/// <summary>Defines the specific landmark type for planned POIs and natural scenic features.</summary>
 public enum TerrainLandmarkKind
 {
     Settlement,
@@ -52,6 +54,7 @@ public enum TerrainLandmarkKind
     GlacialRidge
 }
 
+/// <summary>A single placed scatter object (tree, rock, landmark, etc.) with transform and tint.</summary>
 public readonly record struct TerrainScatterInstance(
     TerrainScatterKind Kind,
     Vector3 LocalPosition,
@@ -60,6 +63,7 @@ public readonly record struct TerrainScatterInstance(
     Color Color,
     TerrainLandmarkKind LandmarkKind)
 {
+    /// <summary>Creates a non-landmark scatter instance with a default landmark kind.</summary>
     public TerrainScatterInstance(
         TerrainScatterKind kind,
         Vector3 localPosition,
@@ -71,6 +75,7 @@ public readonly record struct TerrainScatterInstance(
     }
 }
 
+/// <summary>Metadata for a named landmark placed on the tile (used for POI identification and debugging).</summary>
 public readonly record struct TerrainLandmarkData(
     TerrainLandmarkKind Kind,
     Vector3 LocalPosition,

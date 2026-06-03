@@ -4,6 +4,7 @@ using Godot;
 
 namespace Dao.Terrain.Runtime;
 
+/// <summary>Visual representation kind for a POI, determining its editor/overlay mesh shape.</summary>
 public enum TerrainPointOfInterestVisualKind
 {
     Settlement,
@@ -20,6 +21,7 @@ public enum TerrainPointOfInterestVisualKind
     OasisHub
 }
 
+/// <summary>Describes the runtime visual, gameplay, and interaction properties for a POI kind.</summary>
 public readonly record struct TerrainPointOfInterestArchetype(
     TerrainPointOfInterestKind Kind,
     TerrainPointOfInterestVisualKind VisualKind,
@@ -31,6 +33,7 @@ public readonly record struct TerrainPointOfInterestArchetype(
     int EncounterBudget,
     Color Color);
 
+/// <summary>Reports whether a world plan's POIs are fully covered by defined archetypes.</summary>
 public readonly record struct TerrainPointOfInterestArchetypeValidationReport(
     bool Passed,
     int DefinedArchetypeCount,
@@ -40,6 +43,7 @@ public readonly record struct TerrainPointOfInterestArchetypeValidationReport(
     int PlanPointsWithArchetypes,
     string Summary);
 
+/// <summary>Catalog of runtime archetypes mapping each POI kind to visuals, gameplay tags, interaction settings, and colors.</summary>
 public static class TerrainPointOfInterestArchetypeCatalog
 {
     private static readonly TerrainPointOfInterestArchetype[] Archetypes =
@@ -138,6 +142,7 @@ public static class TerrainPointOfInterestArchetypeCatalog
 
     public static ReadOnlySpan<TerrainPointOfInterestArchetype> All => Archetypes;
 
+    /// <summary>Gets the archetype for the given POI kind, throwing if undefined.</summary>
     public static TerrainPointOfInterestArchetype Get(TerrainPointOfInterestKind kind)
     {
         if (TryGet(kind, out TerrainPointOfInterestArchetype archetype))
@@ -148,6 +153,7 @@ public static class TerrainPointOfInterestArchetypeCatalog
         throw new ArgumentOutOfRangeException(nameof(kind), kind, "No terrain point of interest archetype is defined.");
     }
 
+    /// <summary>Tries to retrieve the archetype for the given POI kind.</summary>
     public static bool TryGet(TerrainPointOfInterestKind kind, out TerrainPointOfInterestArchetype archetype)
     {
         for (int i = 0; i < Archetypes.Length; i++)
@@ -163,6 +169,7 @@ public static class TerrainPointOfInterestArchetypeCatalog
         return false;
     }
 
+    /// <summary>Determines the visual kind for a POI, factoring in settlement tier overrides.</summary>
     public static TerrainPointOfInterestVisualKind VisualKindFor(TerrainWorldPointOfInterest point)
     {
         return point.SettlementTier switch
@@ -174,6 +181,7 @@ public static class TerrainPointOfInterestArchetypeCatalog
         };
     }
 
+    /// <summary>Validates that all POI kinds have archetypes and all plan points are covered.</summary>
     public static TerrainPointOfInterestArchetypeValidationReport ValidatePlanReadiness(TerrainWorldPlan plan)
     {
         int expected = Enum.GetValues<TerrainPointOfInterestKind>().Length;

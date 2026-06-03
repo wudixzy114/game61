@@ -3,6 +3,7 @@ using Godot;
 
 namespace Dao.Terrain.Runtime;
 
+/// <summary>Runtime node for a planned route, exposing cost, scenic potential, and waypoint data via Godot meta properties.</summary>
 public partial class TerrainWorldRouteAnchor : Node3D
 {
     public int FromPointId { get; private set; }
@@ -14,6 +15,7 @@ public partial class TerrainWorldRouteAnchor : Node3D
     public Vector2 WorldMidpoint2D { get; private set; }
     public Vector2[] Waypoints { get; private set; } = [];
 
+    /// <summary>Configures this anchor from route plan data and places it at the midpoint.</summary>
     public void Configure(TerrainWorldRoute route, Vector3 worldPosition)
     {
         FromPointId = route.FromPointId;

@@ -3,8 +3,10 @@ using Godot;
 
 namespace Dao.Terrain.Generation;
 
+/// <summary>Provides procedural noise utilities: value noise, FBM, ridged noise, domain warping, and terracing.</summary>
 public static class ProceduralNoise
 {
+    /// <summary>Smooth value noise at (x, y), range [0, 1].</summary>
     public static float Value(float x, float y, int seed)
     {
         int xi = FastFloor(x);
@@ -22,11 +24,13 @@ public static class ProceduralNoise
         return Mathf.Lerp(Mathf.Lerp(a, b, sx), Mathf.Lerp(c, d, sx), sy);
     }
 
+    /// <summary>Signed value noise in range [-1, 1].</summary>
     public static float SignedValue(float x, float y, int seed)
     {
         return (Value(x, y, seed) * 2.0f) - 1.0f;
     }
 
+    /// <summary>Fractional Brownian motion by layering octaves of signed value noise.</summary>
     public static float Fbm(float x, float y, int seed, int octaves, float lacunarity = 2.03f, float gain = 0.5f)
     {
         float sum = 0.0f;
@@ -45,6 +49,7 @@ public static class ProceduralNoise
         return normalization <= 0.0f ? 0.0f : sum / normalization;
     }
 
+    /// <summary>Ridged multi-octave noise producing sharp creases, useful for mountain ridges.</summary>
     public static float Ridged(float x, float y, int seed, int octaves)
     {
         float sum = 0.0f;
@@ -66,6 +71,7 @@ public static class ProceduralNoise
         return normalization <= 0.0f ? 0.0f : sum / normalization;
     }
 
+    /// <summary>Applies FBM-based domain warping to a position for more organic noise patterns.</summary>
     public static Vector2 DomainWarp(Vector2 position, float scale, float amplitude, int seed)
     {
         float sx = position.X / scale;
@@ -75,6 +81,7 @@ public static class ProceduralNoise
         return new Vector2(position.X + wx * amplitude, position.Y + wy * amplitude);
     }
 
+    /// <summary>Quantizes height toward the nearest terrace step, controlled by strength.</summary>
     public static float Terrace(float height, float stepSize, float strength)
     {
         if (stepSize <= 0.001f || strength <= 0.001f)

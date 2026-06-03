@@ -3,6 +3,7 @@ using Godot;
 
 namespace Dao.Terrain.Runtime;
 
+/// <summary>Runtime node for a planned POI, exposing archetype-driven gameplay metadata via Godot groups and meta properties.</summary>
 public partial class TerrainWorldPointOfInterestAnchor : Marker3D
 {
     public int Id { get; private set; }
@@ -19,6 +20,7 @@ public partial class TerrainWorldPointOfInterestAnchor : Marker3D
     public float InteractionRadius { get; private set; }
     public int EncounterBudget { get; private set; }
 
+    /// <summary>Sets up this anchor from plan data and places it at the computed world position.</summary>
     public void Configure(TerrainWorldPointOfInterest point, Vector3 worldPosition)
     {
         TerrainPointOfInterestArchetype archetype = TerrainPointOfInterestArchetypeCatalog.Get(point.Kind);

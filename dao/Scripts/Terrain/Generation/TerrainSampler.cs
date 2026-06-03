@@ -2,6 +2,7 @@ using Godot;
 
 namespace Dao.Terrain.Generation;
 
+/// <summary>Convenience sampler combining field queries with surface-color computation for a world position.</summary>
 public static class TerrainSampler
 {
     private static readonly Color DeepWater = new(0.03f, 0.10f, 0.22f);
@@ -16,6 +17,7 @@ public static class TerrainSampler
     private static readonly Color Rock = new(0.34f, 0.34f, 0.32f);
     private static readonly Color Snow = new(0.86f, 0.88f, 0.84f);
 
+    /// <summary>Full terrain sample including surface color at the given world position.</summary>
     public static TerrainSample Sample(Vector2 world, TerrainGenerationProfile profile)
     {
         TerrainWorldField field = TerrainWorldFieldSampler.Sample(world, profile);
@@ -35,6 +37,7 @@ public static class TerrainSampler
             ColorFor(field.Height, profile.SeaLevel, 0.0f, field.River, field.Moisture, field.Temperature, field.BiomeKind));
     }
 
+    /// <summary>Terrain sample with an approximate slope computed via finite differencing.</summary>
     public static TerrainSample SampleWithSlope(Vector2 world, TerrainGenerationProfile profile, float spacing)
     {
         TerrainSample center = Sample(world, profile);
@@ -55,6 +58,7 @@ public static class TerrainSampler
         };
     }
 
+    /// <summary>Approximate surface normal at a world position using finite differencing.</summary>
     public static Vector3 NormalAt(Vector2 world, TerrainGenerationProfile profile, float spacing)
     {
         float delta = Mathf.Max(1.0f, spacing);
@@ -65,12 +69,14 @@ public static class TerrainSampler
         return new Vector3(left - right, delta * 2.0f, down - up).Normalized();
     }
 
+    /// <summary>Surface color at a world position given known height and slope.</summary>
     public static Color ColorForSurface(Vector2 world, TerrainGenerationProfile profile, float height, float slope)
     {
         TerrainWorldField field = TerrainWorldFieldSampler.SampleKnownHeight(world, profile, height);
         return ColorForSurface(field, profile, slope);
     }
 
+    /// <summary>Surface color derived from precomputed field attributes and slope.</summary>
     public static Color ColorForSurface(TerrainWorldField field, TerrainGenerationProfile profile, float slope)
     {
         return ColorFor(field.Height, profile.SeaLevel, slope, field.River, field.Moisture, field.Temperature, field.BiomeKind);

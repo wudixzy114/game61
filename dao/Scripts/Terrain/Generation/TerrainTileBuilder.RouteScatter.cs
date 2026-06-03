@@ -3,6 +3,7 @@ using Godot;
 
 namespace Dao.Terrain.Generation;
 
+/// <summary>Partial class for route-corridor scatter placement including road markers and bridge spans during tile generation.</summary>
 public static partial class TerrainTileBuilder
 {
     private static void AddRouteCorridorScatter(

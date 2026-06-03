@@ -4,6 +4,7 @@ using Godot;
 
 namespace Dao.Terrain.Generation;
 
+/// <summary>Threshold bounds for validating player experience metrics against a world plan.</summary>
 public readonly record struct TerrainExperienceThresholds(
     float MinEncounterRichRegionRatio,
     float MinResourceRichRegionRatio,
@@ -27,6 +28,7 @@ public readonly record struct TerrainExperienceThresholds(
         MinScenicAnchorRatio: 0.28f);
 }
 
+/// <summary>Player experience metrics derived from region attributes, POI values, and route rhythms.</summary>
 public readonly record struct TerrainExperienceReport(
     int RegionCount,
     float EncounterRichRegionRatio,
@@ -41,18 +43,22 @@ public readonly record struct TerrainExperienceReport(
     float RiskRewardBalance,
     float ScenicAnchorRatio);
 
+/// <summary>Result of validating experience metrics against configured thresholds.</summary>
 public readonly record struct TerrainExperienceGateResult(
     bool Passed,
     TerrainExperienceReport Report,
     string Summary);
 
+/// <summary>Analyzes world plan regions, POIs, and routes to produce player experience reports and validation gates.</summary>
 public static class TerrainExperienceAnalyzer
 {
+    /// <summary>Analyzes a world plan to produce an experience report.</summary>
     public static TerrainExperienceReport Analyze(TerrainWorldPlan plan)
     {
         return Analyze(plan.Regions, plan.PointsOfInterest, plan.Routes, plan.PlanningReport);
     }
 
+    /// <summary>Analyzes raw region, POI, and route data to produce an experience report.</summary>
     public static TerrainExperienceReport Analyze(
         ReadOnlySpan<TerrainWorldRegion> regions,
         ReadOnlySpan<TerrainWorldPointOfInterest> pointsOfInterest,
@@ -116,16 +122,19 @@ public static class TerrainExperienceAnalyzer
             ComputeScenicAnchorRatio(pointsOfInterest));
     }
 
+    /// <summary>Analyzes and validates a world plan against default open-world experience thresholds.</summary>
     public static TerrainExperienceGateResult ValidateOpenWorldDefault(TerrainWorldPlan plan)
     {
         return Validate(Analyze(plan), TerrainExperienceThresholds.OpenWorldDefault);
     }
 
+    /// <summary>Validates a pre-computed experience report against default open-world thresholds.</summary>
     public static TerrainExperienceGateResult ValidateOpenWorldDefault(TerrainExperienceReport report)
     {
         return Validate(report, TerrainExperienceThresholds.OpenWorldDefault);
     }
 
+    /// <summary>Validates an experience report against the given thresholds.</summary>
     public static TerrainExperienceGateResult Validate(
         TerrainExperienceReport report,
         TerrainExperienceThresholds thresholds)

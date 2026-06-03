@@ -5,6 +5,7 @@ using Godot;
 
 namespace Dao.Terrain.Generation;
 
+/// <summary>High-level region classification used for planning and reporting.</summary>
 public enum TerrainWorldRegionKind
 {
     Ocean,
@@ -26,6 +27,7 @@ public enum TerrainWorldRegionKind
     ScenicPlateau
 }
 
+/// <summary>Gameplay-relevant point of interest types that the planner can place.</summary>
 public enum TerrainPointOfInterestKind
 {
     SettlementCandidate,
@@ -39,6 +41,7 @@ public enum TerrainPointOfInterestKind
     Oasis
 }
 
+/// <summary>Settlement development tiers, from none up to full town or oasis hub.</summary>
 public enum TerrainSettlementTier
 {
     None,
@@ -47,6 +50,7 @@ public enum TerrainSettlementTier
     OasisHub
 }
 
+/// <summary>Route style classifications that determine corridor width, surface color, and gameplay feel.</summary>
 public enum TerrainRouteKind
 {
     PrimaryTrail,
@@ -56,6 +60,7 @@ public enum TerrainRouteKind
     ScenicTrail
 }
 
+/// <summary>A single cell in the planning grid, summarizing terrain attributes and region kind.</summary>
 public readonly record struct TerrainWorldRegion(
     int GridX,
     int GridY,
@@ -72,6 +77,7 @@ public readonly record struct TerrainWorldRegion(
     TerrainLandscapeKind LandscapeKind,
     TerrainWorldRegionKind RegionKind);
 
+/// <summary>A planned point of interest with its kind, world position, score, and optional settlement tier.</summary>
 public readonly record struct TerrainWorldPointOfInterest(
     int Id,
     TerrainPointOfInterestKind Kind,
@@ -87,6 +93,7 @@ public readonly record struct TerrainWorldPointOfInterest(
     TerrainSettlementTier SettlementTier,
     string DebugName);
 
+/// <summary>A planned route connecting two points of interest, with waypoints and averaged attributes.</summary>
 public readonly record struct TerrainWorldRoute(
     int FromPointId,
     int ToPointId,
@@ -96,6 +103,7 @@ public readonly record struct TerrainWorldRoute(
     float AverageTraversability,
     Vector2[] Waypoints);
 
+/// <summary>Complete open-world terrain plan containing regions, points of interest, routes, and quality reports.</summary>
 public sealed class TerrainWorldPlan
 {
     public TerrainWorldPlan(
@@ -131,6 +139,7 @@ public sealed class TerrainWorldPlan
     public TerrainExperienceReport ExperienceReport { get; }
 }
 
+/// <summary>Threshold bounds used to validate world planning quality.</summary>
 public readonly record struct TerrainWorldPlanningThresholds(
     int MinPointsOfInterest,
     int MinPointOfInterestKinds,
@@ -154,6 +163,7 @@ public readonly record struct TerrainWorldPlanningThresholds(
         MinAverageRouteScenicPotential: 0.20f);
 }
 
+/// <summary>Detailed statistics from analyzing a world plan's points of interest and routes.</summary>
 public readonly record struct TerrainWorldPlanningReport(
     int PointOfInterestCount,
     int DistinctPointOfInterestKinds,
@@ -184,15 +194,18 @@ public readonly record struct TerrainWorldPlanningReport(
     int CoastalPathCount,
     int ScenicTrailCount);
 
+/// <summary>Result of validating a world plan against planning thresholds.</summary>
 public readonly record struct TerrainWorldPlanningGateResult(
     bool Passed,
     TerrainWorldPlanningReport Report,
     string Summary);
 
+/// <summary>Creates open-world terrain plans: samples fields, selects POIs, builds routes, and produces validation reports.</summary>
 public static class TerrainWorldPlanner
 {
     private const float ImpassableCost = 1000000.0f;
 
+    /// <summary>Creates a full terrain plan by sampling fields, selecting POIs, building routes, and generating quality/experience reports.</summary>
     public static TerrainWorldPlan CreatePlan(
         TerrainGenerationProfile profile,
         Vector2 center,
@@ -256,6 +269,7 @@ public static class TerrainWorldPlanner
             experienceReport);
     }
 
+    /// <summary>Convenience method that creates an open-world plan with sensible defaults for planning resolution, POI count, and route count.</summary>
     public static TerrainWorldPlan CreateOpenWorldPlan(
         TerrainGenerationProfile profile,
         Vector2 center,
@@ -271,11 +285,13 @@ public static class TerrainWorldPlanner
             maxRoutes: 64);
     }
 
+    /// <summary>Analyzes a plan's POI and route statistics into a <see cref="TerrainWorldPlanningReport"/>.</summary>
     public static TerrainWorldPlanningReport AnalyzePlanning(TerrainWorldPlan plan)
     {
         return AnalyzePlanning(plan.PointsOfInterest, plan.Routes, plan.WorldSize);
     }
 
+    /// <summary>Validates a plan against the given planning thresholds and produces a gate result with summary.</summary>
     public static TerrainWorldPlanningGateResult ValidatePlanning(
         TerrainWorldPlan plan,
         TerrainWorldPlanningThresholds thresholds)
@@ -351,11 +367,13 @@ public static class TerrainWorldPlanner
         return new TerrainWorldPlanningGateResult(passed, report, summary.ToString());
     }
 
+    /// <summary>Validates a plan against the default open-world thresholds.</summary>
     public static TerrainWorldPlanningGateResult ValidateOpenWorldPlanning(TerrainWorldPlan plan)
     {
         return ValidatePlanning(plan, TerrainWorldPlanningThresholds.OpenWorldDefault);
     }
 
+    /// <summary>Creates an open-world plan and validates it against default thresholds.</summary>
     public static TerrainWorldPlanningGateResult ValidateOpenWorldPlanning(
         TerrainGenerationProfile profile,
         Vector2 center,

@@ -5,6 +5,7 @@ using Godot;
 
 namespace Dao.Terrain.Runtime;
 
+/// <summary>Godot node that visualizes a world plan as an in-editor overlay with POI markers and route ribbons.</summary>
 [GlobalClass]
 public partial class TerrainWorldPlanOverlay : Node3D
 {
@@ -30,6 +31,7 @@ public partial class TerrainWorldPlanOverlay : Node3D
         Visible = VisibleByDefault;
     }
 
+    /// <summary>Applies a world plan, rebuilding the overlay markers and route ribbons.</summary>
     public void ApplyPlan(TerrainWorldPlan plan, TerrainGenerationProfile profile)
     {
         _plan = plan;
@@ -52,6 +54,7 @@ public partial class TerrainWorldPlanOverlay : Node3D
         }
     }
 
+    /// <summary>Clears the current plan and removes all overlay objects.</summary>
     public void ClearPlan()
     {
         _plan = null;

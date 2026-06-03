@@ -1810,6 +1810,7 @@ static float ColorDistance(Color a, Color b)
     return MathF.Sqrt((dr * dr) + (dg * dg) + (db * db) + (da * da));
 }
 
+/// <summary>Aggregates planning, quality, experience, and archetype gate results for a single seed.</summary>
 internal readonly record struct TerrainValidationResult(
     int Seed,
     TerrainWorldPlan Plan,
@@ -1821,6 +1822,7 @@ internal readonly record struct TerrainValidationResult(
     public bool Passed => QualityGate.Passed && PlanningGate.Passed && ExperienceGate.Passed && ArchetypeGate.Passed;
 }
 
+/// <summary>Reports whether route corridors produce measurable height/color changes on a sampled tile.</summary>
 internal readonly record struct TerrainRouteCorridorSmokeReport(
     bool Passed,
     int Seed,
@@ -1831,6 +1833,7 @@ internal readonly record struct TerrainRouteCorridorSmokeReport(
     int InfluencedVertexCount,
     string Reason);
 
+/// <summary>Reports whether corridor-driven road markers and bridge spans materialize across many tiles.</summary>
 internal readonly record struct TerrainRouteScatterSmokeReport(
     bool Passed,
     int CandidateTileCount,
@@ -1840,6 +1843,7 @@ internal readonly record struct TerrainRouteScatterSmokeReport(
     int RouteLandmarkCount,
     string Reason);
 
+/// <summary>Reports whether planned POIs materialize as landmarks and settlement interior scatter on generated tiles.</summary>
 internal readonly record struct TerrainPoiTileSmokeReport(
     bool Passed,
     int ExpectedPointCount,
@@ -1868,6 +1872,7 @@ internal readonly record struct TerrainPoiTileSmokeReport(
     int LandmarkScatterCount,
     string Reason);
 
+/// <summary>Reports whether POI footprints produce height and color changes on a sampled tile.</summary>
 internal readonly record struct TerrainPoiFootprintSmokeReport(
     bool Passed,
     int InfluencedVertexCount,
@@ -1876,6 +1881,7 @@ internal readonly record struct TerrainPoiFootprintSmokeReport(
     int LayoutColorVertexCount,
     float LayoutMaxColorDelta);
 
+/// <summary>Reports whether gameplay scatter (understory, resource nodes, hazard outcrops) materializes across tiles.</summary>
 internal readonly record struct TerrainGameplayScatterSmokeReport(
     bool Passed,
     int CandidateTileCount,
@@ -1886,6 +1892,7 @@ internal readonly record struct TerrainGameplayScatterSmokeReport(
     int TotalGameplayScatterCount,
     string Reason);
 
+/// <summary>Reports whether biome-specific scatter (grass, desert, wetland, snow, coast, alpine) materializes across diverse tiles.</summary>
 internal readonly record struct TerrainBiomeScatterSmokeReport(
     bool Passed,
     int CandidateTileCount,
@@ -1902,6 +1909,7 @@ internal readonly record struct TerrainBiomeScatterSmokeReport(
     int BiomeScatterCount,
     string Reason);
 
+/// <summary>Reports whether scenic natural landmarks (waterfalls, dunes, monoliths, etc.) materialize across diverse terrain types.</summary>
 internal readonly record struct TerrainScenicLandmarkSmokeReport(
     bool Passed,
     int CandidateTileCount,
@@ -1918,10 +1926,12 @@ internal readonly record struct TerrainScenicLandmarkSmokeReport(
     int ScenicLandmarkCount,
     string Reason);
 
+/// <summary>Pairs a world position with a score for sorting scatter candidate regions.</summary>
 internal readonly record struct GameplayScatterRegionCandidate(
     Vector2 WorldPosition,
     float Score);
 
+/// <summary>Reports whether native sampler height grids and tile output match the managed sampler within tolerance.</summary>
 internal readonly record struct TerrainNativeSamplerSmokeReport(
     bool Passed,
     bool Available,
@@ -1935,6 +1945,7 @@ internal readonly record struct TerrainNativeSamplerSmokeReport(
     float TileMaxColorDelta,
     string Reason);
 
+/// <summary>Reports managed vs native tile generation benchmark results including timing, allocations, and parity.</summary>
 internal readonly record struct TerrainTileBenchmarkReport(
     bool Passed,
     bool NativeAvailable,
@@ -1949,6 +1960,7 @@ internal readonly record struct TerrainTileBenchmarkReport(
     TerrainTileBenchmarkThresholds Thresholds,
     string Reason);
 
+/// <summary>Thresholds for tile generation benchmark pass/fail criteria.</summary>
 internal readonly record struct TerrainTileBenchmarkThresholds(
     double MaxManagedMillisecondsPerTile,
     double MaxNativeMillisecondsPerTile,
@@ -1968,6 +1980,7 @@ internal readonly record struct TerrainTileBenchmarkThresholds(
         MaxParityColorDelta: 0.03f);
 }
 
+/// <summary>Measured performance data for a single tile build pass (managed or native).</summary>
 internal readonly record struct TerrainTileBenchmarkPass(
     int TileCount,
     long TotalVertices,
@@ -1984,6 +1997,7 @@ internal readonly record struct TerrainTileBenchmarkPass(
     public double AllocatedKilobytesPerTile => TileCount == 0 ? 0.0 : (AllocatedBytes / 1024.0) / TileCount;
 }
 
+/// <summary>Aggregates min/max/average statistics across multiple seed validation results.</summary>
 internal sealed class TerrainValidationAggregate
 {
     private int _count;
