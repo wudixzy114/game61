@@ -1,5 +1,6 @@
 using Dao.Terrain;
 using Dao.Terrain.Generation;
+using Dao.Terrain.Runtime;
 using Dao.Terrain.Streaming;
 using Godot;
 
@@ -10,9 +11,11 @@ public partial class TerrainDemo : Node3D
 {
     [ExportGroup("Open World Planning")]
     [Export] public bool ValidateOpenWorldPlanOnReady { get; set; } = true;
+    [Export] public bool ShowOpenWorldPlanOverlayOnReady { get; set; } = true;
     [Export] public bool ExportOpenWorldPlanOnReady { get; set; } = false;
     [Export(PropertyHint.Range, "256,2048,1")] public int OpenWorldPlanImageSize { get; set; } = 512;
     [Export(PropertyHint.Range, "1024,65536,1")] public float OpenWorldPlanWorldSize { get; set; } = 12288.0f;
+    [Export(PropertyHint.Range, "2,80,1")] public float OpenWorldPlanRouteWidth { get; set; } = 16.0f;
     [Export] public string OpenWorldPlanOutputDirectory { get; set; } = "user://terrain";
 
     public override void _Ready()
@@ -29,7 +32,7 @@ public partial class TerrainDemo : Node3D
         AddChild(CreateSun());
         AddChild(CreateWorldEnvironment());
 
-        if (ValidateOpenWorldPlanOnReady || ExportOpenWorldPlanOnReady)
+        if (ValidateOpenWorldPlanOnReady || ShowOpenWorldPlanOverlayOnReady || ExportOpenWorldPlanOnReady)
         {
             BuildOpenWorldPlanArtifacts(terrainWorld);
         }
@@ -85,6 +88,7 @@ public partial class TerrainDemo : Node3D
         TerrainWorldPlanningGateResult planningGate = TerrainWorldPlanner.ValidateOpenWorldPlanning(plan);
         TerrainQualityGateResult qualityGate = TerrainQualityAnalyzer.ValidateOpenWorldDefault(plan.QualityReport);
         string status = planningGate.Passed && qualityGate.Passed ? "PASS" : "FAIL";
+        terrainWorld.SetWorldPlan(plan);
 
         GD.Print(
             $"Open world terrain plan {status}: " +
@@ -97,6 +101,11 @@ public partial class TerrainDemo : Node3D
             GD.PushWarning(
                 $"Open world terrain plan validation failed. " +
                 $"Planning gate: {planningGate.Passed}, quality gate: {qualityGate.Passed}.");
+        }
+
+        if (ShowOpenWorldPlanOverlayOnReady)
+        {
+            CreateOpenWorldPlanOverlay(plan, profile);
         }
 
         if (!ExportOpenWorldPlanOnReady)
@@ -119,6 +128,22 @@ public partial class TerrainDemo : Node3D
                 $"Open world terrain artifact export failed. " +
                 $"Map save: {export.MapSaveError}, report save: {export.ReportSaveError}.");
         }
+    }
+
+    private void CreateOpenWorldPlanOverlay(TerrainWorldPlan plan, TerrainGenerationProfile profile)
+    {
+        var overlay = new TerrainWorldPlanOverlay
+        {
+            Name = "OpenWorldPlanOverlay",
+            RouteWidth = OpenWorldPlanRouteWidth,
+            VisibleByDefault = true,
+            BuildGameplayAnchors = true,
+            ShowPointMarkers = true,
+            ShowRouteRibbons = true
+        };
+
+        AddChild(overlay);
+        overlay.ApplyPlan(plan, profile);
     }
 
     private static DirectionalLight3D CreateSun()

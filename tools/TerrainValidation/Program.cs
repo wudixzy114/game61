@@ -9,9 +9,11 @@ int seed = GetIntArg(args, "--seed", profile.Seed);
 int seedCount = Math.Max(1, GetIntArg(args, "--seed-count", 1));
 int seedStep = Math.Max(1, GetIntArg(args, "--seed-step", 10_007));
 bool verbose = HasFlag(args, "--verbose");
+bool skipCorridorSmoke = HasFlag(args, "--skip-corridor-smoke");
 
 int failures = 0;
 TerrainValidationAggregate aggregate = new();
+TerrainRouteCorridorSmokeReport? corridorSmokeReport = null;
 
 for (int i = 0; i < seedCount; i++)
 {
@@ -25,9 +27,19 @@ for (int i = 0; i < seedCount; i++)
     }
 
     PrintSeedResult(result, seedCount == 1 || verbose);
+
+    if (i == 0 && !skipCorridorSmoke)
+    {
+        corridorSmokeReport = ValidateRouteCorridorTileEffect(seedProfile, result.Plan);
+        PrintCorridorSmoke(corridorSmokeReport.Value);
+        if (!corridorSmokeReport.Value.Passed)
+        {
+            failures++;
+        }
+    }
 }
 
-PrintAggregate(aggregate, seedCount, failures);
+PrintAggregate(aggregate, seedCount, failures, corridorSmokeReport);
 return failures == 0 ? 0 : 1;
 
 static TerrainValidationResult ValidateSeed(TerrainGenerationProfile profile, float worldSize)
@@ -67,7 +79,91 @@ static void PrintSeedResult(TerrainValidationResult result, bool detailed)
     Console.WriteLine($"Average route scenic/traversability: {planning.AverageRouteScenicPotential:0.000} / {planning.AverageRouteTraversability:0.000}");
 }
 
-static void PrintAggregate(TerrainValidationAggregate aggregate, int seedCount, int failures)
+static TerrainRouteCorridorSmokeReport ValidateRouteCorridorTileEffect(
+    TerrainGenerationProfile profile,
+    TerrainWorldPlan plan)
+{
+    TerrainWorldRoute route = default;
+    bool foundRoute = false;
+    foreach (TerrainWorldRoute candidate in plan.Routes)
+    {
+        if (candidate.Waypoints.Length >= 2)
+        {
+            route = candidate;
+            foundRoute = true;
+            break;
+        }
+    }
+
+    if (!foundRoute)
+    {
+        return new TerrainRouteCorridorSmokeReport(false, profile.Seed, default, 0, 0.0f, 0.0f, 0, "no route with at least two waypoints");
+    }
+
+    Vector2 midpoint = route.Waypoints[route.Waypoints.Length / 2];
+    TerrainTileCoord coord = TerrainTileCoord.FromWorldPosition(new Vector3(midpoint.X, 0.0f, midpoint.Y), profile.ChunkSize);
+    TerrainRouteCorridorIndex corridorIndex = TerrainRouteCorridorIndex.FromPlan(plan, profile);
+    TerrainRouteCorridorSegment[] segments = corridorIndex.GetSegments(coord);
+    if (segments.Length == 0)
+    {
+        return new TerrainRouteCorridorSmokeReport(false, profile.Seed, coord, 0, 0.0f, 0.0f, 0, "selected route chunk had no indexed corridor segments");
+    }
+
+    TerrainTileData baseline = TerrainTileBuilder.Build(coord, lod: 0, profile, includeCollision: false);
+    TerrainTileData withCorridor = TerrainTileBuilder.Build(coord, lod: 0, profile, includeCollision: false, corridorIndex);
+
+    float maxHeightDelta = 0.0f;
+    float maxColorDelta = 0.0f;
+    int influencedVertices = 0;
+    Vector2 origin = coord.Origin(profile.ChunkSize);
+    int vertexCount = Math.Min(baseline.Vertices.Length, withCorridor.Vertices.Length);
+
+    for (int i = 0; i < vertexCount; i++)
+    {
+        Vector3 baselineVertex = baseline.Vertices[i];
+        Vector2 world = new(origin.X + baselineVertex.X, origin.Y + baselineVertex.Z);
+        TerrainRouteCorridorSample sample = corridorIndex.Sample(world, segments);
+        if (sample.HasInfluence)
+        {
+            influencedVertices++;
+        }
+
+        maxHeightDelta = Math.Max(maxHeightDelta, Math.Abs(withCorridor.Vertices[i].Y - baselineVertex.Y));
+        maxColorDelta = Math.Max(maxColorDelta, ColorDistance(withCorridor.Colors[i], baseline.Colors[i]));
+    }
+
+    bool passed =
+        influencedVertices > 0 &&
+        (maxHeightDelta >= 0.05f || maxColorDelta >= 0.01f);
+    string reason = passed
+        ? "route corridor affected the generated tile"
+        : "route corridor produced no measurable tile change";
+
+    return new TerrainRouteCorridorSmokeReport(
+        passed,
+        profile.Seed,
+        coord,
+        segments.Length,
+        maxHeightDelta,
+        maxColorDelta,
+        influencedVertices,
+        reason);
+}
+
+static void PrintCorridorSmoke(TerrainRouteCorridorSmokeReport report)
+{
+    Console.WriteLine(
+        $"Route corridor tile smoke: {(report.Passed ? "PASS" : "FAIL")} " +
+        $"seed {report.Seed}, tile {report.Coord}, segments {report.SegmentCount}, " +
+        $"influenced vertices {report.InfluencedVertexCount}, max height delta {report.MaxHeightDelta:0.000}, " +
+        $"max color delta {report.MaxColorDelta:0.000} ({report.Reason})");
+}
+
+static void PrintAggregate(
+    TerrainValidationAggregate aggregate,
+    int seedCount,
+    int failures,
+    TerrainRouteCorridorSmokeReport? corridorSmokeReport)
 {
     Console.WriteLine();
     Console.WriteLine($"Open world terrain validation: {(failures == 0 ? "PASS" : "FAIL")} ({seedCount - failures}/{seedCount} seeds passed)");
@@ -77,6 +173,10 @@ static void PrintAggregate(TerrainValidationAggregate aggregate, int seedCount, 
     Console.WriteLine($"POI count min/avg/max: {aggregate.MinPoiCount} / {aggregate.AveragePoiCount:0.0} / {aggregate.MaxPoiCount}");
     Console.WriteLine($"Route count min/avg/max: {aggregate.MinRouteCount} / {aggregate.AverageRouteCount:0.0} / {aggregate.MaxRouteCount}");
     Console.WriteLine($"Connected ratio min/avg/max: {aggregate.MinConnectedPointRatio:0.000} / {aggregate.AverageConnectedPointRatio:0.000} / {aggregate.MaxConnectedPointRatio:0.000}");
+    if (corridorSmokeReport is not null)
+    {
+        Console.WriteLine($"Route corridor tile smoke: {(corridorSmokeReport.Value.Passed ? "PASS" : "FAIL")}");
+    }
 }
 
 static TerrainGenerationProfile CreateDemoProfile()
@@ -145,6 +245,15 @@ static bool HasFlag(string[] args, string name)
     return false;
 }
 
+static float ColorDistance(Color a, Color b)
+{
+    float dr = a.R - b.R;
+    float dg = a.G - b.G;
+    float db = a.B - b.B;
+    float da = a.A - b.A;
+    return MathF.Sqrt((dr * dr) + (dg * dg) + (db * db) + (da * da));
+}
+
 internal readonly record struct TerrainValidationResult(
     int Seed,
     TerrainWorldPlan Plan,
@@ -153,6 +262,16 @@ internal readonly record struct TerrainValidationResult(
 {
     public bool Passed => QualityGate.Passed && PlanningGate.Passed;
 }
+
+internal readonly record struct TerrainRouteCorridorSmokeReport(
+    bool Passed,
+    int Seed,
+    TerrainTileCoord Coord,
+    int SegmentCount,
+    float MaxHeightDelta,
+    float MaxColorDelta,
+    int InfluencedVertexCount,
+    string Reason);
 
 internal sealed class TerrainValidationAggregate
 {

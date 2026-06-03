@@ -62,4 +62,34 @@ public static class TerrainMaterialFactory
             EmissionEnergyMultiplier = 0.25f
         };
     }
+
+    public static StandardMaterial3D CreatePlanMarkerMaterial()
+    {
+        return new StandardMaterial3D
+        {
+            AlbedoColor = Colors.White,
+            VertexColorUseAsAlbedo = true,
+            ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
+            CullMode = BaseMaterial3D.CullModeEnum.Disabled,
+            Roughness = 0.74f,
+            Metallic = 0.0f,
+            EmissionEnabled = true,
+            Emission = Colors.White,
+            EmissionEnergyMultiplier = 0.35f
+        };
+    }
+
+    public static StandardMaterial3D CreatePlanRouteMaterial()
+    {
+        return new StandardMaterial3D
+        {
+            AlbedoColor = Colors.White,
+            VertexColorUseAsAlbedo = true,
+            Transparency = BaseMaterial3D.TransparencyEnum.Alpha,
+            ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
+            CullMode = BaseMaterial3D.CullModeEnum.Disabled,
+            Roughness = 0.8f,
+            Metallic = 0.0f
+        };
+    }
 }

@@ -14,6 +14,17 @@ public static class TerrainTileBuilder
         bool includeCollision,
         CancellationToken cancellationToken = default)
     {
+        return Build(coord, lod, profile, includeCollision, TerrainRouteCorridorIndex.Empty, cancellationToken);
+    }
+
+    public static TerrainTileData Build(
+        TerrainTileCoord coord,
+        int lod,
+        TerrainGenerationProfile profile,
+        bool includeCollision,
+        TerrainRouteCorridorIndex routeCorridors,
+        CancellationToken cancellationToken = default)
+    {
         cancellationToken.ThrowIfCancellationRequested();
 
         int resolution = profile.ResolutionForLod(lod);
@@ -31,6 +42,9 @@ public static class TerrainTileBuilder
         var surfaceColors = new Color[vertexCount];
         var heights = new float[vertexCount];
         var fields = new TerrainWorldField[vertexCount];
+        TerrainRouteCorridorSegment[] corridorSegments = routeCorridors.GetSegments(coord);
+        bool hasCorridors = corridorSegments.Length > 0;
+        TerrainRouteCorridorSample[] corridorSamples = hasCorridors ? new TerrainRouteCorridorSample[vertexCount] : [];
 
         float minHeight = float.PositiveInfinity;
         float maxHeight = float.NegativeInfinity;
@@ -49,6 +63,20 @@ public static class TerrainTileBuilder
                     ? TerrainWorldFieldSampler.SampleKnownHeight(world, profile, nativeHeights[index])
                     : TerrainWorldFieldSampler.Sample(world, profile);
                 float height = field.Height;
+                TerrainRouteCorridorSample corridor = hasCorridors
+                    ? routeCorridors.Sample(world, corridorSegments)
+                    : TerrainRouteCorridorSample.None;
+
+                if (corridor.HasInfluence)
+                {
+                    height = ApplyRouteCorridorHeight(height, corridor);
+                    field = field with
+                    {
+                        Height = height,
+                        Traversability = Mathf.Max(field.Traversability, Mathf.Lerp(field.Traversability, 0.86f, corridor.CoreStrength))
+                    };
+                    corridorSamples[index] = corridor;
+                }
 
                 surfaceVertices[index] = new Vector3(localX, height, localZ);
                 surfaceUvs[index] = new Vector2(
@@ -77,6 +105,11 @@ public static class TerrainTileBuilder
                 if (heights[index] < profile.SeaLevel + 3.0f)
                 {
                     surfaceColors[index] = surfaceColors[index].Lerp(new Color(0.10f, 0.24f, 0.31f), 0.35f);
+                }
+
+                if (hasCorridors && corridorSamples[index].HasInfluence)
+                {
+                    surfaceColors[index] = BlendRouteSurfaceColor(surfaceColors[index], corridorSamples[index]);
                 }
             }
         }
@@ -108,6 +141,8 @@ public static class TerrainTileBuilder
             heights,
             fields,
             surfaceNormals,
+            routeCorridors,
+            corridorSegments,
             cancellationToken,
             out TerrainScatterInstance[] scatterInstances,
             out TerrainLandmarkData[] landmarks);
@@ -315,12 +350,16 @@ public static class TerrainTileBuilder
         float[] heights,
         TerrainWorldField[] fields,
         Vector3[] normals,
+        TerrainRouteCorridorIndex routeCorridors,
+        TerrainRouteCorridorSegment[] corridorSegments,
         CancellationToken cancellationToken,
         out TerrainScatterInstance[] scatterInstances,
         out TerrainLandmarkData[] landmarks)
     {
         var scatter = new List<TerrainScatterInstance>(96);
         var landmarkList = new List<TerrainLandmarkData>(4);
+        Vector2 origin = coord.Origin(profile.ChunkSize);
+        bool hasCorridors = corridorSegments.Length > 0;
 
         if (lod <= 2)
         {
@@ -346,6 +385,15 @@ public static class TerrainTileBuilder
                     float slope = 1.0f - Mathf.Clamp(normal.Y, 0.0f, 1.0f);
                     TerrainWorldField field = SampleFieldBilinear(localX, localZ, resolution, step, fields, vertexCountPerSide);
                     float roll = Hash01(coord.X, coord.Z, x * 881 + z * 977, profile.Seed + 31);
+                    Vector2 world = new(origin.X + localX, origin.Y + localZ);
+                    TerrainRouteCorridorSample corridor = hasCorridors
+                        ? routeCorridors.Sample(world, corridorSegments)
+                        : TerrainRouteCorridorSample.None;
+
+                    if (corridor.HasInfluence && (corridor.CoreStrength > 0.04f || corridor.Influence > 0.58f))
+                    {
+                        continue;
+                    }
 
                     if (slope < 0.30f &&
                         field.Moisture > 0.47f &&
@@ -569,6 +617,35 @@ public static class TerrainTileBuilder
         float up = heights[Index(x, upZ, vertexCountPerSide)];
 
         return new Vector3(left - right, step * 2.0f, down - up).Normalized();
+    }
+
+    private static float ApplyRouteCorridorHeight(float height, TerrainRouteCorridorSample corridor)
+    {
+        float strength = corridor.Kind switch
+        {
+            TerrainRouteKind.RidgePass => corridor.CoreStrength * 0.52f + corridor.Influence * 0.18f,
+            TerrainRouteKind.ScenicTrail => corridor.CoreStrength * 0.58f + corridor.Influence * 0.20f,
+            TerrainRouteKind.CoastalPath => corridor.CoreStrength * 0.70f + corridor.Influence * 0.24f,
+            _ => corridor.CoreStrength * 0.74f + corridor.Influence * 0.26f
+        };
+
+        strength = Mathf.Clamp(strength, 0.0f, 0.82f);
+        return Mathf.Lerp(height, corridor.TargetHeight, strength);
+    }
+
+    private static Color BlendRouteSurfaceColor(Color baseColor, TerrainRouteCorridorSample corridor)
+    {
+        Color routeColor = corridor.Kind switch
+        {
+            TerrainRouteKind.RiverRoad => new Color(0.35f, 0.45f, 0.38f),
+            TerrainRouteKind.RidgePass => new Color(0.44f, 0.43f, 0.39f),
+            TerrainRouteKind.CoastalPath => new Color(0.55f, 0.50f, 0.36f),
+            TerrainRouteKind.ScenicTrail => new Color(0.50f, 0.42f, 0.25f),
+            _ => new Color(0.45f, 0.36f, 0.23f)
+        };
+
+        float blend = Mathf.Clamp(corridor.CoreStrength * 0.52f + corridor.Influence * 0.20f, 0.0f, 0.62f);
+        return baseColor.Lerp(routeColor, blend);
     }
 
     private static int Index(int x, int z, int vertexCountPerSide)
