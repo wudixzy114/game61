@@ -684,6 +684,7 @@ public static class TerrainTileBuilder
             TerrainPointOfInterestKind.CoastalLanding => TerrainLandmarkKind.CoastalLanding,
             TerrainPointOfInterestKind.ResourceGrove => TerrainLandmarkKind.ResourceGrove,
             TerrainPointOfInterestKind.CanyonOverlook => TerrainLandmarkKind.CanyonOverlook,
+            TerrainPointOfInterestKind.Oasis => TerrainLandmarkKind.Oasis,
             _ => TerrainLandmarkKind.AncientStone
         };
     }
@@ -700,6 +701,7 @@ public static class TerrainTileBuilder
             TerrainLandmarkKind.CoastalLanding => 7.4f,
             TerrainLandmarkKind.ResourceGrove => 6.8f,
             TerrainLandmarkKind.CanyonOverlook => 7.2f,
+            TerrainLandmarkKind.Oasis => 7.6f,
             _ => 7.0f
         };
 
@@ -717,6 +719,7 @@ public static class TerrainTileBuilder
             TerrainLandmarkKind.CoastalLanding => new Color(0.46f, 0.58f, 0.64f),
             TerrainLandmarkKind.ResourceGrove => new Color(0.28f, 0.54f, 0.28f),
             TerrainLandmarkKind.CanyonOverlook => new Color(0.66f, 0.38f, 0.24f),
+            TerrainLandmarkKind.Oasis => new Color(0.18f, 0.58f, 0.42f),
             _ => new Color(0.52f, 0.50f, 0.44f)
         };
 

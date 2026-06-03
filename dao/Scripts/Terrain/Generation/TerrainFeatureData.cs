@@ -21,7 +21,8 @@ public enum TerrainLandmarkKind
     AncientStone,
     CoastalLanding,
     ResourceGrove,
-    CanyonOverlook
+    CanyonOverlook,
+    Oasis
 }
 
 public readonly record struct TerrainScatterInstance(

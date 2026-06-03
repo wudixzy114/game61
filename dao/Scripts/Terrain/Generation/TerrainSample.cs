@@ -11,6 +11,7 @@ public readonly record struct TerrainSample(
     float Temperature,
     float ScenicPotential,
     float Traversability,
+    TerrainBiomeKind BiomeKind,
     TerrainLandscapeKind LandscapeKind,
     float Slope,
     Color Color);

@@ -293,6 +293,16 @@ public partial class TerrainWorldPlanOverlay : Node3D
                 CapBottom = true
             },
             TerrainPointOfInterestVisualKind.CanyonOverlook => new BoxMesh { Size = new Vector3(1.2f, 0.35f, 0.92f) },
+            TerrainPointOfInterestVisualKind.Oasis => new CylinderMesh
+            {
+                TopRadius = 0.72f,
+                BottomRadius = 0.54f,
+                Height = 0.36f,
+                RadialSegments = 12,
+                Rings = 1,
+                CapTop = true,
+                CapBottom = true
+            },
             _ => new CylinderMesh
             {
                 TopRadius = 0.0f,
@@ -314,6 +324,7 @@ public partial class TerrainWorldPlanOverlay : Node3D
             TerrainPointOfInterestVisualKind.ResourceGrove => Basis.Identity.Scaled(new Vector3(scale * 0.92f, scale * 1.30f, scale * 0.92f)),
             TerrainPointOfInterestVisualKind.AncientSite => Basis.Identity.Scaled(new Vector3(scale * 0.72f, scale * 1.72f, scale * 0.72f)),
             TerrainPointOfInterestVisualKind.CanyonOverlook => Basis.Identity.Scaled(new Vector3(scale * 1.35f, scale * 0.46f, scale * 0.92f)),
+            TerrainPointOfInterestVisualKind.Oasis => Basis.Identity.Scaled(new Vector3(scale * 1.36f, scale * 0.38f, scale * 1.36f)),
             TerrainPointOfInterestVisualKind.VistaSpire => Basis.Identity.Scaled(new Vector3(scale, scale * 2.65f, scale)),
             _ => Basis.Identity.Scaled(new Vector3(scale, scale * 1.4f, scale))
         };

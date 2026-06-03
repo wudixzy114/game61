@@ -2,21 +2,6 @@ using Godot;
 
 namespace Dao.Terrain.Generation;
 
-public enum TerrainBiome
-{
-    Ocean,
-    Coast,
-    Grassland,
-    Forest,
-    Wetland,
-    Alpine,
-    Rock,
-    Snow,
-    RiverValley,
-    Canyon,
-    Vista
-}
-
 public enum TerrainMapLayer
 {
     Biome,
@@ -46,7 +31,7 @@ public readonly record struct TerrainMapSample(
     float HazardPotential,
     float EncounterPotential,
     TerrainLandscapeKind LandscapeKind,
-    TerrainBiome Biome,
+    TerrainBiomeKind Biome,
     Color Color);
 
 public static class TerrainMapExporter
@@ -55,7 +40,6 @@ public static class TerrainMapExporter
     {
         TerrainWorldField field = TerrainWorldFieldSampler.Sample(world, profile);
         float slope = 1.0f - Mathf.Clamp(TerrainSampler.NormalAt(world, profile, 24.0f).Y, 0.0f, 1.0f);
-        TerrainBiome biome = ClassifyBiome(field, profile.SeaLevel, slope);
         Color terrainColor = TerrainSampler.ColorForSurface(field, profile, slope);
 
         return new TerrainMapSample(
@@ -71,8 +55,8 @@ public static class TerrainMapExporter
             field.HazardPotential,
             field.EncounterPotential,
             field.LandscapeKind,
-            biome,
-            ColorForBiome(biome, terrainColor));
+            field.BiomeKind,
+            ColorForBiome(field.BiomeKind, terrainColor));
     }
 
     public static Image CreateBiomeMap(
@@ -133,80 +117,22 @@ public static class TerrainMapExporter
         return image.SavePng(outputPath);
     }
 
-    private static TerrainBiome ClassifyBiome(TerrainWorldField field, float seaLevel, float slope)
-    {
-        if (field.Height < seaLevel - 12.0f)
-        {
-            return TerrainBiome.Ocean;
-        }
-
-        if (field.Height < seaLevel + 10.0f)
-        {
-            return TerrainBiome.Coast;
-        }
-
-        if (field.LandscapeKind == TerrainLandscapeKind.Canyon)
-        {
-            return TerrainBiome.Canyon;
-        }
-
-        if (field.River > 0.64f && field.Height < seaLevel + 420.0f)
-        {
-            return TerrainBiome.RiverValley;
-        }
-
-        if (field.LandscapeKind == TerrainLandscapeKind.Snowfield ||
-            field.Height > seaLevel + 680.0f ||
-            (field.Temperature < 0.20f && field.Height > seaLevel + 360.0f))
-        {
-            return TerrainBiome.Snow;
-        }
-
-        if (slope > 0.58f)
-        {
-            return TerrainBiome.Rock;
-        }
-
-        if (field.LandscapeKind == TerrainLandscapeKind.VistaPlateau)
-        {
-            return TerrainBiome.Vista;
-        }
-
-        if (field.Height > seaLevel + 420.0f ||
-            field.Temperature < 0.34f ||
-            field.LandscapeKind is TerrainLandscapeKind.Highlands or TerrainLandscapeKind.MountainMassif)
-        {
-            return TerrainBiome.Alpine;
-        }
-
-        if (field.LandscapeKind == TerrainLandscapeKind.Wetland)
-        {
-            return TerrainBiome.Wetland;
-        }
-
-        if (field.Moisture > 0.62f && field.Temperature > 0.28f)
-        {
-            return TerrainBiome.Forest;
-        }
-
-        return TerrainBiome.Grassland;
-    }
-
-    private static Color ColorForBiome(TerrainBiome biome, Color terrainColor)
+    private static Color ColorForBiome(TerrainBiomeKind biome, Color terrainColor)
     {
         Color overlay = biome switch
         {
-            TerrainBiome.Ocean => new Color(0.03f, 0.10f, 0.22f),
-            TerrainBiome.Coast => new Color(0.68f, 0.58f, 0.38f),
-            TerrainBiome.Grassland => new Color(0.24f, 0.45f, 0.20f),
-            TerrainBiome.Forest => new Color(0.08f, 0.28f, 0.13f),
-            TerrainBiome.Wetland => new Color(0.11f, 0.33f, 0.26f),
-            TerrainBiome.Alpine => new Color(0.42f, 0.45f, 0.38f),
-            TerrainBiome.Rock => new Color(0.35f, 0.35f, 0.33f),
-            TerrainBiome.Snow => new Color(0.88f, 0.90f, 0.86f),
-            TerrainBiome.RiverValley => new Color(0.10f, 0.32f, 0.30f),
-            TerrainBiome.Canyon => new Color(0.45f, 0.31f, 0.24f),
-            TerrainBiome.Vista => new Color(0.55f, 0.47f, 0.26f),
+            TerrainBiomeKind.Ocean => new Color(0.03f, 0.10f, 0.22f),
+            TerrainBiomeKind.Coast => new Color(0.68f, 0.58f, 0.38f),
+            TerrainBiomeKind.Island => new Color(0.28f, 0.58f, 0.34f),
+            TerrainBiomeKind.Plains => new Color(0.45f, 0.56f, 0.22f),
+            TerrainBiomeKind.Grassland => new Color(0.24f, 0.45f, 0.20f),
+            TerrainBiomeKind.Desert => new Color(0.72f, 0.54f, 0.27f),
+            TerrainBiomeKind.Oasis => new Color(0.12f, 0.54f, 0.42f),
+            TerrainBiomeKind.Forest => new Color(0.08f, 0.28f, 0.13f),
+            TerrainBiomeKind.Wetland => new Color(0.11f, 0.33f, 0.26f),
+            TerrainBiomeKind.Hills => new Color(0.42f, 0.46f, 0.28f),
+            TerrainBiomeKind.Mountains => new Color(0.36f, 0.36f, 0.34f),
+            TerrainBiomeKind.Snowfield => new Color(0.88f, 0.90f, 0.86f),
             _ => terrainColor
         };
 

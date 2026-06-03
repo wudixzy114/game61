@@ -13,7 +13,8 @@ public enum TerrainPointOfInterestVisualKind
     CoastalLanding,
     ResourceGrove,
     AncientSite,
-    CanyonOverlook
+    CanyonOverlook,
+    Oasis
 }
 
 public readonly record struct TerrainPointOfInterestArchetype(
@@ -119,7 +120,17 @@ public static class TerrainPointOfInterestArchetypeCatalog
             8.0f,
             52.0f,
             4,
-            new Color(0.92f, 0.40f, 0.20f))
+            new Color(0.92f, 0.40f, 0.20f)),
+        new(
+            TerrainPointOfInterestKind.Oasis,
+            TerrainPointOfInterestVisualKind.Oasis,
+            "poi.oasis",
+            "Oasis",
+            21.0f,
+            5.0f,
+            72.0f,
+            6,
+            new Color(0.20f, 0.70f, 0.48f))
     ];
 
     public static ReadOnlySpan<TerrainPointOfInterestArchetype> All => Archetypes;

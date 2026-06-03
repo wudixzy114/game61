@@ -10,7 +10,8 @@ public readonly record struct TerrainQualityThresholds(
     float MinRiverRatio,
     float MinScenicRatio,
     float MinTraversableLandRatio,
-    int MinDistinctLandscapeKinds)
+    int MinDistinctLandscapeKinds,
+    int MinDistinctBiomeKinds)
 {
     public static TerrainQualityThresholds OpenWorldDefault { get; } = new(
         MinLandRatio: 0.38f,
@@ -18,7 +19,8 @@ public readonly record struct TerrainQualityThresholds(
         MinRiverRatio: 0.035f,
         MinScenicRatio: 0.045f,
         MinTraversableLandRatio: 0.28f,
-        MinDistinctLandscapeKinds: 6);
+        MinDistinctLandscapeKinds: 6,
+        MinDistinctBiomeKinds: 7);
 }
 
 public readonly record struct TerrainQualityReport(
@@ -34,6 +36,7 @@ public readonly record struct TerrainQualityReport(
     float ScenicRatio,
     float TraversableLandRatio,
     int DistinctLandscapeKinds,
+    int DistinctBiomeKinds,
     int OceanCount,
     int CoastCount,
     int LowlandCount,
@@ -44,7 +47,19 @@ public readonly record struct TerrainQualityReport(
     int HighlandsCount,
     int MountainMassifCount,
     int SnowfieldCount,
-    int VistaPlateauCount)
+    int VistaPlateauCount,
+    int BiomeOceanCount,
+    int BiomeCoastCount,
+    int IslandCount,
+    int PlainsCount,
+    int GrasslandCount,
+    int DesertCount,
+    int OasisCount,
+    int ForestCount,
+    int BiomeWetlandCount,
+    int HillsCount,
+    int MountainsCount,
+    int BiomeSnowfieldCount)
 {
     public int CountFor(TerrainLandscapeKind kind)
     {
@@ -61,6 +76,26 @@ public readonly record struct TerrainQualityReport(
             TerrainLandscapeKind.MountainMassif => MountainMassifCount,
             TerrainLandscapeKind.Snowfield => SnowfieldCount,
             TerrainLandscapeKind.VistaPlateau => VistaPlateauCount,
+            _ => 0
+        };
+    }
+
+    public int CountFor(TerrainBiomeKind kind)
+    {
+        return kind switch
+        {
+            TerrainBiomeKind.Ocean => BiomeOceanCount,
+            TerrainBiomeKind.Coast => BiomeCoastCount,
+            TerrainBiomeKind.Island => IslandCount,
+            TerrainBiomeKind.Plains => PlainsCount,
+            TerrainBiomeKind.Grassland => GrasslandCount,
+            TerrainBiomeKind.Desert => DesertCount,
+            TerrainBiomeKind.Oasis => OasisCount,
+            TerrainBiomeKind.Forest => ForestCount,
+            TerrainBiomeKind.Wetland => BiomeWetlandCount,
+            TerrainBiomeKind.Hills => HillsCount,
+            TerrainBiomeKind.Mountains => MountainsCount,
+            TerrainBiomeKind.Snowfield => BiomeSnowfieldCount,
             _ => 0
         };
     }
@@ -91,6 +126,7 @@ public static class TerrainQualityAnalyzer
         int scenicCount = 0;
         int traversableLandCount = 0;
         Span<int> landscapeCounts = stackalloc int[11];
+        Span<int> biomeCounts = stackalloc int[12];
 
         for (int y = 0; y < resolution; y++)
         {
@@ -134,6 +170,8 @@ public static class TerrainQualityAnalyzer
 
                 int landscapeIndex = Mathf.Clamp((int)field.LandscapeKind, 0, landscapeCounts.Length - 1);
                 landscapeCounts[landscapeIndex]++;
+                int biomeIndex = Mathf.Clamp((int)field.BiomeKind, 0, biomeCounts.Length - 1);
+                biomeCounts[biomeIndex]++;
             }
         }
 
@@ -143,6 +181,15 @@ public static class TerrainQualityAnalyzer
             if (landscapeCounts[i] > 0)
             {
                 distinctLandscapeKinds++;
+            }
+        }
+
+        int distinctBiomeKinds = 0;
+        for (int i = 0; i < biomeCounts.Length; i++)
+        {
+            if (biomeCounts[i] > 0)
+            {
+                distinctBiomeKinds++;
             }
         }
 
@@ -160,6 +207,7 @@ public static class TerrainQualityAnalyzer
             scenicCount * invSampleCount,
             traversableLandCount * invSampleCount,
             distinctLandscapeKinds,
+            distinctBiomeKinds,
             landscapeCounts[(int)TerrainLandscapeKind.Ocean],
             landscapeCounts[(int)TerrainLandscapeKind.Coast],
             landscapeCounts[(int)TerrainLandscapeKind.Lowland],
@@ -170,7 +218,19 @@ public static class TerrainQualityAnalyzer
             landscapeCounts[(int)TerrainLandscapeKind.Highlands],
             landscapeCounts[(int)TerrainLandscapeKind.MountainMassif],
             landscapeCounts[(int)TerrainLandscapeKind.Snowfield],
-            landscapeCounts[(int)TerrainLandscapeKind.VistaPlateau]);
+            landscapeCounts[(int)TerrainLandscapeKind.VistaPlateau],
+            biomeCounts[(int)TerrainBiomeKind.Ocean],
+            biomeCounts[(int)TerrainBiomeKind.Coast],
+            biomeCounts[(int)TerrainBiomeKind.Island],
+            biomeCounts[(int)TerrainBiomeKind.Plains],
+            biomeCounts[(int)TerrainBiomeKind.Grassland],
+            biomeCounts[(int)TerrainBiomeKind.Desert],
+            biomeCounts[(int)TerrainBiomeKind.Oasis],
+            biomeCounts[(int)TerrainBiomeKind.Forest],
+            biomeCounts[(int)TerrainBiomeKind.Wetland],
+            biomeCounts[(int)TerrainBiomeKind.Hills],
+            biomeCounts[(int)TerrainBiomeKind.Mountains],
+            biomeCounts[(int)TerrainBiomeKind.Snowfield]);
     }
 
     public static TerrainQualityGateResult Validate(
@@ -225,6 +285,13 @@ public static class TerrainQualityAnalyzer
             report.DistinctLandscapeKinds >= thresholds.MinDistinctLandscapeKinds,
             report.DistinctLandscapeKinds.ToString(),
             $">= {thresholds.MinDistinctLandscapeKinds}",
+            ref passed);
+        AppendGate(
+            summary,
+            "biome variety",
+            report.DistinctBiomeKinds >= thresholds.MinDistinctBiomeKinds,
+            report.DistinctBiomeKinds.ToString(),
+            $">= {thresholds.MinDistinctBiomeKinds}",
             ref passed);
 
         return new TerrainQualityGateResult(passed, report, summary.ToString());

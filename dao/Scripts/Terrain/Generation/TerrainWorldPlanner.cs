@@ -9,9 +9,15 @@ public enum TerrainWorldRegionKind
 {
     Ocean,
     Coast,
+    Island,
+    Plains,
+    Grassland,
+    Desert,
+    Oasis,
     Lowland,
     Forest,
     Wetland,
+    Hills,
     RiverValley,
     Canyon,
     Highlands,
@@ -29,7 +35,8 @@ public enum TerrainPointOfInterestKind
     CoastalLanding,
     ResourceGrove,
     AncientSite,
-    CanyonOverlook
+    CanyonOverlook,
+    Oasis
 }
 
 public enum TerrainRouteKind
@@ -53,6 +60,7 @@ public readonly record struct TerrainWorldRegion(
     float ResourcePotential,
     float HazardPotential,
     float EncounterPotential,
+    TerrainBiomeKind BiomeKind,
     TerrainLandscapeKind LandscapeKind,
     TerrainWorldRegionKind RegionKind);
 
@@ -66,6 +74,7 @@ public readonly record struct TerrainWorldPointOfInterest(
     float Height,
     float ScenicPotential,
     float Traversability,
+    TerrainBiomeKind BiomeKind,
     TerrainLandscapeKind LandscapeKind,
     string DebugName);
 
@@ -156,6 +165,7 @@ public readonly record struct TerrainWorldPlanningReport(
     int ResourceGroveCount,
     int AncientSiteCount,
     int CanyonOverlookCount,
+    int OasisCount,
     int PrimaryTrailCount,
     int RiverRoadCount,
     int RidgePassCount,
@@ -209,6 +219,7 @@ public static class TerrainWorldPlanner
                     field.ResourcePotential,
                     field.HazardPotential,
                     field.EncounterPotential,
+                    field.BiomeKind,
                     field.LandscapeKind,
                     ClassifyRegion(field));
                 AddPoiCandidates(candidates, profile, field, x, y);
@@ -359,12 +370,16 @@ public static class TerrainWorldPlanner
         float rarity = Hash01(gridX, gridY, profile.Seed + 911);
         float stableFlatLand = field.Traversability * land;
 
+        float settlementBiomeBonus = field.BiomeKind is TerrainBiomeKind.Plains or TerrainBiomeKind.Grassland
+            ? 0.10f
+            : field.BiomeKind == TerrainBiomeKind.Oasis ? 0.16f : 0.0f;
         float settlementScore =
             stableFlatLand * 0.55f +
             Mathf.Clamp(1.0f - Mathf.Abs(field.Moisture - 0.55f) * 2.0f, 0.0f, 1.0f) * 0.12f +
             Mathf.Clamp(1.0f - Mathf.Abs(field.Temperature - 0.56f) * 2.1f, 0.0f, 1.0f) * 0.12f +
             Mathf.SmoothStep(0.18f, 0.62f, field.River) * 0.09f +
-            field.ScenicPotential * 0.12f;
+            field.ScenicPotential * 0.12f +
+            settlementBiomeBonus;
         AddCandidateIfStrong(candidates, TerrainPointOfInterestKind.SettlementCandidate, settlementScore, 0.58f, field, gridX, gridY, rarity);
 
         float vistaScore = field.ScenicPotential * 0.82f + elevation * 0.14f + rarity * 0.04f;
@@ -393,7 +408,8 @@ public static class TerrainWorldPlanner
         AddCandidateIfStrong(candidates, TerrainPointOfInterestKind.CoastalLanding, coastScore, 0.50f, field, gridX, gridY, rarity);
 
         float resourceScore = 0.0f;
-        if (field.LandscapeKind is TerrainLandscapeKind.ForestBasin or TerrainLandscapeKind.Wetland or TerrainLandscapeKind.RiverValley)
+        if (field.LandscapeKind is TerrainLandscapeKind.ForestBasin or TerrainLandscapeKind.Wetland or TerrainLandscapeKind.RiverValley ||
+            field.BiomeKind == TerrainBiomeKind.Oasis)
         {
             resourceScore = field.Moisture * 0.34f + field.Traversability * 0.24f + (1.0f - elevation) * 0.16f + field.River * 0.12f + rarity * 0.14f;
         }
@@ -407,6 +423,11 @@ public static class TerrainWorldPlanner
             ? field.ScenicPotential * 0.50f + field.River * 0.26f + elevation * 0.12f + rarity * 0.12f
             : 0.0f;
         AddCandidateIfStrong(candidates, TerrainPointOfInterestKind.CanyonOverlook, canyonScore, 0.58f, field, gridX, gridY, rarity);
+
+        float oasisScore = field.BiomeKind == TerrainBiomeKind.Oasis
+            ? field.ResourcePotential * 0.38f + field.Traversability * 0.20f + field.River * 0.18f + field.ScenicPotential * 0.14f + rarity * 0.10f
+            : 0.0f;
+        AddCandidateIfStrong(candidates, TerrainPointOfInterestKind.Oasis, oasisScore, 0.54f, field, gridX, gridY, rarity);
     }
 
     private static void AddCandidateIfStrong(
@@ -433,6 +454,7 @@ public static class TerrainWorldPlanner
             field.Height,
             field.ScenicPotential,
             field.Traversability,
+            field.BiomeKind,
             field.LandscapeKind));
     }
 
@@ -525,6 +547,7 @@ public static class TerrainWorldPlanner
             candidate.Height,
             candidate.ScenicPotential,
             candidate.Traversability,
+            candidate.BiomeKind,
             candidate.LandscapeKind,
             $"{candidate.Kind}_{candidate.GridX}_{candidate.GridY}_{id}"));
         kindCounts[candidate.Kind] = kindCount + 1;
@@ -714,7 +737,7 @@ public static class TerrainWorldPlanner
         TerrainWorldRoute[] routes,
         float worldSize)
     {
-        Span<int> poiCounts = stackalloc int[8];
+        Span<int> poiCounts = stackalloc int[9];
         Span<int> routeCounts = stackalloc int[5];
         float scoreSum = 0.0f;
 
@@ -764,6 +787,7 @@ public static class TerrainWorldPlanner
             poiCounts[(int)TerrainPointOfInterestKind.ResourceGrove],
             poiCounts[(int)TerrainPointOfInterestKind.AncientSite],
             poiCounts[(int)TerrainPointOfInterestKind.CanyonOverlook],
+            poiCounts[(int)TerrainPointOfInterestKind.Oasis],
             routeCounts[(int)TerrainRouteKind.PrimaryTrail],
             routeCounts[(int)TerrainRouteKind.RiverRoad],
             routeCounts[(int)TerrainRouteKind.RidgePass],
@@ -1066,6 +1090,21 @@ public static class TerrainWorldPlanner
 
     private static TerrainWorldRegionKind ClassifyRegion(TerrainWorldField field)
     {
+        if (field.BiomeKind is TerrainBiomeKind.Island or TerrainBiomeKind.Plains or TerrainBiomeKind.Grassland or
+            TerrainBiomeKind.Desert or TerrainBiomeKind.Oasis or TerrainBiomeKind.Hills)
+        {
+            return field.BiomeKind switch
+            {
+                TerrainBiomeKind.Island => TerrainWorldRegionKind.Island,
+                TerrainBiomeKind.Plains => TerrainWorldRegionKind.Plains,
+                TerrainBiomeKind.Grassland => TerrainWorldRegionKind.Grassland,
+                TerrainBiomeKind.Desert => TerrainWorldRegionKind.Desert,
+                TerrainBiomeKind.Oasis => TerrainWorldRegionKind.Oasis,
+                TerrainBiomeKind.Hills => TerrainWorldRegionKind.Hills,
+                _ => TerrainWorldRegionKind.Lowland
+            };
+        }
+
         return field.LandscapeKind switch
         {
             TerrainLandscapeKind.Ocean => TerrainWorldRegionKind.Ocean,
@@ -1174,5 +1213,6 @@ public static class TerrainWorldPlanner
         float Height,
         float ScenicPotential,
         float Traversability,
+        TerrainBiomeKind BiomeKind,
         TerrainLandscapeKind LandscapeKind);
 }
