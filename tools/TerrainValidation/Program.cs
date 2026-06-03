@@ -229,8 +229,8 @@ static TerrainPoiTileSmokeReport ValidatePoiTileMaterialization(
     }
 
     var materialized = new HashSet<string>(StringComparer.Ordinal);
-    Span<int> kindCounts = stackalloc int[8];
-    Span<int> scatterKindCounts = stackalloc int[8];
+    Span<int> kindCounts = stackalloc int[Enum.GetValues<TerrainLandmarkKind>().Length];
+    Span<int> scatterKindCounts = stackalloc int[Enum.GetValues<TerrainLandmarkKind>().Length];
     int landmarkScatterCount = 0;
 
     foreach (TerrainTileCoord coord in coords)
@@ -327,7 +327,7 @@ static TerrainGameplayScatterSmokeReport ValidateGameplayScatterMaterialization(
 
     TerrainPointOfInterestIndex poiIndex = TerrainPointOfInterestIndex.FromPlan(plan, profile);
     TerrainRouteCorridorIndex corridorIndex = TerrainRouteCorridorIndex.FromPlan(plan, profile);
-    Span<int> scatterCounts = stackalloc int[8];
+    Span<int> scatterCounts = stackalloc int[Enum.GetValues<TerrainScatterKind>().Length];
     int sampledTiles = 0;
 
     foreach (TerrainTileCoord coord in coords)

@@ -459,15 +459,33 @@ public static class TerrainWorldFieldSampler
             : 0.0f;
         float isolation = 1.0f - traversability;
         float heatRisk = terms.Aridity * Mathf.SmoothStep(0.64f, 0.90f, temperature);
+        float desertExposure = heatRisk *
+            (0.58f + terms.DuneDetail * 0.42f) *
+            (1.0f - Mathf.SmoothStep(0.36f, 0.66f, terms.Mountains));
+        float floodRisk = terms.Wetland *
+            Mathf.SmoothStep(0.46f, 0.86f, terms.River + terms.BaseMoisture * 0.32f) *
+            (1.0f - Mathf.SmoothStep(profile.SeaLevel + 180.0f, profile.SeaLevel + 420.0f, height));
+        float islandIsolation = terms.Island *
+            (1.0f - Mathf.SmoothStep(0.32f, 0.58f, terms.Continent)) *
+            Mathf.SmoothStep(profile.SeaLevel + 8.0f, profile.SeaLevel + 220.0f, height);
+        float coastalStorm = Mathf.Clamp(1.0f - Mathf.Abs(height - profile.SeaLevel - 16.0f) / 150.0f, 0.0f, 1.0f) *
+            Mathf.SmoothStep(0.26f, 0.68f, terms.Continent + terms.Island * 0.28f);
 
         return Mathf.Clamp(
-            Mathf.Max(Mathf.Max(rugged * 0.74f, canyon * 0.82f), riverRisk * 0.50f) +
+            Mathf.Max(
+                Mathf.Max(Mathf.Max(rugged * 0.74f, canyon * 0.82f), riverRisk * 0.50f),
+                Mathf.Max(
+                    Mathf.Max(desertExposure * 0.64f, floodRisk * 0.62f),
+                    coastalStorm * 0.46f)) +
             waterDepth * 0.12f +
-            highElevation * 0.14f +
-            exposedRidge * 0.18f +
+            highElevation * 0.16f +
+            exposedRidge * 0.24f +
             snow * 0.08f +
-            isolation * 0.12f +
-            heatRisk * 0.18f,
+            isolation * 0.16f +
+            heatRisk * 0.28f +
+            floodRisk * 0.18f +
+            islandIsolation * 0.20f +
+            coastalStorm * 0.10f,
             0.0f,
             1.0f);
     }

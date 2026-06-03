@@ -137,6 +137,8 @@ public static class TerrainWorldPlanExporter
             $"Rivers/scenic/traversable: {quality.RiverRatio:0.000} / {quality.ScenicRatio:0.000} / {quality.TraversableLandRatio:0.000}"));
         builder.AppendLine(FormattableString.Invariant(
             $"Landscape kinds: {quality.DistinctLandscapeKinds}"));
+        builder.AppendLine(FormattableString.Invariant(
+            $"Biome kinds: {quality.DistinctBiomeKinds}"));
 
         builder.AppendLine();
         builder.AppendLine("Open World Planning Gate");
@@ -172,6 +174,22 @@ public static class TerrainWorldPlanExporter
         AppendPoiCount(builder, TerrainPointOfInterestKind.ResourceGrove, planning.ResourceGroveCount);
         AppendPoiCount(builder, TerrainPointOfInterestKind.AncientSite, planning.AncientSiteCount);
         AppendPoiCount(builder, TerrainPointOfInterestKind.CanyonOverlook, planning.CanyonOverlookCount);
+        AppendPoiCount(builder, TerrainPointOfInterestKind.Oasis, planning.OasisCount);
+
+        builder.AppendLine();
+        builder.AppendLine("Biome Counts");
+        AppendBiomeCount(builder, TerrainBiomeKind.Ocean, quality.BiomeOceanCount);
+        AppendBiomeCount(builder, TerrainBiomeKind.Coast, quality.BiomeCoastCount);
+        AppendBiomeCount(builder, TerrainBiomeKind.Island, quality.IslandCount);
+        AppendBiomeCount(builder, TerrainBiomeKind.Plains, quality.PlainsCount);
+        AppendBiomeCount(builder, TerrainBiomeKind.Grassland, quality.GrasslandCount);
+        AppendBiomeCount(builder, TerrainBiomeKind.Desert, quality.DesertCount);
+        AppendBiomeCount(builder, TerrainBiomeKind.Oasis, quality.OasisCount);
+        AppendBiomeCount(builder, TerrainBiomeKind.Forest, quality.ForestCount);
+        AppendBiomeCount(builder, TerrainBiomeKind.Wetland, quality.BiomeWetlandCount);
+        AppendBiomeCount(builder, TerrainBiomeKind.Hills, quality.HillsCount);
+        AppendBiomeCount(builder, TerrainBiomeKind.Mountains, quality.MountainsCount);
+        AppendBiomeCount(builder, TerrainBiomeKind.Snowfield, quality.BiomeSnowfieldCount);
 
         builder.AppendLine();
         builder.AppendLine("Route Counts");
@@ -362,6 +380,7 @@ public static class TerrainWorldPlanExporter
             TerrainPointOfInterestKind.ResourceGrove => new Color(0.30f, 0.78f, 0.36f, 0.92f),
             TerrainPointOfInterestKind.AncientSite => new Color(0.90f, 0.58f, 0.32f, 0.92f),
             TerrainPointOfInterestKind.CanyonOverlook => new Color(0.92f, 0.44f, 0.24f, 0.92f),
+            TerrainPointOfInterestKind.Oasis => new Color(0.18f, 0.82f, 0.58f, 0.94f),
             _ => new Color(1.0f, 1.0f, 1.0f, 0.9f)
         };
     }
@@ -385,6 +404,11 @@ public static class TerrainWorldPlanExporter
     }
 
     private static void AppendRouteCount(StringBuilder builder, TerrainRouteKind kind, int count)
+    {
+        builder.AppendLine(FormattableString.Invariant($"{kind}: {count}"));
+    }
+
+    private static void AppendBiomeCount(StringBuilder builder, TerrainBiomeKind kind, int count)
     {
         builder.AppendLine(FormattableString.Invariant($"{kind}: {count}"));
     }

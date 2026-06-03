@@ -376,6 +376,16 @@ public partial class TerrainChunk : Node3D
                 Rings = 5
             },
             TerrainLandmarkKind.CanyonOverlook => new BoxMesh { Size = new Vector3(1.85f, 0.38f, 1.15f) },
+            TerrainLandmarkKind.Oasis => new CylinderMesh
+            {
+                TopRadius = 0.78f,
+                BottomRadius = 0.60f,
+                Height = 0.34f,
+                RadialSegments = 14,
+                Rings = 1,
+                CapTop = true,
+                CapBottom = true
+            },
             _ => new BoxMesh { Size = new Vector3(0.78f, 2.6f, 0.78f) }
         };
 
@@ -396,6 +406,7 @@ public partial class TerrainChunk : Node3D
             TerrainLandmarkKind.RiverCrossing => new Vector3(scale * 1.55f, scale * 0.30f, scale * 0.78f),
             TerrainLandmarkKind.ResourceGrove => new Vector3(scale * 0.95f, scale * 1.18f, scale * 0.95f),
             TerrainLandmarkKind.CanyonOverlook => new Vector3(scale * 1.45f, scale * 0.36f, scale),
+            TerrainLandmarkKind.Oasis => new Vector3(scale * 1.42f, scale * 0.42f, scale * 1.42f),
             TerrainLandmarkKind.Vista => new Vector3(scale * 0.86f, scale * 1.42f, scale * 0.86f),
             _ => Vector3.One * scale
         };
@@ -412,6 +423,7 @@ public partial class TerrainChunk : Node3D
             TerrainLandmarkKind.CanyonOverlook => 0.28f,
             TerrainLandmarkKind.Settlement => 0.34f,
             TerrainLandmarkKind.ResourceGrove => 0.72f,
+            TerrainLandmarkKind.Oasis => 0.24f,
             _ => 0.64f
         };
 

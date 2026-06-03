@@ -226,7 +226,7 @@ public static class TerrainWorldPlanner
             }
         }
 
-        TerrainWorldPointOfInterest[] points = SelectPointsOfInterest(candidates, profile, safeMaxPoints, cellSize);
+        TerrainWorldPointOfInterest[] points = SelectPointsOfInterest(candidates, profile, safeMaxPoints, cellSize, safeWorldSize);
         TerrainWorldRoute[] routes = BuildRoutes(points, fields, profile, resolution, safeMaxRoutes);
         TerrainQualityReport qualityReport = TerrainQualityAnalyzer.Analyze(profile, center, safeWorldSize, resolution);
         TerrainWorldPlanningReport planningReport = AnalyzePlanning(points, routes, safeWorldSize);
@@ -462,7 +462,8 @@ public static class TerrainWorldPlanner
         List<PoiCandidate> candidates,
         TerrainGenerationProfile profile,
         int maxPoints,
-        float cellSize)
+        float cellSize,
+        float worldSize)
     {
         candidates.Sort((a, b) => b.Score.CompareTo(a.Score));
         var selected = new List<TerrainWorldPointOfInterest>(maxPoints);
@@ -493,6 +494,15 @@ public static class TerrainWorldPlanner
             }
         }
 
+        SelectCoverageAnchors(
+            candidates,
+            selected,
+            kindCounts,
+            maxPoints,
+            perKindLimit,
+            minDistanceSquared,
+            worldSize);
+
         foreach (PoiCandidate candidate in candidates)
         {
             TrySelectPoint(
@@ -508,7 +518,84 @@ public static class TerrainWorldPlanner
         return selected.ToArray();
     }
 
-    private static bool TrySelectPoint(
+    private static void SelectCoverageAnchors(
+        List<PoiCandidate> candidates,
+        List<TerrainWorldPointOfInterest> selected,
+        Dictionary<TerrainPointOfInterestKind, int> kindCounts,
+        int maxPoints,
+        int perKindLimit,
+        float minDistanceSquared,
+        float worldSize)
+    {
+        int targetCount = Mathf.Clamp(Mathf.CeilToInt(maxPoints * 0.44f), selected.Count, maxPoints);
+        while (selected.Count < targetCount)
+        {
+            int bestIndex = -1;
+            float bestScore = float.NegativeInfinity;
+            float currentCoverage = ComputePointCoverage(selected, worldSize);
+
+            for (int i = 0; i < candidates.Count; i++)
+            {
+                PoiCandidate candidate = candidates[i];
+                if (!CanSelectPoint(
+                    selected,
+                    kindCounts,
+                    candidate,
+                    maxPoints,
+                    perKindLimit,
+                    minDistanceSquared,
+                    enforcePerKindLimit: true))
+                {
+                    continue;
+                }
+
+                float score = ScoreCoverageAnchor(candidate, selected, worldSize, currentCoverage);
+                if (score <= bestScore)
+                {
+                    continue;
+                }
+
+                bestIndex = i;
+                bestScore = score;
+            }
+
+            if (bestIndex < 0)
+            {
+                return;
+            }
+
+            TrySelectPoint(
+                selected,
+                kindCounts,
+                candidates[bestIndex],
+                maxPoints,
+                perKindLimit,
+                minDistanceSquared,
+                enforcePerKindLimit: true);
+        }
+    }
+
+    private static float ScoreCoverageAnchor(
+        PoiCandidate candidate,
+        List<TerrainWorldPointOfInterest> selected,
+        float worldSize,
+        float currentCoverage)
+    {
+        if (selected.Count == 0)
+        {
+            return candidate.Score;
+        }
+
+        float coverageGain = ComputeCoverageWithCandidate(selected, candidate.WorldPosition, worldSize) - currentCoverage;
+        float distanceNovelty = ComputeNearestPointDistanceRatio(candidate.WorldPosition, selected, worldSize);
+        float biomeBonus = candidate.BiomeKind is TerrainBiomeKind.Island or TerrainBiomeKind.Desert or TerrainBiomeKind.Oasis
+            ? 0.08f
+            : 0.0f;
+
+        return coverageGain * 12.0f + distanceNovelty * 0.42f + candidate.Score * 0.30f + biomeBonus;
+    }
+
+    private static bool CanSelectPoint(
         List<TerrainWorldPointOfInterest> selected,
         Dictionary<TerrainPointOfInterestKind, int> kindCounts,
         PoiCandidate candidate,
@@ -536,6 +623,31 @@ public static class TerrainWorldPlanner
             }
         }
 
+        return true;
+    }
+
+    private static bool TrySelectPoint(
+        List<TerrainWorldPointOfInterest> selected,
+        Dictionary<TerrainPointOfInterestKind, int> kindCounts,
+        PoiCandidate candidate,
+        int maxPoints,
+        int perKindLimit,
+        float minDistanceSquared,
+        bool enforcePerKindLimit)
+    {
+        if (!CanSelectPoint(
+            selected,
+            kindCounts,
+            candidate,
+            maxPoints,
+            perKindLimit,
+            minDistanceSquared,
+            enforcePerKindLimit))
+        {
+            return false;
+        }
+
+        kindCounts.TryGetValue(candidate.Kind, out int kindCount);
         int id = selected.Count;
         selected.Add(new TerrainWorldPointOfInterest(
             id,
@@ -737,8 +849,8 @@ public static class TerrainWorldPlanner
         TerrainWorldRoute[] routes,
         float worldSize)
     {
-        Span<int> poiCounts = stackalloc int[9];
-        Span<int> routeCounts = stackalloc int[5];
+        Span<int> poiCounts = stackalloc int[Enum.GetValues<TerrainPointOfInterestKind>().Length];
+        Span<int> routeCounts = stackalloc int[Enum.GetValues<TerrainRouteKind>().Length];
         float scoreSum = 0.0f;
 
         foreach (TerrainWorldPointOfInterest point in points)
@@ -818,6 +930,72 @@ public static class TerrainWorldPlanner
         }
 
         return ComputeNormalizedCoverage(minX, maxX, minY, maxY, worldSize);
+    }
+
+    private static float ComputePointCoverage(
+        List<TerrainWorldPointOfInterest> points,
+        float worldSize)
+    {
+        if (points.Count == 0)
+        {
+            return 0.0f;
+        }
+
+        float minX = float.PositiveInfinity;
+        float maxX = float.NegativeInfinity;
+        float minY = float.PositiveInfinity;
+        float maxY = float.NegativeInfinity;
+
+        foreach (TerrainWorldPointOfInterest point in points)
+        {
+            minX = Mathf.Min(minX, point.WorldPosition.X);
+            maxX = Mathf.Max(maxX, point.WorldPosition.X);
+            minY = Mathf.Min(minY, point.WorldPosition.Y);
+            maxY = Mathf.Max(maxY, point.WorldPosition.Y);
+        }
+
+        return ComputeNormalizedCoverage(minX, maxX, minY, maxY, worldSize);
+    }
+
+    private static float ComputeCoverageWithCandidate(
+        List<TerrainWorldPointOfInterest> points,
+        Vector2 candidateWorldPosition,
+        float worldSize)
+    {
+        if (points.Count == 0)
+        {
+            return 0.0f;
+        }
+
+        float minX = candidateWorldPosition.X;
+        float maxX = candidateWorldPosition.X;
+        float minY = candidateWorldPosition.Y;
+        float maxY = candidateWorldPosition.Y;
+
+        foreach (TerrainWorldPointOfInterest point in points)
+        {
+            minX = Mathf.Min(minX, point.WorldPosition.X);
+            maxX = Mathf.Max(maxX, point.WorldPosition.X);
+            minY = Mathf.Min(minY, point.WorldPosition.Y);
+            maxY = Mathf.Max(maxY, point.WorldPosition.Y);
+        }
+
+        return ComputeNormalizedCoverage(minX, maxX, minY, maxY, worldSize);
+    }
+
+    private static float ComputeNearestPointDistanceRatio(
+        Vector2 worldPosition,
+        List<TerrainWorldPointOfInterest> points,
+        float worldSize)
+    {
+        float minDistanceSquared = float.PositiveInfinity;
+        foreach (TerrainWorldPointOfInterest point in points)
+        {
+            minDistanceSquared = Mathf.Min(minDistanceSquared, worldPosition.DistanceSquaredTo(point.WorldPosition));
+        }
+
+        float distance = Mathf.Sqrt(minDistanceSquared);
+        return Mathf.Clamp(distance / Mathf.Max(1.0f, worldSize * 0.32f), 0.0f, 1.0f);
     }
 
     private static float ComputeRouteCoverage(

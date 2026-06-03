@@ -125,8 +125,8 @@ public static class TerrainQualityAnalyzer
         int riverCount = 0;
         int scenicCount = 0;
         int traversableLandCount = 0;
-        Span<int> landscapeCounts = stackalloc int[11];
-        Span<int> biomeCounts = stackalloc int[12];
+        Span<int> landscapeCounts = stackalloc int[Enum.GetValues<TerrainLandscapeKind>().Length];
+        Span<int> biomeCounts = stackalloc int[Enum.GetValues<TerrainBiomeKind>().Length];
 
         for (int y = 0; y < resolution; y++)
         {

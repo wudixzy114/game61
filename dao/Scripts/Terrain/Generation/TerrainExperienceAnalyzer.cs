@@ -209,7 +209,7 @@ public static class TerrainExperienceAnalyzer
             return 0.0f;
         }
 
-        Span<int> kindCounts = stackalloc int[5];
+        Span<int> kindCounts = stackalloc int[Enum.GetValues<TerrainRouteKind>().Length];
         float scenicSum = 0.0f;
         float traversabilitySum = 0.0f;
         int scenicRouteCount = 0;
@@ -285,7 +285,8 @@ public static class TerrainExperienceAnalyzer
         {
             if (point.Kind is TerrainPointOfInterestKind.Vista or
                     TerrainPointOfInterestKind.MountainPass or
-                    TerrainPointOfInterestKind.CanyonOverlook ||
+                    TerrainPointOfInterestKind.CanyonOverlook or
+                    TerrainPointOfInterestKind.Oasis ||
                 point.ScenicPotential >= 0.62f)
             {
                 scenicAnchors++;
