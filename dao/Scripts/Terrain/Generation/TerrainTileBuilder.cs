@@ -559,7 +559,7 @@ public static class TerrainTileBuilder
             Vector3 normal = SampleNearestNormal(localX, localZ, resolution, step, normals, vertexCountPerSide);
             float slope = 1.0f - Mathf.Clamp(normal.Y, 0.0f, 1.0f);
             TerrainWorldField field = SampleFieldBilinear(localX, localZ, resolution, step, fields, vertexCountPerSide);
-            TerrainLandmarkKind kind = LandmarkKindFor(point.Kind);
+            TerrainLandmarkKind kind = LandmarkKindFor(point);
             float score = Mathf.Clamp(
                 point.Score * 0.70f +
                 field.ScenicPotential * 0.16f +
@@ -673,9 +673,24 @@ public static class TerrainTileBuilder
         return false;
     }
 
-    private static TerrainLandmarkKind LandmarkKindFor(TerrainPointOfInterestKind kind)
+    private static TerrainLandmarkKind LandmarkKindFor(TerrainWorldPointOfInterest point)
     {
-        return kind switch
+        if (point.SettlementTier == TerrainSettlementTier.Town)
+        {
+            return TerrainLandmarkKind.Town;
+        }
+
+        if (point.SettlementTier == TerrainSettlementTier.Village)
+        {
+            return TerrainLandmarkKind.Village;
+        }
+
+        if (point.SettlementTier == TerrainSettlementTier.OasisHub)
+        {
+            return TerrainLandmarkKind.OasisHub;
+        }
+
+        return point.Kind switch
         {
             TerrainPointOfInterestKind.SettlementCandidate => TerrainLandmarkKind.Settlement,
             TerrainPointOfInterestKind.Vista => TerrainLandmarkKind.Vista,
@@ -702,6 +717,9 @@ public static class TerrainTileBuilder
             TerrainLandmarkKind.ResourceGrove => 6.8f,
             TerrainLandmarkKind.CanyonOverlook => 7.2f,
             TerrainLandmarkKind.Oasis => 7.6f,
+            TerrainLandmarkKind.Village => 8.4f,
+            TerrainLandmarkKind.Town => 10.8f,
+            TerrainLandmarkKind.OasisHub => 9.4f,
             _ => 7.0f
         };
 
@@ -720,6 +738,9 @@ public static class TerrainTileBuilder
             TerrainLandmarkKind.ResourceGrove => new Color(0.28f, 0.54f, 0.28f),
             TerrainLandmarkKind.CanyonOverlook => new Color(0.66f, 0.38f, 0.24f),
             TerrainLandmarkKind.Oasis => new Color(0.18f, 0.58f, 0.42f),
+            TerrainLandmarkKind.Village => new Color(0.74f, 0.56f, 0.30f),
+            TerrainLandmarkKind.Town => new Color(0.78f, 0.44f, 0.24f),
+            TerrainLandmarkKind.OasisHub => new Color(0.16f, 0.66f, 0.50f),
             _ => new Color(0.52f, 0.50f, 0.44f)
         };
 

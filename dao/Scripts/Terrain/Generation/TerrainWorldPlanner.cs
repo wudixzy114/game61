@@ -39,6 +39,14 @@ public enum TerrainPointOfInterestKind
     Oasis
 }
 
+public enum TerrainSettlementTier
+{
+    None,
+    Village,
+    Town,
+    OasisHub
+}
+
 public enum TerrainRouteKind
 {
     PrimaryTrail,
@@ -76,6 +84,7 @@ public readonly record struct TerrainWorldPointOfInterest(
     float Traversability,
     TerrainBiomeKind BiomeKind,
     TerrainLandscapeKind LandscapeKind,
+    TerrainSettlementTier SettlementTier,
     string DebugName);
 
 public readonly record struct TerrainWorldRoute(
@@ -166,6 +175,9 @@ public readonly record struct TerrainWorldPlanningReport(
     int AncientSiteCount,
     int CanyonOverlookCount,
     int OasisCount,
+    int VillageCount,
+    int TownCount,
+    int OasisHubCount,
     int PrimaryTrailCount,
     int RiverRoadCount,
     int RidgePassCount,
@@ -454,6 +466,8 @@ public static class TerrainWorldPlanner
             field.Height,
             field.ScenicPotential,
             field.Traversability,
+            field.ResourcePotential,
+            field.River,
             field.BiomeKind,
             field.LandscapeKind));
     }
@@ -661,9 +675,50 @@ public static class TerrainWorldPlanner
             candidate.Traversability,
             candidate.BiomeKind,
             candidate.LandscapeKind,
+            ClassifySettlementTier(candidate),
             $"{candidate.Kind}_{candidate.GridX}_{candidate.GridY}_{id}"));
         kindCounts[candidate.Kind] = kindCount + 1;
         return true;
+    }
+
+    private static TerrainSettlementTier ClassifySettlementTier(PoiCandidate candidate)
+    {
+        if (candidate.Kind == TerrainPointOfInterestKind.Oasis)
+        {
+            float oasisHubScore =
+                candidate.Score * 0.38f +
+                candidate.ResourcePotential * 0.30f +
+                candidate.Traversability * 0.16f +
+                candidate.River * 0.16f;
+            return oasisHubScore >= 0.72f
+                ? TerrainSettlementTier.OasisHub
+                : TerrainSettlementTier.None;
+        }
+
+        if (candidate.Kind != TerrainPointOfInterestKind.SettlementCandidate)
+        {
+            return TerrainSettlementTier.None;
+        }
+
+        float biomeScore = candidate.BiomeKind switch
+        {
+            TerrainBiomeKind.Plains => 1.0f,
+            TerrainBiomeKind.Grassland => 0.92f,
+            TerrainBiomeKind.Oasis => 0.88f,
+            TerrainBiomeKind.Forest => 0.68f,
+            TerrainBiomeKind.Coast => 0.58f,
+            _ => 0.36f
+        };
+        float townScore =
+            candidate.Score * 0.40f +
+            candidate.Traversability * 0.22f +
+            candidate.ResourcePotential * 0.20f +
+            candidate.ScenicPotential * 0.08f +
+            biomeScore * 0.10f;
+
+        return townScore >= 0.80f
+            ? TerrainSettlementTier.Town
+            : TerrainSettlementTier.Village;
     }
 
     private static TerrainWorldRoute[] BuildRoutes(
@@ -851,11 +906,13 @@ public static class TerrainWorldPlanner
     {
         Span<int> poiCounts = stackalloc int[Enum.GetValues<TerrainPointOfInterestKind>().Length];
         Span<int> routeCounts = stackalloc int[Enum.GetValues<TerrainRouteKind>().Length];
+        Span<int> settlementTierCounts = stackalloc int[Enum.GetValues<TerrainSettlementTier>().Length];
         float scoreSum = 0.0f;
 
         foreach (TerrainWorldPointOfInterest point in points)
         {
             poiCounts[Mathf.Clamp((int)point.Kind, 0, poiCounts.Length - 1)]++;
+            settlementTierCounts[Mathf.Clamp((int)point.SettlementTier, 0, settlementTierCounts.Length - 1)]++;
             scoreSum += point.Score;
         }
 
@@ -900,6 +957,9 @@ public static class TerrainWorldPlanner
             poiCounts[(int)TerrainPointOfInterestKind.AncientSite],
             poiCounts[(int)TerrainPointOfInterestKind.CanyonOverlook],
             poiCounts[(int)TerrainPointOfInterestKind.Oasis],
+            settlementTierCounts[(int)TerrainSettlementTier.Village],
+            settlementTierCounts[(int)TerrainSettlementTier.Town],
+            settlementTierCounts[(int)TerrainSettlementTier.OasisHub],
             routeCounts[(int)TerrainRouteKind.PrimaryTrail],
             routeCounts[(int)TerrainRouteKind.RiverRoad],
             routeCounts[(int)TerrainRouteKind.RidgePass],
@@ -1391,6 +1451,8 @@ public static class TerrainWorldPlanner
         float Height,
         float ScenicPotential,
         float Traversability,
+        float ResourcePotential,
+        float River,
         TerrainBiomeKind BiomeKind,
         TerrainLandscapeKind LandscapeKind);
 }

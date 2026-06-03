@@ -14,7 +14,10 @@ public enum TerrainPointOfInterestVisualKind
     ResourceGrove,
     AncientSite,
     CanyonOverlook,
-    Oasis
+    Oasis,
+    Village,
+    Town,
+    OasisHub
 }
 
 public readonly record struct TerrainPointOfInterestArchetype(
@@ -158,6 +161,17 @@ public static class TerrainPointOfInterestArchetypeCatalog
 
         archetype = default;
         return false;
+    }
+
+    public static TerrainPointOfInterestVisualKind VisualKindFor(TerrainWorldPointOfInterest point)
+    {
+        return point.SettlementTier switch
+        {
+            TerrainSettlementTier.Village => TerrainPointOfInterestVisualKind.Village,
+            TerrainSettlementTier.Town => TerrainPointOfInterestVisualKind.Town,
+            TerrainSettlementTier.OasisHub => TerrainPointOfInterestVisualKind.OasisHub,
+            _ => Get(point.Kind).VisualKind
+        };
     }
 
     public static TerrainPointOfInterestArchetypeValidationReport ValidatePlanReadiness(TerrainWorldPlan plan)

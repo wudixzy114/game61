@@ -12,6 +12,7 @@ public partial class TerrainWorldPointOfInterestAnchor : Marker3D
     public float Height { get; private set; }
     public float ScenicPotential { get; private set; }
     public float Traversability { get; private set; }
+    public TerrainSettlementTier SettlementTier { get; private set; }
     public TerrainLandscapeKind LandscapeKind { get; private set; }
     public TerrainPointOfInterestVisualKind VisualKind { get; private set; }
     public string GameplayTag { get; private set; } = string.Empty;
@@ -29,8 +30,9 @@ public partial class TerrainWorldPointOfInterestAnchor : Marker3D
         Height = point.Height;
         ScenicPotential = point.ScenicPotential;
         Traversability = point.Traversability;
+        SettlementTier = point.SettlementTier;
         LandscapeKind = point.LandscapeKind;
-        VisualKind = archetype.VisualKind;
+        VisualKind = TerrainPointOfInterestArchetypeCatalog.VisualKindFor(point);
         GameplayTag = archetype.GameplayTag;
         InteractionRadius = archetype.InteractionRadius;
         EncounterBudget = archetype.EncounterBudget;
@@ -46,6 +48,7 @@ public partial class TerrainWorldPointOfInterestAnchor : Marker3D
         SetMeta("terrain_poi_score", Score);
         SetMeta("terrain_poi_scenic", ScenicPotential);
         SetMeta("terrain_poi_traversability", Traversability);
+        SetMeta("terrain_poi_settlement_tier", SettlementTier.ToString());
         SetMeta("terrain_poi_landscape", LandscapeKind.ToString());
         SetMeta("terrain_poi_interaction_radius", InteractionRadius);
         SetMeta("terrain_poi_encounter_budget", EncounterBudget);

@@ -251,18 +251,27 @@ public static class TerrainExperienceAnalyzer
         float scoreSum = 0.0f;
         float scenicSum = 0.0f;
         float traversalSum = 0.0f;
+        float settlementSum = 0.0f;
         foreach (TerrainWorldPointOfInterest point in pointsOfInterest)
         {
             scoreSum += point.Score;
             scenicSum += point.ScenicPotential;
             traversalSum += point.Traversability;
+            settlementSum += point.SettlementTier switch
+            {
+                TerrainSettlementTier.Town => 1.0f,
+                TerrainSettlementTier.OasisHub => 0.92f,
+                TerrainSettlementTier.Village => 0.72f,
+                _ => 0.0f
+            };
         }
 
         float invPointCount = 1.0f / pointsOfInterest.Length;
         return Mathf.Clamp(
-            (scoreSum * invPointCount) * 0.56f +
-            (scenicSum * invPointCount) * 0.26f +
-            (traversalSum * invPointCount) * 0.18f,
+            (scoreSum * invPointCount) * 0.50f +
+            (scenicSum * invPointCount) * 0.24f +
+            (traversalSum * invPointCount) * 0.16f +
+            (settlementSum * invPointCount) * 0.10f,
             0.0f,
             1.0f);
     }

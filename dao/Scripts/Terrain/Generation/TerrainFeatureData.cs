@@ -22,7 +22,10 @@ public enum TerrainLandmarkKind
     CoastalLanding,
     ResourceGrove,
     CanyonOverlook,
-    Oasis
+    Oasis,
+    Village,
+    Town,
+    OasisHub
 }
 
 public readonly record struct TerrainScatterInstance(

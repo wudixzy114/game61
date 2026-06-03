@@ -177,6 +177,12 @@ public static class TerrainWorldPlanExporter
         AppendPoiCount(builder, TerrainPointOfInterestKind.Oasis, planning.OasisCount);
 
         builder.AppendLine();
+        builder.AppendLine("Settlement Development");
+        AppendSettlementTierCount(builder, TerrainSettlementTier.Village, planning.VillageCount);
+        AppendSettlementTierCount(builder, TerrainSettlementTier.Town, planning.TownCount);
+        AppendSettlementTierCount(builder, TerrainSettlementTier.OasisHub, planning.OasisHubCount);
+
+        builder.AppendLine();
         builder.AppendLine("Biome Counts");
         AppendBiomeCount(builder, TerrainBiomeKind.Ocean, quality.BiomeOceanCount);
         AppendBiomeCount(builder, TerrainBiomeKind.Coast, quality.BiomeCoastCount);
@@ -204,7 +210,7 @@ public static class TerrainWorldPlanExporter
         foreach (TerrainWorldPointOfInterest point in TopPoints(plan.PointsOfInterest, 12))
         {
             builder.AppendLine(FormattableString.Invariant(
-                $"{point.Id:00} {point.Kind} score {point.Score:0.000} height {point.Height:0.0} scenic {point.ScenicPotential:0.000} traversable {point.Traversability:0.000} at {point.WorldPosition.X:0.0}, {point.WorldPosition.Y:0.0}"));
+                $"{point.Id:00} {point.Kind} {SettlementTierLabel(point.SettlementTier)}score {point.Score:0.000} height {point.Height:0.0} scenic {point.ScenicPotential:0.000} traversable {point.Traversability:0.000} at {point.WorldPosition.X:0.0}, {point.WorldPosition.Y:0.0}"));
         }
 
         return builder.ToString();
@@ -290,7 +296,7 @@ public static class TerrainWorldPlanExporter
         }
 
         int radius = Mathf.Clamp(Mathf.RoundToInt(5.0f + point.Score * 5.0f), 5, 10);
-        Color color = ColorForPoint(point.Kind);
+        Color color = ColorForPoint(point);
         DrawDisc(image, pixel.X, pixel.Y, radius + 2, MarkerOutline);
         DrawDisc(image, pixel.X, pixel.Y, radius, color);
         DrawDisc(image, pixel.X, pixel.Y, Mathf.Max(2, radius / 3), MarkerCore);
@@ -368,21 +374,39 @@ public static class TerrainWorldPlanExporter
         return true;
     }
 
-    private static Color ColorForPoint(TerrainPointOfInterestKind kind)
+    private static Color ColorForPoint(TerrainWorldPointOfInterest point)
     {
-        return kind switch
+        return point.SettlementTier switch
         {
-            TerrainPointOfInterestKind.SettlementCandidate => new Color(0.95f, 0.70f, 0.25f, 0.92f),
-            TerrainPointOfInterestKind.Vista => new Color(0.96f, 0.86f, 0.30f, 0.94f),
-            TerrainPointOfInterestKind.RiverCrossing => new Color(0.20f, 0.74f, 0.92f, 0.92f),
-            TerrainPointOfInterestKind.MountainPass => new Color(0.70f, 0.62f, 0.96f, 0.92f),
-            TerrainPointOfInterestKind.CoastalLanding => new Color(0.24f, 0.56f, 0.92f, 0.92f),
-            TerrainPointOfInterestKind.ResourceGrove => new Color(0.30f, 0.78f, 0.36f, 0.92f),
-            TerrainPointOfInterestKind.AncientSite => new Color(0.90f, 0.58f, 0.32f, 0.92f),
-            TerrainPointOfInterestKind.CanyonOverlook => new Color(0.92f, 0.44f, 0.24f, 0.92f),
-            TerrainPointOfInterestKind.Oasis => new Color(0.18f, 0.82f, 0.58f, 0.94f),
-            _ => new Color(1.0f, 1.0f, 1.0f, 0.9f)
+            TerrainSettlementTier.Village => new Color(0.86f, 0.58f, 0.26f, 0.94f),
+            TerrainSettlementTier.Town => new Color(0.94f, 0.38f, 0.18f, 0.96f),
+            TerrainSettlementTier.OasisHub => new Color(0.10f, 0.86f, 0.58f, 0.96f),
+            _ => point.Kind switch
+            {
+                TerrainPointOfInterestKind.SettlementCandidate => new Color(0.95f, 0.70f, 0.25f, 0.92f),
+                TerrainPointOfInterestKind.Vista => new Color(0.96f, 0.86f, 0.30f, 0.94f),
+                TerrainPointOfInterestKind.RiverCrossing => new Color(0.20f, 0.74f, 0.92f, 0.92f),
+                TerrainPointOfInterestKind.MountainPass => new Color(0.70f, 0.62f, 0.96f, 0.92f),
+                TerrainPointOfInterestKind.CoastalLanding => new Color(0.24f, 0.56f, 0.92f, 0.92f),
+                TerrainPointOfInterestKind.ResourceGrove => new Color(0.30f, 0.78f, 0.36f, 0.92f),
+                TerrainPointOfInterestKind.AncientSite => new Color(0.90f, 0.58f, 0.32f, 0.92f),
+                TerrainPointOfInterestKind.CanyonOverlook => new Color(0.92f, 0.44f, 0.24f, 0.92f),
+                TerrainPointOfInterestKind.Oasis => new Color(0.18f, 0.82f, 0.58f, 0.94f),
+                _ => new Color(1.0f, 1.0f, 1.0f, 0.9f)
+            }
         };
+    }
+
+    private static string SettlementTierLabel(TerrainSettlementTier tier)
+    {
+        return tier == TerrainSettlementTier.None
+            ? string.Empty
+            : $"{tier} ";
+    }
+
+    private static void AppendSettlementTierCount(StringBuilder builder, TerrainSettlementTier tier, int count)
+    {
+        builder.AppendLine(FormattableString.Invariant($"{tier}: {count}"));
     }
 
     private static Color ColorForRoute(TerrainRouteKind kind)

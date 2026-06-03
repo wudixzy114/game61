@@ -99,6 +99,7 @@ static void PrintSeedResult(TerrainValidationResult result, bool detailed)
         $"Seed {result.Seed}: {(result.Passed ? "PASS" : "FAIL")} " +
         $"land {quality.LandRatio:0.000}, scenic {quality.ScenicRatio:0.000}, " +
         $"traversable {quality.TraversableLandRatio:0.000}, POIs {planning.PointOfInterestCount}, " +
+        $"settlements V/T/O {planning.VillageCount}/{planning.TownCount}/{planning.OasisHubCount}, " +
         $"routes {planning.RouteCount}, connected {planning.ConnectedPointRatio:0.000}, " +
         $"coverage {planning.PointOfInterestWorldCoverage:0.000}/{planning.RouteWorldCoverage:0.000}, " +
         $"encounter {experience.AverageEncounterPotential:0.000}, rhythm {experience.RouteRhythmScore:0.000}, " +
@@ -119,6 +120,7 @@ static void PrintSeedResult(TerrainValidationResult result, bool detailed)
     Console.WriteLine("Open world planning gate:");
     Console.Write(result.PlanningGate.Summary);
     Console.WriteLine($"POIs/routes: {planning.PointOfInterestCount} / {planning.RouteCount}");
+    Console.WriteLine($"Villages/towns/oasis hubs: {planning.VillageCount} / {planning.TownCount} / {planning.OasisHubCount}");
     Console.WriteLine($"Connected point ratio: {planning.ConnectedPointRatio:0.000}");
     Console.WriteLine($"World coverage POIs/routes: {planning.PointOfInterestWorldCoverage:0.000} / {planning.RouteWorldCoverage:0.000}");
     Console.WriteLine($"Average route scenic/traversability: {planning.AverageRouteScenicPotential:0.000} / {planning.AverageRouteTraversability:0.000}");
@@ -283,6 +285,10 @@ static TerrainPoiTileSmokeReport ValidatePoiTileMaterialization(
         materialized.Count == expected.Count &&
         distinctKinds >= 5 &&
         distinctScatterKinds >= 5 &&
+        kindCounts[(int)TerrainLandmarkKind.Village] > 0 &&
+        kindCounts[(int)TerrainLandmarkKind.Town] > 0 &&
+        scatterKindCounts[(int)TerrainLandmarkKind.Village] > 0 &&
+        scatterKindCounts[(int)TerrainLandmarkKind.Town] > 0 &&
         landmarkScatterCount >= expected.Count;
     string reason = passed
         ? "planned POIs materialized as tile landmarks"
@@ -295,6 +301,12 @@ static TerrainPoiTileSmokeReport ValidatePoiTileMaterialization(
         coords.Count,
         distinctKinds,
         distinctScatterKinds,
+        kindCounts[(int)TerrainLandmarkKind.Village],
+        kindCounts[(int)TerrainLandmarkKind.Town],
+        kindCounts[(int)TerrainLandmarkKind.OasisHub],
+        scatterKindCounts[(int)TerrainLandmarkKind.Village],
+        scatterKindCounts[(int)TerrainLandmarkKind.Town],
+        scatterKindCounts[(int)TerrainLandmarkKind.OasisHub],
         landmarkScatterCount,
         reason);
 }
@@ -310,6 +322,8 @@ static void PrintPoiTileSmoke(TerrainPoiTileSmokeReport report)
         $"POI tile landmark smoke: {(report.Passed ? "PASS" : "FAIL")} " +
         $"materialized {report.MaterializedPointCount}/{report.ExpectedPointCount}, " +
         $"tiles {report.TileCount}, kinds {report.DistinctLandmarkKinds}/{report.DistinctScatterLandmarkKinds}, " +
+        $"village/town/oasis hub landmarks {report.VillageLandmarkCount}/{report.TownLandmarkCount}/{report.OasisHubLandmarkCount}, " +
+        $"scatter {report.VillageScatterCount}/{report.TownScatterCount}/{report.OasisHubScatterCount}, " +
         $"landmark scatter {report.LandmarkScatterCount} ({report.Reason})");
 }
 
@@ -523,6 +537,9 @@ static void PrintAggregate(
     Console.WriteLine($"Route coverage min/avg/max: {aggregate.MinRouteWorldCoverage:0.000} / {aggregate.AverageRouteWorldCoverage:0.000} / {aggregate.MaxRouteWorldCoverage:0.000}");
     Console.WriteLine($"Route scenic min/avg/max: {aggregate.MinRouteScenicPotential:0.000} / {aggregate.AverageRouteScenicPotential:0.000} / {aggregate.MaxRouteScenicPotential:0.000}");
     Console.WriteLine($"Route traversability min/avg/max: {aggregate.MinRouteTraversability:0.000} / {aggregate.AverageRouteTraversability:0.000} / {aggregate.MaxRouteTraversability:0.000}");
+    Console.WriteLine($"Village count min/avg/max: {aggregate.MinVillageCount} / {aggregate.AverageVillageCount:0.0} / {aggregate.MaxVillageCount}");
+    Console.WriteLine($"Town count min/avg/max: {aggregate.MinTownCount} / {aggregate.AverageTownCount:0.0} / {aggregate.MaxTownCount}");
+    Console.WriteLine($"Oasis hub count min/avg/max: {aggregate.MinOasisHubCount} / {aggregate.AverageOasisHubCount:0.0} / {aggregate.MaxOasisHubCount}");
     Console.WriteLine($"Encounter potential min/avg/max: {aggregate.MinEncounterPotential:0.000} / {aggregate.AverageEncounterPotential:0.000} / {aggregate.MaxEncounterPotential:0.000}");
     Console.WriteLine($"Route rhythm min/avg/max: {aggregate.MinRouteRhythmScore:0.000} / {aggregate.AverageRouteRhythmScore:0.000} / {aggregate.MaxRouteRhythmScore:0.000}");
     Console.WriteLine($"Risk reward min/avg/max: {aggregate.MinRiskRewardBalance:0.000} / {aggregate.AverageRiskRewardBalance:0.000} / {aggregate.MaxRiskRewardBalance:0.000}");
@@ -649,6 +666,12 @@ internal readonly record struct TerrainPoiTileSmokeReport(
     int TileCount,
     int DistinctLandmarkKinds,
     int DistinctScatterLandmarkKinds,
+    int VillageLandmarkCount,
+    int TownLandmarkCount,
+    int OasisHubLandmarkCount,
+    int VillageScatterCount,
+    int TownScatterCount,
+    int OasisHubScatterCount,
     int LandmarkScatterCount,
     string Reason);
 
@@ -692,6 +715,9 @@ internal sealed class TerrainValidationAggregate
     private double _encounterPotentialSum;
     private double _routeRhythmScoreSum;
     private double _riskRewardBalanceSum;
+    private double _villageCountSum;
+    private double _townCountSum;
+    private double _oasisHubCountSum;
 
     public float MinLandRatio { get; private set; } = float.PositiveInfinity;
     public float MaxLandRatio { get; private set; } = float.NegativeInfinity;
@@ -719,6 +745,12 @@ internal sealed class TerrainValidationAggregate
     public float MaxRouteRhythmScore { get; private set; } = float.NegativeInfinity;
     public float MinRiskRewardBalance { get; private set; } = float.PositiveInfinity;
     public float MaxRiskRewardBalance { get; private set; } = float.NegativeInfinity;
+    public int MinVillageCount { get; private set; } = int.MaxValue;
+    public int MaxVillageCount { get; private set; } = int.MinValue;
+    public int MinTownCount { get; private set; } = int.MaxValue;
+    public int MaxTownCount { get; private set; } = int.MinValue;
+    public int MinOasisHubCount { get; private set; } = int.MaxValue;
+    public int MaxOasisHubCount { get; private set; } = int.MinValue;
     public int ExperienceFailureCount { get; private set; }
     public int ArchetypeFailureCount { get; private set; }
 
@@ -735,6 +767,9 @@ internal sealed class TerrainValidationAggregate
     public double AverageEncounterPotential => Average(_encounterPotentialSum);
     public double AverageRouteRhythmScore => Average(_routeRhythmScoreSum);
     public double AverageRiskRewardBalance => Average(_riskRewardBalanceSum);
+    public double AverageVillageCount => Average(_villageCountSum);
+    public double AverageTownCount => Average(_townCountSum);
+    public double AverageOasisHubCount => Average(_oasisHubCountSum);
 
     public void Add(TerrainValidationResult result)
     {
@@ -755,6 +790,9 @@ internal sealed class TerrainValidationAggregate
         _encounterPotentialSum += experience.AverageEncounterPotential;
         _routeRhythmScoreSum += experience.RouteRhythmScore;
         _riskRewardBalanceSum += experience.RiskRewardBalance;
+        _villageCountSum += planning.VillageCount;
+        _townCountSum += planning.TownCount;
+        _oasisHubCountSum += planning.OasisHubCount;
 
         MinLandRatio = Math.Min(MinLandRatio, quality.LandRatio);
         MaxLandRatio = Math.Max(MaxLandRatio, quality.LandRatio);
@@ -782,6 +820,12 @@ internal sealed class TerrainValidationAggregate
         MaxRouteRhythmScore = Math.Max(MaxRouteRhythmScore, experience.RouteRhythmScore);
         MinRiskRewardBalance = Math.Min(MinRiskRewardBalance, experience.RiskRewardBalance);
         MaxRiskRewardBalance = Math.Max(MaxRiskRewardBalance, experience.RiskRewardBalance);
+        MinVillageCount = Math.Min(MinVillageCount, planning.VillageCount);
+        MaxVillageCount = Math.Max(MaxVillageCount, planning.VillageCount);
+        MinTownCount = Math.Min(MinTownCount, planning.TownCount);
+        MaxTownCount = Math.Max(MaxTownCount, planning.TownCount);
+        MinOasisHubCount = Math.Min(MinOasisHubCount, planning.OasisHubCount);
+        MaxOasisHubCount = Math.Max(MaxOasisHubCount, planning.OasisHubCount);
 
         if (!result.ExperienceGate.Passed)
         {
