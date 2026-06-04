@@ -6,6 +6,16 @@ namespace Dao.Terrain.Runtime;
 /// <summary>Runtime node for a planned route, exposing cost, scenic potential, and waypoint data via Godot meta properties.</summary>
 public partial class TerrainWorldRouteAnchor : Node3D
 {
+    public const string GroupName = TerrainWorldAnchorContract.RouteGroup;
+    public const string MetaKeyKind = TerrainWorldAnchorContract.RouteMetaKeyKind;
+    public const string MetaKeyFrom = TerrainWorldAnchorContract.RouteMetaKeyFrom;
+    public const string MetaKeyTo = TerrainWorldAnchorContract.RouteMetaKeyTo;
+    public const string MetaKeyCost = TerrainWorldAnchorContract.RouteMetaKeyCost;
+    public const string MetaKeyScenic = TerrainWorldAnchorContract.RouteMetaKeyScenic;
+    public const string MetaKeyTraversability = TerrainWorldAnchorContract.RouteMetaKeyTraversability;
+
+    public static string[] RequiredMetaKeys => TerrainWorldAnchorContract.GetRouteRequiredMetaKeys();
+
     public int FromPointId { get; private set; }
     public int ToPointId { get; private set; }
     public TerrainRouteKind Kind { get; private set; }
@@ -18,25 +28,32 @@ public partial class TerrainWorldRouteAnchor : Node3D
     /// <summary>Configures this anchor from route plan data and places it at the midpoint.</summary>
     public void Configure(TerrainWorldRoute route, Vector3 worldPosition)
     {
-        FromPointId = route.FromPointId;
-        ToPointId = route.ToPointId;
-        Kind = route.Kind;
-        Cost = route.Cost;
-        AverageScenicPotential = route.AverageScenicPotential;
-        AverageTraversability = route.AverageTraversability;
-        Waypoints = route.Waypoints;
-        WorldMidpoint2D = route.Waypoints.Length == 0
-            ? Vector2.Zero
-            : route.Waypoints[route.Waypoints.Length / 2];
+        TerrainWorldRouteAnchorDescriptor descriptor = TerrainWorldAnchorContract.CreateRouteDescriptor(route);
+        Configure(descriptor, worldPosition);
+    }
 
-        Name = $"Route_{FromPointId:00}_{ToPointId:00}_{Kind}";
+    /// <summary>Configures this anchor from a stable gameplay descriptor and places it at the midpoint.</summary>
+    public void Configure(TerrainWorldRouteAnchorDescriptor descriptor, Vector3 worldPosition)
+    {
+        FromPointId = descriptor.FromPointId;
+        ToPointId = descriptor.ToPointId;
+        Kind = descriptor.Kind;
+        Cost = descriptor.Cost;
+        AverageScenicPotential = descriptor.AverageScenicPotential;
+        AverageTraversability = descriptor.AverageTraversability;
+        Waypoints = descriptor.Waypoints.Length == 0
+            ? []
+            : (Vector2[])descriptor.Waypoints.Clone();
+        WorldMidpoint2D = descriptor.WorldMidpoint2D;
+
+        Name = descriptor.Name;
         GlobalPosition = worldPosition;
-        AddToGroup("terrain_route");
-        SetMeta("terrain_route_kind", Kind.ToString());
-        SetMeta("terrain_route_from", FromPointId);
-        SetMeta("terrain_route_to", ToPointId);
-        SetMeta("terrain_route_cost", Cost);
-        SetMeta("terrain_route_scenic", AverageScenicPotential);
-        SetMeta("terrain_route_traversability", AverageTraversability);
+        AddToGroup(descriptor.GroupName);
+        SetMeta(MetaKeyKind, Kind.ToString());
+        SetMeta(MetaKeyFrom, FromPointId);
+        SetMeta(MetaKeyTo, ToPointId);
+        SetMeta(MetaKeyCost, Cost);
+        SetMeta(MetaKeyScenic, AverageScenicPotential);
+        SetMeta(MetaKeyTraversability, AverageTraversability);
     }
 }

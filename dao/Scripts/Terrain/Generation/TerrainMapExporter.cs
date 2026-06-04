@@ -9,18 +9,18 @@ namespace Dao.Terrain.Generation;
 /// <summary>Selects which terrain attribute is visualized when exporting a map image.</summary>
 public enum TerrainMapLayer
 {
-    Biome,
-    Height,
-    River,
-    Moisture,
-    Temperature,
-    ScenicPotential,
-    Traversability,
-    Exposure,
-    ResourcePotential,
-    HazardPotential,
-    EncounterPotential,
-    Landscape
+    Biome = 0,
+    Height = 1,
+    River = 2,
+    Moisture = 3,
+    Temperature = 4,
+    ScenicPotential = 5,
+    Traversability = 6,
+    Exposure = 7,
+    ResourcePotential = 8,
+    HazardPotential = 9,
+    EncounterPotential = 10,
+    Landscape = 11
 }
 
 /// <summary>A single terrain sample ready for map export with pre-computed color.</summary>

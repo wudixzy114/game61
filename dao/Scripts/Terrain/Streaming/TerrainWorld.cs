@@ -216,6 +216,27 @@ public partial class TerrainWorld : Node3D
         return plan is not null;
     }
 
+    /// <summary>Returns a snapshot copy of the current open-world plan, or an empty snapshot when no plan is ready.</summary>
+    public TerrainWorldPlanSnapshot GetWorldPlanSnapshot()
+    {
+        return _worldPlan is null
+            ? TerrainWorldPlanSnapshot.Empty
+            : TerrainWorldPlanSnapshot.FromPlan(_worldPlan);
+    }
+
+    /// <summary>Returns a snapshot copy of the current open-world plan without exposing internal mutable arrays.</summary>
+    public bool TryGetWorldPlanSnapshot([NotNullWhen(true)] out TerrainWorldPlanSnapshot? snapshot)
+    {
+        if (_worldPlan is null)
+        {
+            snapshot = null;
+            return false;
+        }
+
+        snapshot = TerrainWorldPlanSnapshot.FromPlan(_worldPlan);
+        return true;
+    }
+
     /// <summary>Returns a snapshot copy of the current plan's points of interest, or an empty array when no plan is ready.</summary>
     public TerrainWorldPointOfInterest[] GetPointsOfInterest()
     {

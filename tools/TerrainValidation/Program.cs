@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
 using Dao.Terrain;
@@ -24,7 +25,10 @@ bool skipGameplayScatterSmoke = HasFlag(args, "--skip-gameplay-scatter-smoke");
 bool skipBiomeScatterSmoke = HasFlag(args, "--skip-biome-scatter-smoke");
 bool skipScenicLandmarkSmoke = HasFlag(args, "--skip-scenic-landmark-smoke");
 bool skipArtifactSmoke = HasFlag(args, "--skip-artifact-smoke");
+bool skipPlanJsonSmoke = HasFlag(args, "--skip-plan-json-smoke");
+bool skipEnumContractSmoke = HasFlag(args, "--skip-enum-contract-smoke");
 bool skipRuntimeApiSmoke = HasFlag(args, "--skip-runtime-api-smoke");
+bool skipAnchorSmoke = HasFlag(args, "--skip-anchor-smoke");
 bool skipRuntimeWorldSmoke = HasFlag(args, "--skip-runtime-world-smoke");
 bool smokeAllSeeds = HasFlag(args, "--smoke-all-seeds");
 bool nativeSmoke = HasFlag(args, "--native-smoke");
@@ -49,7 +53,10 @@ TerrainGameplayScatterSmokeReport? gameplayScatterSmokeReport = null;
 TerrainBiomeScatterSmokeReport? biomeScatterSmokeReport = null;
 TerrainScenicLandmarkSmokeReport? scenicLandmarkSmokeReport = null;
 TerrainArtifactSmokeReport? artifactSmokeReport = null;
+TerrainPlanJsonSmokeReport? planJsonSmokeReport = null;
+TerrainEnumContractSmokeReport? enumContractSmokeReport = null;
 TerrainRuntimeApiSmokeReport? runtimeApiSmokeReport = null;
+TerrainAnchorContractSmokeReport? anchorSmokeReport = null;
 TerrainRuntimeWorldSmokeReport? runtimeWorldSmokeReport = null;
 TerrainNativeSamplerSmokeReport? nativeSmokeReport = null;
 TerrainTileBenchmarkReport? tileBenchmarkReport = null;
@@ -131,11 +138,25 @@ for (int i = 0; i < seedCount; i++)
         RecordAuxiliaryCheck(artifactSmokeReport.Value.Passed, ref totalFailures, ref auxiliaryCheckCount, ref auxiliaryFailureCount);
     }
 
+    if (runSeedSmokes && !skipPlanJsonSmoke)
+    {
+        planJsonSmokeReport = ValidateTerrainPlanJsonRoundtrip(seedProfile, result.Plan);
+        PrintPlanJsonSmoke(planJsonSmokeReport.Value);
+        RecordAuxiliaryCheck(planJsonSmokeReport.Value.Passed, ref totalFailures, ref auxiliaryCheckCount, ref auxiliaryFailureCount);
+    }
+
     if (runSeedSmokes && !skipRuntimeApiSmoke)
     {
         runtimeApiSmokeReport = ValidateTerrainWorldRuntimeApiFacade(seedProfile, result.Plan);
         PrintRuntimeApiSmoke(runtimeApiSmokeReport.Value);
         RecordAuxiliaryCheck(runtimeApiSmokeReport.Value.Passed, ref totalFailures, ref auxiliaryCheckCount, ref auxiliaryFailureCount);
+    }
+
+    if (runSeedSmokes && !skipAnchorSmoke)
+    {
+        anchorSmokeReport = ValidateTerrainAnchorContract(seedProfile, result.Plan);
+        PrintAnchorContractSmoke(anchorSmokeReport.Value);
+        RecordAuxiliaryCheck(anchorSmokeReport.Value.Passed, ref totalFailures, ref auxiliaryCheckCount, ref auxiliaryFailureCount);
     }
 
     if (runSeedSmokes && !skipRuntimeWorldSmoke)
@@ -144,6 +165,13 @@ for (int i = 0; i < seedCount; i++)
         PrintRuntimeWorldSmoke(runtimeWorldSmokeReport.Value);
         RecordAuxiliaryCheck(runtimeWorldSmokeReport.Value.Passed, ref totalFailures, ref auxiliaryCheckCount, ref auxiliaryFailureCount);
     }
+}
+
+if (!skipEnumContractSmoke)
+{
+    enumContractSmokeReport = ValidateTerrainEnumContracts();
+    PrintEnumContractSmoke(enumContractSmokeReport.Value);
+    RecordAuxiliaryCheck(enumContractSmokeReport.Value.Passed, ref totalFailures, ref auxiliaryCheckCount, ref auxiliaryFailureCount);
 }
 
 if (nativeSmoke)
@@ -174,7 +202,10 @@ PrintAggregate(
     biomeScatterSmokeReport,
     scenicLandmarkSmokeReport,
     artifactSmokeReport,
+    planJsonSmokeReport,
+    enumContractSmokeReport,
     runtimeApiSmokeReport,
+    anchorSmokeReport,
     runtimeWorldSmokeReport,
     nativeSmokeReport,
     tileBenchmarkReport);
@@ -1362,7 +1393,7 @@ static TerrainArtifactSmokeReport ValidateOpenWorldArtifactExport(
     long mapBytes = mapExists ? new System.IO.FileInfo(mapFilePath).Length : 0L;
     long reportBytes = reportExists ? new System.IO.FileInfo(reportFilePath).Length : 0L;
     string reportText = reportExists ? System.IO.File.ReadAllText(reportFilePath) : string.Empty;
-    bool reportContainsRequiredSections = ReportContainsRequiredArtifactSections(reportText);
+    bool reportContainsRequiredSections = ReportContainsRequiredArtifactSections(reportText, profile);
 
     bool mapHasContent =
         distinctColorBuckets >= 24 &&
@@ -1449,11 +1480,12 @@ static int QuantizedColorKey(Color color)
     return (r << 8) | (g << 4) | b;
 }
 
-static bool ReportContainsRequiredArtifactSections(string reportText)
+static bool ReportContainsRequiredArtifactSections(string reportText, TerrainGenerationProfile profile)
 {
     return reportText.Contains("Open World Terrain Plan", StringComparison.Ordinal) &&
         reportText.Contains($"Terrain API Contract: {TerrainApiVersion.Contract}", StringComparison.Ordinal) &&
         reportText.Contains($"Terrain API Version: {TerrainApiVersion.Version}", StringComparison.Ordinal) &&
+        reportText.Contains($"Terrain Profile Hash: {profile.StableHash()}", StringComparison.Ordinal) &&
         reportText.Contains("Terrain Quality Gate", StringComparison.Ordinal) &&
         reportText.Contains("Open World Planning Gate", StringComparison.Ordinal) &&
         reportText.Contains("Open World Experience Gate", StringComparison.Ordinal) &&
@@ -1504,6 +1536,757 @@ static void PrintArtifactSmoke(TerrainArtifactSmokeReport report)
     Console.WriteLine($"Artifact paths: {report.MapPath}, {report.ReportPath}");
 }
 
+static TerrainPlanJsonSmokeReport ValidateTerrainPlanJsonRoundtrip(
+    TerrainGenerationProfile profile,
+    TerrainWorldPlan plan)
+{
+    try
+    {
+        string json = TerrainWorldPlanSerializer.ToJson(plan, profile);
+        JsonObject? root = JsonNode.Parse(json) as JsonObject;
+        bool metadataPassed = root is not null && PlanJsonMetadataMatches(root, profile, plan);
+
+        bool stringLoadPassed = TerrainWorldPlanSerializer.TryFromJson(
+            json,
+            profile,
+            out TerrainWorldPlan? loadedPlan,
+            out string stringLoadError);
+        bool stringRoundtripMatches = stringLoadPassed &&
+            loadedPlan is not null &&
+            TerrainPlansMatchForJson(plan, loadedPlan);
+        bool roundtripIsolationPassed = loadedPlan is not null && RoundtripPlanIsolated(plan, loadedPlan);
+        bool setWorldPlanPassed = loadedPlan is not null && RoundtripPlanCanBeAssignedToRuntimeWorld(profile, loadedPlan);
+
+        string outputPath = System.IO.Path.Combine(
+            System.IO.Path.GetTempPath(),
+            "dao_terrain_validation",
+            $"seed_{profile.Seed}",
+            "terrain_plan_roundtrip.json");
+        Error saveError = TerrainWorldPlanSerializer.SaveJson(plan, profile, outputPath);
+        string filePath = FileSystemPath(outputPath);
+        bool fileExists = System.IO.File.Exists(filePath);
+        long fileBytes = fileExists ? new System.IO.FileInfo(filePath).Length : 0L;
+        TerrainWorldPlan? filePlan = null;
+        string fileLoadError = string.Empty;
+        bool fileLoadPassed =
+            saveError == Error.Ok &&
+            fileExists &&
+            fileBytes >= json.Length;
+        if (fileLoadPassed)
+        {
+            fileLoadPassed = TerrainWorldPlanSerializer.TryLoadJson(
+                outputPath,
+                profile,
+                out filePlan,
+                out fileLoadError);
+        }
+
+        bool fileRoundtripMatches = fileLoadPassed &&
+            filePlan is not null &&
+            TerrainPlansMatchForJson(plan, filePlan);
+
+        bool seedMismatchRejected = !TerrainWorldPlanSerializer.TryFromJson(
+            json,
+            profile with { Seed = profile.Seed + 1 },
+            out _,
+            out _);
+        bool profileHashMismatchRejected = !TerrainWorldPlanSerializer.TryFromJson(
+            json,
+            profile with { ChunkSize = profile.ChunkSize + 1.0f },
+            out _,
+            out _);
+        bool enumNameDriftRejected = RejectsEnumNameDrift(json, profile);
+        bool enumValueDriftRejected = RejectsEnumValueDrift(json, profile);
+
+        bool passed =
+            metadataPassed &&
+            stringLoadPassed &&
+            stringRoundtripMatches &&
+            roundtripIsolationPassed &&
+            setWorldPlanPassed &&
+            fileLoadPassed &&
+            fileRoundtripMatches &&
+            seedMismatchRejected &&
+            profileHashMismatchRejected &&
+            enumNameDriftRejected &&
+            enumValueDriftRejected;
+        string reason = passed
+            ? "plan JSON schema roundtrips through string and file persistence with version/profile/enum drift checks"
+            : PlanJsonFailureReason(
+                metadataPassed,
+                stringLoadPassed,
+                stringRoundtripMatches,
+                roundtripIsolationPassed,
+                setWorldPlanPassed,
+                fileLoadPassed,
+                fileRoundtripMatches,
+                seedMismatchRejected,
+                profileHashMismatchRejected,
+                enumNameDriftRejected,
+                enumValueDriftRejected,
+                saveError,
+                stringLoadError,
+                fileLoadError);
+
+        return new TerrainPlanJsonSmokeReport(
+            passed,
+            metadataPassed,
+            stringLoadPassed,
+            stringRoundtripMatches,
+            fileLoadPassed,
+            fileRoundtripMatches,
+            seedMismatchRejected,
+            profileHashMismatchRejected,
+            enumNameDriftRejected,
+            enumValueDriftRejected,
+            roundtripIsolationPassed,
+            setWorldPlanPassed,
+            json.Length,
+            fileBytes,
+            reason);
+    }
+    catch (Exception ex)
+    {
+        return new TerrainPlanJsonSmokeReport(
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            0,
+            0,
+            $"plan JSON smoke threw {ex.GetType().Name}: {ex.Message}");
+    }
+}
+
+static bool PlanJsonMetadataMatches(JsonObject root, TerrainGenerationProfile profile, TerrainWorldPlan plan)
+{
+    return JsonStringEquals(root, "contract", TerrainWorldPlanSerializer.Contract) &&
+        JsonStringEquals(root, "apiContract", TerrainApiVersion.Contract) &&
+        JsonStringEquals(root, "apiVersion", TerrainApiVersion.Version) &&
+        JsonStringEquals(root, "generatorVersion", TerrainWorldPlanSerializer.GeneratorVersion) &&
+        JsonIntEquals(root, "seed", profile.Seed) &&
+        JsonStringEquals(root, "profileHash", profile.StableHash()) &&
+        JsonArrayCount(root, "regions") == plan.Regions.Length &&
+        JsonArrayCount(root, "pointsOfInterest") == plan.PointsOfInterest.Length &&
+        JsonArrayCount(root, "routes") == plan.Routes.Length &&
+        root["center"] is JsonObject &&
+        root["reports"]?["quality"] is JsonObject &&
+        root["reports"]?["planning"] is JsonObject &&
+        root["reports"]?["experience"] is JsonObject &&
+        HasEnumNode(root, "regions", "biome") &&
+        HasEnumNode(root, "regions", "landscape") &&
+        HasEnumNode(root, "regions", "region") &&
+        HasEnumNode(root, "pointsOfInterest", "kind") &&
+        HasEnumNode(root, "routes", "kind");
+}
+
+static bool JsonStringEquals(JsonObject root, string propertyName, string expected)
+{
+    return root.TryGetPropertyValue(propertyName, out JsonNode? node) &&
+        node is not null &&
+        string.Equals(node.GetValue<string>(), expected, StringComparison.Ordinal);
+}
+
+static bool JsonIntEquals(JsonObject root, string propertyName, int expected)
+{
+    return root.TryGetPropertyValue(propertyName, out JsonNode? node) &&
+        node is not null &&
+        node.GetValue<int>() == expected;
+}
+
+static int JsonArrayCount(JsonObject root, string propertyName)
+{
+    return root.TryGetPropertyValue(propertyName, out JsonNode? node) && node is JsonArray array
+        ? array.Count
+        : -1;
+}
+
+static bool HasEnumNode(JsonObject root, string arrayName, string propertyName)
+{
+    JsonObject? enumNode = FirstObjectProperty(root, arrayName, propertyName);
+    return enumNode is not null &&
+        enumNode["name"] is not null &&
+        enumNode["value"] is not null;
+}
+
+static JsonObject? FirstObjectProperty(JsonObject root, string arrayName, string propertyName)
+{
+    if (root[arrayName] is not JsonArray array || array.Count == 0)
+    {
+        return null;
+    }
+
+    return array[0]?[propertyName] as JsonObject;
+}
+
+static bool RejectsEnumNameDrift(string json, TerrainGenerationProfile profile)
+{
+    JsonObject? root = JsonNode.Parse(json) as JsonObject;
+    JsonObject? enumNode = root is null ? null : FirstObjectProperty(root, "regions", "biome");
+    if (root is null || enumNode is null)
+    {
+        return false;
+    }
+
+    enumNode["name"] = "__invalid_enum_name__";
+    return !TerrainWorldPlanSerializer.TryFromJson(root.ToJsonString(), profile, out _, out _);
+}
+
+static bool RejectsEnumValueDrift(string json, TerrainGenerationProfile profile)
+{
+    JsonObject? root = JsonNode.Parse(json) as JsonObject;
+    JsonObject? enumNode = root is null ? null : FirstObjectProperty(root, "pointsOfInterest", "kind");
+    if (root is null || enumNode is null)
+    {
+        return false;
+    }
+
+    enumNode["value"] = 9999;
+    return !TerrainWorldPlanSerializer.TryFromJson(root.ToJsonString(), profile, out _, out _);
+}
+
+static bool TerrainPlansMatchForJson(TerrainWorldPlan expected, TerrainWorldPlan actual)
+{
+    if (expected.Center.DistanceSquaredTo(actual.Center) > 0.0001f ||
+        !PlanFloatEquals(expected.WorldSize, actual.WorldSize) ||
+        expected.GridResolution != actual.GridResolution ||
+        expected.Regions.Length != actual.Regions.Length ||
+        expected.PointsOfInterest.Length != actual.PointsOfInterest.Length ||
+        expected.Routes.Length != actual.Routes.Length ||
+        !PublicValuePropertiesMatch(expected.QualityReport, actual.QualityReport) ||
+        !PublicValuePropertiesMatch(expected.PlanningReport, actual.PlanningReport) ||
+        !PublicValuePropertiesMatch(expected.ExperienceReport, actual.ExperienceReport))
+    {
+        return false;
+    }
+
+    for (int i = 0; i < expected.Regions.Length; i++)
+    {
+        if (!RegionsMatchForJson(expected.Regions[i], actual.Regions[i]))
+        {
+            return false;
+        }
+    }
+
+    for (int i = 0; i < expected.PointsOfInterest.Length; i++)
+    {
+        if (!PointsMatchForJson(expected.PointsOfInterest[i], actual.PointsOfInterest[i]))
+        {
+            return false;
+        }
+    }
+
+    for (int i = 0; i < expected.Routes.Length; i++)
+    {
+        if (!RoutesMatchForJson(expected.Routes[i], actual.Routes[i]))
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+static bool RegionsMatchForJson(TerrainWorldRegion expected, TerrainWorldRegion actual)
+{
+    return expected.GridX == actual.GridX &&
+        expected.GridY == actual.GridY &&
+        expected.WorldPosition.DistanceSquaredTo(actual.WorldPosition) <= 0.0001f &&
+        PlanFloatEquals(expected.Height, actual.Height) &&
+        PlanFloatEquals(expected.River, actual.River) &&
+        PlanFloatEquals(expected.ScenicPotential, actual.ScenicPotential) &&
+        PlanFloatEquals(expected.Traversability, actual.Traversability) &&
+        PlanFloatEquals(expected.Exposure, actual.Exposure) &&
+        PlanFloatEquals(expected.ResourcePotential, actual.ResourcePotential) &&
+        PlanFloatEquals(expected.HazardPotential, actual.HazardPotential) &&
+        PlanFloatEquals(expected.EncounterPotential, actual.EncounterPotential) &&
+        expected.BiomeKind == actual.BiomeKind &&
+        expected.LandscapeKind == actual.LandscapeKind &&
+        expected.RegionKind == actual.RegionKind;
+}
+
+static bool PointsMatchForJson(TerrainWorldPointOfInterest expected, TerrainWorldPointOfInterest actual)
+{
+    return expected.Id == actual.Id &&
+        expected.Kind == actual.Kind &&
+        expected.WorldPosition.DistanceSquaredTo(actual.WorldPosition) <= 0.0001f &&
+        expected.GridX == actual.GridX &&
+        expected.GridY == actual.GridY &&
+        PlanFloatEquals(expected.Score, actual.Score) &&
+        PlanFloatEquals(expected.Height, actual.Height) &&
+        PlanFloatEquals(expected.ScenicPotential, actual.ScenicPotential) &&
+        PlanFloatEquals(expected.Traversability, actual.Traversability) &&
+        expected.BiomeKind == actual.BiomeKind &&
+        expected.LandscapeKind == actual.LandscapeKind &&
+        expected.SettlementTier == actual.SettlementTier &&
+        string.Equals(expected.DebugName, actual.DebugName, StringComparison.Ordinal);
+}
+
+static bool RoutesMatchForJson(TerrainWorldRoute expected, TerrainWorldRoute actual)
+{
+    if (expected.FromPointId != actual.FromPointId ||
+        expected.ToPointId != actual.ToPointId ||
+        expected.Kind != actual.Kind ||
+        !PlanFloatEquals(expected.Cost, actual.Cost) ||
+        !PlanFloatEquals(expected.AverageScenicPotential, actual.AverageScenicPotential) ||
+        !PlanFloatEquals(expected.AverageTraversability, actual.AverageTraversability) ||
+        expected.Waypoints.Length != actual.Waypoints.Length)
+    {
+        return false;
+    }
+
+    for (int i = 0; i < expected.Waypoints.Length; i++)
+    {
+        if (expected.Waypoints[i].DistanceSquaredTo(actual.Waypoints[i]) > 0.0001f)
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+static bool PublicValuePropertiesMatch<T>(T expected, T actual)
+{
+    foreach (PropertyInfo property in typeof(T).GetProperties(BindingFlags.Instance | BindingFlags.Public))
+    {
+        object? expectedValue = property.GetValue(expected);
+        object? actualValue = property.GetValue(actual);
+        if (expectedValue is float expectedFloat && actualValue is float actualFloat)
+        {
+            if (!PlanFloatEquals(expectedFloat, actualFloat))
+            {
+                return false;
+            }
+        }
+        else if (!Equals(expectedValue, actualValue))
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+static bool RoundtripPlanIsolated(TerrainWorldPlan original, TerrainWorldPlan roundtrip)
+{
+    bool isolated = true;
+    if (original.Regions.Length > 0 && roundtrip.Regions.Length > 0)
+    {
+        TerrainWorldRegion originalRegion = original.Regions[0];
+        roundtrip.Regions[0] = originalRegion with { Height = originalRegion.Height + 1000.0f };
+        isolated = PlanFloatEquals(original.Regions[0].Height, originalRegion.Height);
+    }
+
+    if (isolated && original.PointsOfInterest.Length > 0 && roundtrip.PointsOfInterest.Length > 0)
+    {
+        TerrainWorldPointOfInterest originalPoint = original.PointsOfInterest[0];
+        roundtrip.PointsOfInterest[0] = originalPoint with { Id = originalPoint.Id + 1000 };
+        isolated = original.PointsOfInterest[0].Id == originalPoint.Id;
+    }
+
+    if (isolated && original.Routes.Length > 0 && roundtrip.Routes.Length > 0)
+    {
+        TerrainWorldRoute originalRoute = original.Routes[0];
+        TerrainWorldRoute roundtripRoute = roundtrip.Routes[0];
+        roundtrip.Routes[0] = roundtripRoute with { FromPointId = roundtripRoute.FromPointId + 1000 };
+        isolated = original.Routes[0].FromPointId == originalRoute.FromPointId;
+
+        if (isolated && originalRoute.Waypoints.Length > 0 && roundtrip.Routes[0].Waypoints.Length > 0)
+        {
+            Vector2 originalWaypoint = originalRoute.Waypoints[0];
+            roundtrip.Routes[0].Waypoints[0] = originalWaypoint + new Vector2(1000.0f, -1000.0f);
+            isolated = original.Routes[0].Waypoints[0].DistanceSquaredTo(originalWaypoint) <= 0.0001f;
+        }
+    }
+
+    return isolated;
+}
+
+static bool RoundtripPlanCanBeAssignedToRuntimeWorld(
+    TerrainGenerationProfile profile,
+    TerrainWorldPlan roundtrip)
+{
+    TerrainWorld world = CreateTerrainWorldFacadeProbe(profile, worldPlan: null);
+    world.SetWorldPlan(roundtrip);
+    return world.TryGetWorldPlan(out TerrainWorldPlan? assignedPlan) &&
+        ReferenceEquals(assignedPlan, roundtrip) &&
+        world.GetPointsOfInterest().Length == roundtrip.PointsOfInterest.Length &&
+        world.GetRoutes().Length == roundtrip.Routes.Length &&
+        world.TryGetWorldPlanSnapshot(out TerrainWorldPlanSnapshot? snapshot) &&
+        snapshot is not null &&
+        snapshot.PointsOfInterest.Length == roundtrip.PointsOfInterest.Length &&
+        snapshot.Routes.Length == roundtrip.Routes.Length &&
+        snapshot.Regions.Length == roundtrip.Regions.Length;
+}
+
+static bool PlanFloatEquals(float expected, float actual)
+{
+    return Math.Abs(expected - actual) <= 0.0001f;
+}
+
+static string PlanJsonFailureReason(
+    bool metadataPassed,
+    bool stringLoadPassed,
+    bool stringRoundtripMatches,
+    bool roundtripIsolationPassed,
+    bool setWorldPlanPassed,
+    bool fileLoadPassed,
+    bool fileRoundtripMatches,
+    bool seedMismatchRejected,
+    bool profileHashMismatchRejected,
+    bool enumNameDriftRejected,
+    bool enumValueDriftRejected,
+    Error saveError,
+    string stringLoadError,
+    string fileLoadError)
+{
+    if (!metadataPassed)
+    {
+        return "plan JSON metadata or required schema nodes did not match the contract";
+    }
+
+    if (!stringLoadPassed)
+    {
+        return $"plan JSON string load failed: {stringLoadError}";
+    }
+
+    if (!stringRoundtripMatches)
+    {
+        return "plan JSON string roundtrip changed plan data";
+    }
+
+    if (!roundtripIsolationPassed)
+    {
+        return "plan JSON roundtrip reused mutable plan array state";
+    }
+
+    if (!setWorldPlanPassed)
+    {
+        return "plan JSON roundtrip could not be assigned through TerrainWorld.SetWorldPlan";
+    }
+
+    if (!fileLoadPassed)
+    {
+        return $"plan JSON file save/load failed ({saveError}): {fileLoadError}";
+    }
+
+    if (!fileRoundtripMatches)
+    {
+        return "plan JSON file roundtrip changed plan data";
+    }
+
+    if (!seedMismatchRejected)
+    {
+        return "plan JSON accepted a mismatched seed";
+    }
+
+    if (!profileHashMismatchRejected)
+    {
+        return "plan JSON accepted a mismatched profile hash";
+    }
+
+    if (!enumNameDriftRejected)
+    {
+        return "plan JSON accepted an enum name drift";
+    }
+
+    if (!enumValueDriftRejected)
+    {
+        return "plan JSON accepted an enum value drift";
+    }
+
+    return "plan JSON roundtrip smoke failed";
+}
+
+static void PrintPlanJsonSmoke(TerrainPlanJsonSmokeReport report)
+{
+    Console.WriteLine(
+        $"Plan JSON roundtrip smoke: {(report.Passed ? "PASS" : "FAIL")} " +
+        $"json {report.JsonBytes / 1024.0:0.0} KB, file {report.FileBytes / 1024.0:0.0} KB, " +
+        $"metadata {(report.MetadataPassed ? "pass" : "fail")}, " +
+        $"string/file {(report.StringLoadPassed && report.StringRoundtripMatches ? "pass" : "fail")}/{(report.FileLoadPassed && report.FileRoundtripMatches ? "pass" : "fail")}, " +
+        $"drift seed/hash/enum {(report.SeedMismatchRejected ? "pass" : "fail")}/{(report.ProfileHashMismatchRejected ? "pass" : "fail")}/{(report.EnumNameDriftRejected && report.EnumValueDriftRejected ? "pass" : "fail")}, " +
+        $"isolation/runtime {(report.RoundtripIsolationPassed ? "pass" : "fail")}/{(report.SetWorldPlanPassed ? "pass" : "fail")} ({report.Reason})");
+}
+
+static TerrainEnumContractSmokeReport ValidateTerrainEnumContracts()
+{
+    try
+    {
+        int checkedTypeCount = 0;
+        int checkedValueCount = 0;
+        string? failureReason = null;
+
+        bool passed =
+            CheckEnumContract<TerrainLandscapeKind>(
+                [
+                    ("Ocean", 0),
+                    ("Coast", 1),
+                    ("Lowland", 2),
+                    ("Wetland", 3),
+                    ("ForestBasin", 4),
+                    ("RiverValley", 5),
+                    ("Canyon", 6),
+                    ("Highlands", 7),
+                    ("MountainMassif", 8),
+                    ("Snowfield", 9),
+                    ("VistaPlateau", 10),
+                    ("Lake", 11)
+                ],
+                ref checkedTypeCount,
+                ref checkedValueCount,
+                out failureReason) &&
+            CheckEnumContract<TerrainBiomeKind>(
+                [
+                    ("Ocean", 0),
+                    ("Coast", 1),
+                    ("Island", 2),
+                    ("Plains", 3),
+                    ("Grassland", 4),
+                    ("Desert", 5),
+                    ("Oasis", 6),
+                    ("Forest", 7),
+                    ("Wetland", 8),
+                    ("Hills", 9),
+                    ("Mountains", 10),
+                    ("Snowfield", 11),
+                    ("Lake", 12)
+                ],
+                ref checkedTypeCount,
+                ref checkedValueCount,
+                out failureReason) &&
+            CheckEnumContract<TerrainWorldRegionKind>(
+                [
+                    ("Ocean", 0),
+                    ("Coast", 1),
+                    ("Island", 2),
+                    ("Plains", 3),
+                    ("Grassland", 4),
+                    ("Desert", 5),
+                    ("Oasis", 6),
+                    ("Lowland", 7),
+                    ("Forest", 8),
+                    ("Wetland", 9),
+                    ("Hills", 10),
+                    ("RiverValley", 11),
+                    ("Canyon", 12),
+                    ("Highlands", 13),
+                    ("Mountains", 14),
+                    ("Snow", 15),
+                    ("ScenicPlateau", 16),
+                    ("Lake", 17)
+                ],
+                ref checkedTypeCount,
+                ref checkedValueCount,
+                out failureReason) &&
+            CheckEnumContract<TerrainPointOfInterestKind>(
+                [
+                    ("SettlementCandidate", 0),
+                    ("Vista", 1),
+                    ("RiverCrossing", 2),
+                    ("MountainPass", 3),
+                    ("CoastalLanding", 4),
+                    ("ResourceGrove", 5),
+                    ("AncientSite", 6),
+                    ("CanyonOverlook", 7),
+                    ("Oasis", 8)
+                ],
+                ref checkedTypeCount,
+                ref checkedValueCount,
+                out failureReason) &&
+            CheckEnumContract<TerrainSettlementTier>(
+                [
+                    ("None", 0),
+                    ("Village", 1),
+                    ("Town", 2),
+                    ("OasisHub", 3)
+                ],
+                ref checkedTypeCount,
+                ref checkedValueCount,
+                out failureReason) &&
+            CheckEnumContract<TerrainRouteKind>(
+                [
+                    ("PrimaryTrail", 0),
+                    ("RiverRoad", 1),
+                    ("RidgePass", 2),
+                    ("CoastalPath", 3),
+                    ("ScenicTrail", 4)
+                ],
+                ref checkedTypeCount,
+                ref checkedValueCount,
+                out failureReason) &&
+            CheckEnumContract<TerrainScatterKind>(
+                [
+                    ("Tree", 0),
+                    ("Rock", 1),
+                    ("Understory", 2),
+                    ("ResourceNode", 3),
+                    ("HazardOutcrop", 4),
+                    ("GrassTuft", 5),
+                    ("DesertShrub", 6),
+                    ("CactusCluster", 7),
+                    ("ReedCluster", 8),
+                    ("SnowClump", 9),
+                    ("AlpinePine", 10),
+                    ("CoastalPalm", 11),
+                    ("Driftwood", 12),
+                    ("MangroveRoot", 13),
+                    ("LakeReed", 14),
+                    ("WaterLily", 15),
+                    ("Landmark", 16)
+                ],
+                ref checkedTypeCount,
+                ref checkedValueCount,
+                out failureReason) &&
+            CheckEnumContract<TerrainLandmarkKind>(
+                [
+                    ("Settlement", 0),
+                    ("Vista", 1),
+                    ("RiverCrossing", 2),
+                    ("MountainPass", 3),
+                    ("AncientStone", 4),
+                    ("CoastalLanding", 5),
+                    ("ResourceGrove", 6),
+                    ("CanyonOverlook", 7),
+                    ("Oasis", 8),
+                    ("Village", 9),
+                    ("Town", 10),
+                    ("OasisHub", 11),
+                    ("VillageHouse", 12),
+                    ("TownBlock", 13),
+                    ("OasisCanopy", 14),
+                    ("SettlementPlaza", 15),
+                    ("OasisPool", 16),
+                    ("Waterfall", 17),
+                    ("RoadMarker", 18),
+                    ("BridgeSpan", 19),
+                    ("DuneCrest", 20),
+                    ("DesertMonolith", 21),
+                    ("CanyonNeedle", 22),
+                    ("IceSpire", 23),
+                    ("NaturalArch", 24),
+                    ("GeothermalSpring", 25),
+                    ("GlacialRidge", 26),
+                    ("VillageWell", 27),
+                    ("MarketStall", 28),
+                    ("WatchTower", 29),
+                    ("OasisGarden", 30),
+                    ("SettlementGateway", 31)
+                ],
+                ref checkedTypeCount,
+                ref checkedValueCount,
+                out failureReason) &&
+            CheckEnumContract<TerrainMapLayer>(
+                [
+                    ("Biome", 0),
+                    ("Height", 1),
+                    ("River", 2),
+                    ("Moisture", 3),
+                    ("Temperature", 4),
+                    ("ScenicPotential", 5),
+                    ("Traversability", 6),
+                    ("Exposure", 7),
+                    ("ResourcePotential", 8),
+                    ("HazardPotential", 9),
+                    ("EncounterPotential", 10),
+                    ("Landscape", 11)
+                ],
+                ref checkedTypeCount,
+                ref checkedValueCount,
+                out failureReason) &&
+            CheckEnumContract<TerrainPointOfInterestVisualKind>(
+                [
+                    ("Settlement", 0),
+                    ("VistaSpire", 1),
+                    ("RiverCrossing", 2),
+                    ("MountainPass", 3),
+                    ("CoastalLanding", 4),
+                    ("ResourceGrove", 5),
+                    ("AncientSite", 6),
+                    ("CanyonOverlook", 7),
+                    ("Oasis", 8),
+                    ("Village", 9),
+                    ("Town", 10),
+                    ("OasisHub", 11)
+                ],
+                ref checkedTypeCount,
+                ref checkedValueCount,
+                out failureReason);
+
+        return new TerrainEnumContractSmokeReport(
+            passed,
+            checkedTypeCount,
+            checkedValueCount,
+            passed
+                ? "public terrain enum names and numeric values match the stable contract"
+                : failureReason ?? "terrain enum contract failed");
+    }
+    catch (Exception ex)
+    {
+        return new TerrainEnumContractSmokeReport(
+            false,
+            0,
+            0,
+            $"terrain enum contract smoke threw {ex.GetType().Name}: {ex.Message}");
+    }
+}
+
+static bool CheckEnumContract<TEnum>(
+    (string Name, int Value)[] expected,
+    ref int checkedTypeCount,
+    ref int checkedValueCount,
+    out string? failureReason)
+    where TEnum : struct, Enum
+{
+    Type enumType = typeof(TEnum);
+    string[] names = Enum.GetNames<TEnum>();
+    TEnum[] values = Enum.GetValues<TEnum>();
+    if (names.Length != expected.Length || values.Length != expected.Length)
+    {
+        failureReason = $"{enumType.Name} member count changed ({names.Length}/{expected.Length})";
+        return false;
+    }
+
+    var seenValues = new HashSet<int>();
+    for (int i = 0; i < expected.Length; i++)
+    {
+        int actualValue = Convert.ToInt32(values[i]);
+        if (!string.Equals(names[i], expected[i].Name, StringComparison.Ordinal) ||
+            actualValue != expected[i].Value)
+        {
+            failureReason = $"{enumType.Name}.{names[i]} drifted at index {i}: actual {names[i]}={actualValue}, expected {expected[i].Name}={expected[i].Value}";
+            return false;
+        }
+
+        if (!seenValues.Add(actualValue))
+        {
+            failureReason = $"{enumType.Name} reused enum value {actualValue}";
+            return false;
+        }
+    }
+
+    checkedTypeCount++;
+    checkedValueCount += expected.Length;
+    failureReason = null;
+    return true;
+}
+
+static void PrintEnumContractSmoke(TerrainEnumContractSmokeReport report)
+{
+    Console.WriteLine(
+        $"Terrain enum contract smoke: {(report.Passed ? "PASS" : "FAIL")} " +
+        $"types {report.CheckedTypeCount}, values {report.CheckedValueCount} ({report.Reason})");
+}
+
 static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
     TerrainGenerationProfile profile,
     TerrainWorldPlan plan)
@@ -1516,6 +2299,12 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
             : new Vector2(profile.ChunkSize * 0.75f, profile.ChunkSize * -0.5f);
 
         bool noPlanTryGetPassed = !noPlanWorld.TryGetWorldPlan(out TerrainWorldPlan? noPlan) && noPlan is null;
+        bool noPlanSnapshotPassed =
+            !noPlanWorld.TryGetWorldPlanSnapshot(out TerrainWorldPlanSnapshot? noPlanSnapshot) &&
+            noPlanSnapshot is null &&
+            noPlanWorld.GetWorldPlanSnapshot().PointsOfInterest.Length == 0 &&
+            noPlanWorld.GetWorldPlanSnapshot().Routes.Length == 0 &&
+            noPlanWorld.GetWorldPlanSnapshot().Regions.Length == 0;
         bool emptyPlanCollectionsPassed =
             noPlanWorld.GetPointsOfInterest().Length == 0 &&
             noPlanWorld.GetRoutes().Length == 0;
@@ -1549,6 +2338,11 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
         TerrainWorld planWorld = CreateTerrainWorldFacadeProbe(profile, plan);
         bool planTryGetPassed = planWorld.TryGetWorldPlan(out TerrainWorldPlan? returnedPlan) &&
             ReferenceEquals(returnedPlan, plan);
+        bool planSnapshotTryGetPassed = planWorld.TryGetWorldPlanSnapshot(out TerrainWorldPlanSnapshot? planSnapshot) &&
+            planSnapshot is not null &&
+            planSnapshot.PointsOfInterest.Length == plan.PointsOfInterest.Length &&
+            planSnapshot.Routes.Length == plan.Routes.Length &&
+            planSnapshot.Regions.Length == plan.Regions.Length;
 
         TerrainWorldPointOfInterest[] points = planWorld.GetPointsOfInterest();
         bool pointSnapshotIsolated = points.Length == plan.PointsOfInterest.Length;
@@ -1587,8 +2381,60 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
                 waypointSnapshotIsolated;
         }
 
+        bool worldPlanSnapshotIsolated = planSnapshotTryGetPassed && planSnapshot is not null;
+        if (worldPlanSnapshotIsolated && planSnapshot is not null)
+        {
+            if (planSnapshot.Regions.Length > 0)
+            {
+                TerrainWorldRegion originalRegion = plan.Regions[0];
+                planSnapshot.Regions[0] = originalRegion with { Height = originalRegion.Height + 12345.0f };
+                TerrainWorldPlanSnapshot secondSnapshot = planWorld.GetWorldPlanSnapshot();
+                worldPlanSnapshotIsolated =
+                    secondSnapshot.Regions.Length == plan.Regions.Length &&
+                    secondSnapshot.Regions[0].GridX == originalRegion.GridX &&
+                    secondSnapshot.Regions[0].GridY == originalRegion.GridY &&
+                    Math.Abs(secondSnapshot.Regions[0].Height - originalRegion.Height) <= 0.0001f;
+            }
+
+            if (worldPlanSnapshotIsolated && planSnapshot.PointsOfInterest.Length > 0)
+            {
+                TerrainWorldPointOfInterest originalPoint = plan.PointsOfInterest[0];
+                planSnapshot.PointsOfInterest[0] = originalPoint with { Id = originalPoint.Id + 1000000 };
+                TerrainWorldPlanSnapshot secondSnapshot = planWorld.GetWorldPlanSnapshot();
+                worldPlanSnapshotIsolated =
+                    secondSnapshot.PointsOfInterest.Length == plan.PointsOfInterest.Length &&
+                    secondSnapshot.PointsOfInterest[0].Id == originalPoint.Id &&
+                    secondSnapshot.PointsOfInterest[0].Kind == originalPoint.Kind;
+            }
+
+            if (worldPlanSnapshotIsolated && planSnapshot.Routes.Length > 0)
+            {
+                TerrainWorldRoute originalRoute = plan.Routes[0];
+                bool waypointSnapshotIsolated = planSnapshot.Routes[0].Waypoints.Length == originalRoute.Waypoints.Length;
+                if (waypointSnapshotIsolated && planSnapshot.Routes[0].Waypoints.Length > 0)
+                {
+                    Vector2 originalWaypoint = originalRoute.Waypoints[0];
+                    planSnapshot.Routes[0].Waypoints[0] = originalWaypoint + new Vector2(-7777.0f, 7777.0f);
+                    TerrainWorldPlanSnapshot secondSnapshot = planWorld.GetWorldPlanSnapshot();
+                    waypointSnapshotIsolated =
+                        secondSnapshot.Routes.Length == plan.Routes.Length &&
+                        secondSnapshot.Routes[0].Waypoints.Length == originalRoute.Waypoints.Length &&
+                        secondSnapshot.Routes[0].Waypoints[0].DistanceSquaredTo(originalWaypoint) <= 0.0001f;
+                }
+
+                planSnapshot.Routes[0] = originalRoute with { FromPointId = originalRoute.FromPointId + 1000000 };
+                TerrainWorldPlanSnapshot routeSecondSnapshot = planWorld.GetWorldPlanSnapshot();
+                worldPlanSnapshotIsolated =
+                    routeSecondSnapshot.Routes.Length == plan.Routes.Length &&
+                    routeSecondSnapshot.Routes[0].FromPointId == originalRoute.FromPointId &&
+                    routeSecondSnapshot.Routes[0].ToPointId == originalRoute.ToPointId &&
+                    waypointSnapshotIsolated;
+            }
+        }
+
         bool passed =
             noPlanTryGetPassed &&
+            noPlanSnapshotPassed &&
             emptyPlanCollectionsPassed &&
             sampleFieldMatchesSampler &&
             sampleSurfaceMatchesSampler &&
@@ -1597,15 +2443,18 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
             aboveWaterQueryPassed &&
             apiVersionPassed &&
             planTryGetPassed &&
+            planSnapshotTryGetPassed &&
             points.Length == plan.PointsOfInterest.Length &&
             routes.Length == plan.Routes.Length &&
             pointSnapshotIsolated &&
-            routeSnapshotIsolated;
+            routeSnapshotIsolated &&
+            worldPlanSnapshotIsolated;
 
         string reason = passed
             ? "TerrainWorld runtime facade exposes stable pure queries and isolated plan snapshots"
             : RuntimeApiFailureReason(
                 noPlanTryGetPassed,
+                noPlanSnapshotPassed,
                 emptyPlanCollectionsPassed,
                 sampleFieldMatchesSampler,
                 sampleSurfaceMatchesSampler,
@@ -1614,12 +2463,14 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
                 aboveWaterQueryPassed,
                 apiVersionPassed,
                 planTryGetPassed,
+                planSnapshotTryGetPassed,
                 points.Length,
                 plan.PointsOfInterest.Length,
                 routes.Length,
                 plan.Routes.Length,
                 pointSnapshotIsolated,
-                routeSnapshotIsolated);
+                routeSnapshotIsolated,
+                worldPlanSnapshotIsolated);
 
         return new TerrainRuntimeApiSmokeReport(
             passed,
@@ -1627,8 +2478,10 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
             sampleSurfaceMatchesSampler,
             surfacePositionAxesPassed,
             noPlanTryGetPassed,
+            noPlanSnapshotPassed,
             emptyPlanCollectionsPassed,
             planTryGetPassed,
+            planSnapshotTryGetPassed,
             points.Length,
             routes.Length,
             traversabilityQueryPassed,
@@ -1636,6 +2489,7 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
             apiVersionPassed,
             pointSnapshotIsolated,
             routeSnapshotIsolated,
+            worldPlanSnapshotIsolated,
             reason);
     }
     catch (Exception ex)
@@ -1648,8 +2502,11 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
             false,
             false,
             false,
+            false,
+            false,
             0,
             0,
+            false,
             false,
             false,
             false,
@@ -1707,6 +2564,7 @@ static bool TerrainSamplesMatch(TerrainSample expected, TerrainSample actual)
 
 static string RuntimeApiFailureReason(
     bool noPlanTryGetPassed,
+    bool noPlanSnapshotPassed,
     bool emptyPlanCollectionsPassed,
     bool sampleFieldMatchesSampler,
     bool sampleSurfaceMatchesSampler,
@@ -1715,16 +2573,23 @@ static string RuntimeApiFailureReason(
     bool aboveWaterQueryPassed,
     bool apiVersionPassed,
     bool planTryGetPassed,
+    bool planSnapshotTryGetPassed,
     int pointCount,
     int expectedPointCount,
     int routeCount,
     int expectedRouteCount,
     bool pointSnapshotIsolated,
-    bool routeSnapshotIsolated)
+    bool routeSnapshotIsolated,
+    bool worldPlanSnapshotIsolated)
 {
     if (!noPlanTryGetPassed)
     {
         return "TryGetWorldPlan did not return false for an unset runtime plan";
+    }
+
+    if (!noPlanSnapshotPassed)
+    {
+        return "TerrainWorld plan snapshot facade did not return an empty no-plan state";
     }
 
     if (!emptyPlanCollectionsPassed)
@@ -1767,6 +2632,11 @@ static string RuntimeApiFailureReason(
         return "TryGetWorldPlan did not return the assigned runtime plan";
     }
 
+    if (!planSnapshotTryGetPassed)
+    {
+        return "TryGetWorldPlanSnapshot did not return a ready snapshot matching the assigned plan";
+    }
+
     if (pointCount != expectedPointCount || routeCount != expectedRouteCount)
     {
         return $"plan facade counts did not match plan data (POIs {pointCount}/{expectedPointCount}, routes {routeCount}/{expectedRouteCount})";
@@ -1782,6 +2652,11 @@ static string RuntimeApiFailureReason(
         return "GetRoutes exposed mutable route or waypoint array state";
     }
 
+    if (!worldPlanSnapshotIsolated)
+    {
+        return "TerrainWorld plan snapshot facade exposed mutable plan array state";
+    }
+
     return "TerrainWorld runtime facade failed";
 }
 
@@ -1792,10 +2667,384 @@ static void PrintRuntimeApiSmoke(TerrainRuntimeApiSmokeReport report)
         $"sample field/surface {(report.SampleFieldMatchesSampler ? "pass" : "fail")}/{(report.SampleSurfaceMatchesSampler ? "pass" : "fail")}, " +
         $"surface axes {(report.SurfacePositionAxesPassed ? "pass" : "fail")}, " +
         $"api {TerrainApiVersion.Contract}/{TerrainApiVersion.Version}/{(report.ApiVersionPassed ? "pass" : "fail")}, " +
-        $"plan empty/ready {(report.NoPlanTryGetPassed && report.EmptyPlanCollectionsPassed ? "pass" : "fail")}/{(report.PlanTryGetPassed ? "pass" : "fail")}, " +
+        $"plan empty/ready {(report.NoPlanTryGetPassed && report.NoPlanSnapshotPassed && report.EmptyPlanCollectionsPassed ? "pass" : "fail")}/{(report.PlanTryGetPassed && report.PlanSnapshotTryGetPassed ? "pass" : "fail")}, " +
         $"POIs/routes {report.PointOfInterestCount}/{report.RouteCount}, " +
         $"traversable/water {(report.TraversabilityQueryPassed ? "pass" : "fail")}/{(report.AboveWaterQueryPassed ? "pass" : "fail")}, " +
-        $"snapshots POI/routes {(report.PointSnapshotIsolated ? "pass" : "fail")}/{(report.RouteSnapshotIsolated ? "pass" : "fail")} " +
+        $"snapshots POI/routes/plan {(report.PointSnapshotIsolated ? "pass" : "fail")}/{(report.RouteSnapshotIsolated ? "pass" : "fail")}/{(report.WorldPlanSnapshotIsolated ? "pass" : "fail")} " +
+        $"({report.Reason})");
+}
+
+static TerrainAnchorContractSmokeReport ValidateTerrainAnchorContract(
+    TerrainGenerationProfile profile,
+    TerrainWorldPlan plan)
+{
+    try
+    {
+        _ = profile;
+        bool poiContractNamesPassed =
+            string.Equals(TerrainWorldAnchorContract.PointOfInterestGroup, "terrain_poi", StringComparison.Ordinal) &&
+            RequiredKeysMatch(
+                TerrainWorldAnchorContract.GetPointOfInterestRequiredMetaKeys(),
+                [
+                    "terrain_poi_id",
+                    "terrain_poi_kind",
+                    "terrain_poi_visual",
+                    "terrain_poi_gameplay_tag",
+                    "terrain_poi_score",
+                    "terrain_poi_scenic",
+                    "terrain_poi_traversability",
+                    "terrain_poi_settlement_tier",
+                    "terrain_poi_landscape",
+                    "terrain_poi_interaction_radius",
+                    "terrain_poi_encounter_budget"
+                ]);
+        bool routeContractNamesPassed =
+            string.Equals(TerrainWorldAnchorContract.RouteGroup, "terrain_route", StringComparison.Ordinal) &&
+            RequiredKeysMatch(
+                TerrainWorldAnchorContract.GetRouteRequiredMetaKeys(),
+                [
+                    "terrain_route_kind",
+                    "terrain_route_from",
+                    "terrain_route_to",
+                    "terrain_route_cost",
+                    "terrain_route_scenic",
+                    "terrain_route_traversability"
+                ]);
+        bool anchorNodeConstantsPassed = AnchorNodeConstantsMatchContract();
+
+        TerrainWorldPointOfInterestAnchorDescriptor[] points =
+            TerrainWorldAnchorContract.CreatePointOfInterestDescriptors(plan);
+        TerrainWorldRouteAnchorDescriptor[] routes = TerrainWorldAnchorContract.CreateRouteDescriptors(plan);
+
+        bool pointCountPassed = points.Length == plan.PointsOfInterest.Length;
+        bool routeCountPassed = routes.Length == plan.Routes.Length;
+        bool poiGroupMetaPassed = pointCountPassed && PointDescriptorsHaveRequiredContract(points, plan);
+        bool routeGroupMetaPassed = routeCountPassed && RouteDescriptorsHaveRequiredContract(routes, plan);
+        bool descriptorRebuildPassed = ValidateAnchorDescriptorRebuild(plan, points, routes);
+        bool routeWaypointSnapshotPassed = RouteDescriptorWaypointsAreIsolated(routes, plan);
+
+        bool passed =
+            poiContractNamesPassed &&
+            routeContractNamesPassed &&
+            anchorNodeConstantsPassed &&
+            pointCountPassed &&
+            routeCountPassed &&
+            poiGroupMetaPassed &&
+            routeGroupMetaPassed &&
+            routeWaypointSnapshotPassed &&
+            descriptorRebuildPassed;
+        string reason = passed
+            ? "anchor descriptors expose stable gameplay anchor group/meta contracts without requiring debug overlay nodes"
+            : AnchorContractFailureReason(
+                poiContractNamesPassed,
+                routeContractNamesPassed,
+                anchorNodeConstantsPassed,
+                pointCountPassed,
+                routeCountPassed,
+                poiGroupMetaPassed,
+                routeGroupMetaPassed,
+                routeWaypointSnapshotPassed,
+                descriptorRebuildPassed,
+                points.Length,
+                plan.PointsOfInterest.Length,
+                routes.Length,
+                plan.Routes.Length);
+
+        return new TerrainAnchorContractSmokeReport(
+            passed,
+            pointCountPassed,
+            routeCountPassed,
+            poiGroupMetaPassed,
+            routeGroupMetaPassed,
+            poiContractNamesPassed,
+            routeContractNamesPassed,
+            routeWaypointSnapshotPassed,
+            descriptorRebuildPassed,
+            anchorNodeConstantsPassed,
+            points.Length,
+            routes.Length,
+            reason);
+    }
+    catch (Exception ex)
+    {
+        return new TerrainAnchorContractSmokeReport(
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            0,
+            0,
+            $"anchor contract smoke threw {ex.GetType().Name}: {ex.Message}");
+    }
+}
+
+static bool RequiredKeysMatch(string[] actual, string[] expected)
+{
+    if (actual.Length != expected.Length)
+    {
+        return false;
+    }
+
+    for (int i = 0; i < expected.Length; i++)
+    {
+        if (!string.Equals(actual[i], expected[i], StringComparison.Ordinal))
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+static bool AnchorNodeConstantsMatchContract()
+{
+    return
+        string.Equals(TerrainWorldPointOfInterestAnchor.GroupName, TerrainWorldAnchorContract.PointOfInterestGroup, StringComparison.Ordinal) &&
+        string.Equals(TerrainWorldPointOfInterestAnchor.MetaKeyId, TerrainWorldAnchorContract.PointOfInterestMetaKeyId, StringComparison.Ordinal) &&
+        string.Equals(TerrainWorldPointOfInterestAnchor.MetaKeyKind, TerrainWorldAnchorContract.PointOfInterestMetaKeyKind, StringComparison.Ordinal) &&
+        string.Equals(TerrainWorldPointOfInterestAnchor.MetaKeyVisual, TerrainWorldAnchorContract.PointOfInterestMetaKeyVisual, StringComparison.Ordinal) &&
+        string.Equals(TerrainWorldPointOfInterestAnchor.MetaKeyGameplayTag, TerrainWorldAnchorContract.PointOfInterestMetaKeyGameplayTag, StringComparison.Ordinal) &&
+        string.Equals(TerrainWorldPointOfInterestAnchor.MetaKeyScore, TerrainWorldAnchorContract.PointOfInterestMetaKeyScore, StringComparison.Ordinal) &&
+        string.Equals(TerrainWorldPointOfInterestAnchor.MetaKeyScenic, TerrainWorldAnchorContract.PointOfInterestMetaKeyScenic, StringComparison.Ordinal) &&
+        string.Equals(TerrainWorldPointOfInterestAnchor.MetaKeyTraversability, TerrainWorldAnchorContract.PointOfInterestMetaKeyTraversability, StringComparison.Ordinal) &&
+        string.Equals(TerrainWorldPointOfInterestAnchor.MetaKeySettlementTier, TerrainWorldAnchorContract.PointOfInterestMetaKeySettlementTier, StringComparison.Ordinal) &&
+        string.Equals(TerrainWorldPointOfInterestAnchor.MetaKeyLandscape, TerrainWorldAnchorContract.PointOfInterestMetaKeyLandscape, StringComparison.Ordinal) &&
+        string.Equals(TerrainWorldPointOfInterestAnchor.MetaKeyInteractionRadius, TerrainWorldAnchorContract.PointOfInterestMetaKeyInteractionRadius, StringComparison.Ordinal) &&
+        string.Equals(TerrainWorldPointOfInterestAnchor.MetaKeyEncounterBudget, TerrainWorldAnchorContract.PointOfInterestMetaKeyEncounterBudget, StringComparison.Ordinal) &&
+        string.Equals(TerrainWorldRouteAnchor.GroupName, TerrainWorldAnchorContract.RouteGroup, StringComparison.Ordinal) &&
+        string.Equals(TerrainWorldRouteAnchor.MetaKeyKind, TerrainWorldAnchorContract.RouteMetaKeyKind, StringComparison.Ordinal) &&
+        string.Equals(TerrainWorldRouteAnchor.MetaKeyFrom, TerrainWorldAnchorContract.RouteMetaKeyFrom, StringComparison.Ordinal) &&
+        string.Equals(TerrainWorldRouteAnchor.MetaKeyTo, TerrainWorldAnchorContract.RouteMetaKeyTo, StringComparison.Ordinal) &&
+        string.Equals(TerrainWorldRouteAnchor.MetaKeyCost, TerrainWorldAnchorContract.RouteMetaKeyCost, StringComparison.Ordinal) &&
+        string.Equals(TerrainWorldRouteAnchor.MetaKeyScenic, TerrainWorldAnchorContract.RouteMetaKeyScenic, StringComparison.Ordinal) &&
+        string.Equals(TerrainWorldRouteAnchor.MetaKeyTraversability, TerrainWorldAnchorContract.RouteMetaKeyTraversability, StringComparison.Ordinal);
+}
+
+static bool PointDescriptorsHaveRequiredContract(
+    TerrainWorldPointOfInterestAnchorDescriptor[] points,
+    TerrainWorldPlan plan)
+{
+    if (points.Length == 0)
+    {
+        return false;
+    }
+
+    for (int i = 0; i < points.Length; i++)
+    {
+        TerrainWorldPointOfInterestAnchorDescriptor point = points[i];
+        TerrainWorldPointOfInterest source = plan.PointsOfInterest[i];
+        TerrainPointOfInterestArchetype archetype = TerrainPointOfInterestArchetypeCatalog.Get(source.Kind);
+        if (!string.Equals(point.GroupName, TerrainWorldAnchorContract.PointOfInterestGroup, StringComparison.Ordinal) ||
+            string.IsNullOrWhiteSpace(point.GameplayTagGroup) ||
+            !string.Equals(point.GameplayTagGroup, point.GameplayTag, StringComparison.Ordinal) ||
+            point.Id != source.Id ||
+            point.Kind != source.Kind ||
+            point.WorldPosition2D.DistanceSquaredTo(source.WorldPosition) > 0.0001f ||
+            !string.Equals(point.Name, $"POI_{source.Id:00}_{source.Kind}", StringComparison.Ordinal) ||
+            !string.Equals(point.GameplayTag, archetype.GameplayTag, StringComparison.Ordinal) ||
+            Math.Abs(point.InteractionRadius - archetype.InteractionRadius) > 0.0001f ||
+            point.EncounterBudget != archetype.EncounterBudget ||
+            point.VisualKind != TerrainPointOfInterestArchetypeCatalog.VisualKindFor(source))
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+static bool RouteDescriptorsHaveRequiredContract(
+    TerrainWorldRouteAnchorDescriptor[] routes,
+    TerrainWorldPlan plan)
+{
+    if (routes.Length == 0)
+    {
+        return false;
+    }
+
+    for (int i = 0; i < routes.Length; i++)
+    {
+        TerrainWorldRouteAnchorDescriptor route = routes[i];
+        TerrainWorldRoute source = plan.Routes[i];
+        if (!string.Equals(route.GroupName, TerrainWorldAnchorContract.RouteGroup, StringComparison.Ordinal) ||
+            route.FromPointId != source.FromPointId ||
+            route.ToPointId != source.ToPointId ||
+            route.Kind != source.Kind ||
+            Math.Abs(route.Cost - source.Cost) > 0.0001f ||
+            Math.Abs(route.AverageScenicPotential - source.AverageScenicPotential) > 0.0001f ||
+            Math.Abs(route.AverageTraversability - source.AverageTraversability) > 0.0001f ||
+            !string.Equals(route.Name, $"Route_{source.FromPointId:00}_{source.ToPointId:00}_{source.Kind}", StringComparison.Ordinal) ||
+            route.Waypoints.Length != source.Waypoints.Length)
+        {
+            return false;
+        }
+
+        Vector2 expectedMidpoint = source.Waypoints.Length == 0
+            ? Vector2.Zero
+            : source.Waypoints[source.Waypoints.Length / 2];
+        if (route.WorldMidpoint2D.DistanceSquaredTo(expectedMidpoint) > 0.0001f)
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+static bool RouteDescriptorWaypointsAreIsolated(
+    TerrainWorldRouteAnchorDescriptor[] routes,
+    TerrainWorldPlan plan)
+{
+    if (routes.Length == 0 || plan.Routes.Length == 0)
+    {
+        return false;
+    }
+
+    TerrainWorldRouteAnchorDescriptor routeDescriptor = routes[0];
+    TerrainWorldRoute route = plan.Routes[0];
+    if (routeDescriptor.Waypoints.Length != route.Waypoints.Length)
+    {
+        return false;
+    }
+
+    if (routeDescriptor.Waypoints.Length == 0)
+    {
+        return true;
+    }
+
+    Vector2 originalWaypoint = route.Waypoints[0];
+    routeDescriptor.Waypoints[0] = originalWaypoint + new Vector2(321.0f, -321.0f);
+    return route.Waypoints[0].DistanceSquaredTo(originalWaypoint) <= 0.0001f;
+}
+
+static bool ValidateAnchorDescriptorRebuild(
+    TerrainWorldPlan plan,
+    TerrainWorldPointOfInterestAnchorDescriptor[] points,
+    TerrainWorldRouteAnchorDescriptor[] routes)
+{
+    TerrainWorldPointOfInterestAnchorDescriptor[] secondPoints =
+        TerrainWorldAnchorContract.CreatePointOfInterestDescriptors(plan);
+    TerrainWorldRouteAnchorDescriptor[] secondRoutes = TerrainWorldAnchorContract.CreateRouteDescriptors(plan);
+    if (secondPoints.Length != points.Length || secondRoutes.Length != routes.Length)
+    {
+        return false;
+    }
+
+    for (int i = 0; i < points.Length; i++)
+    {
+        if (!points[i].Equals(secondPoints[i]))
+        {
+            return false;
+        }
+    }
+
+    for (int i = 0; i < routes.Length; i++)
+    {
+        if (!RoutesMatch(routes[i], secondRoutes[i]))
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+static bool RoutesMatch(TerrainWorldRouteAnchorDescriptor a, TerrainWorldRouteAnchorDescriptor b)
+{
+    if (a.FromPointId != b.FromPointId ||
+        a.ToPointId != b.ToPointId ||
+        a.Kind != b.Kind ||
+        a.Waypoints.Length != b.Waypoints.Length ||
+        !string.Equals(a.Name, b.Name, StringComparison.Ordinal) ||
+        !string.Equals(a.GroupName, b.GroupName, StringComparison.Ordinal))
+    {
+        return false;
+    }
+
+    for (int i = 0; i < a.Waypoints.Length; i++)
+    {
+        if (a.Waypoints[i].DistanceSquaredTo(b.Waypoints[i]) > 0.0001f)
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+static string AnchorContractFailureReason(
+    bool poiContractNamesPassed,
+    bool routeContractNamesPassed,
+    bool anchorNodeConstantsPassed,
+    bool pointCountPassed,
+    bool routeCountPassed,
+    bool poiGroupMetaPassed,
+    bool routeGroupMetaPassed,
+    bool routeWaypointSnapshotPassed,
+    bool descriptorRebuildPassed,
+    int pointCount,
+    int expectedPointCount,
+    int routeCount,
+    int expectedRouteCount)
+{
+    if (!poiContractNamesPassed)
+    {
+        return "POI anchor group or required meta key contract names drifted";
+    }
+
+    if (!routeContractNamesPassed)
+    {
+        return "route anchor group or required meta key contract names drifted";
+    }
+
+    if (!anchorNodeConstantsPassed)
+    {
+        return "anchor node constants drifted away from TerrainWorldAnchorContract";
+    }
+
+    if (!pointCountPassed || !routeCountPassed)
+    {
+        return $"anchor builder count mismatch (POIs {pointCount}/{expectedPointCount}, routes {routeCount}/{expectedRouteCount})";
+    }
+
+    if (!poiGroupMetaPassed)
+    {
+        return "POI anchor descriptors missed required group or meta contract values";
+    }
+
+    if (!routeGroupMetaPassed)
+    {
+        return "route anchor descriptors missed required group or meta contract values";
+    }
+
+    if (!routeWaypointSnapshotPassed)
+    {
+        return "route anchor descriptors exposed plan waypoint array state";
+    }
+
+    if (!descriptorRebuildPassed)
+    {
+        return "anchor descriptors were not stable across repeated construction";
+    }
+
+    return "terrain anchor contract failed";
+}
+
+static void PrintAnchorContractSmoke(TerrainAnchorContractSmokeReport report)
+{
+    Console.WriteLine(
+        $"Terrain anchor contract smoke: {(report.Passed ? "PASS" : "FAIL")} " +
+        $"POIs/routes {report.PointAnchorCount}/{report.RouteAnchorCount}, " +
+        $"counts {(report.PointCountPassed ? "pass" : "fail")}/{(report.RouteCountPassed ? "pass" : "fail")}, " +
+        $"groups/meta {(report.PoiGroupMetaPassed ? "pass" : "fail")}/{(report.RouteGroupMetaPassed ? "pass" : "fail")}, " +
+        $"names {(report.PoiContractNamesPassed ? "pass" : "fail")}/{(report.RouteContractNamesPassed ? "pass" : "fail")}, " +
+        $"waypoints/rebuild/constants {(report.RouteWaypointSnapshotPassed ? "pass" : "fail")}/{(report.DescriptorRebuildPassed ? "pass" : "fail")}/{(report.AnchorNodeConstantsPassed ? "pass" : "fail")} " +
         $"({report.Reason})");
 }
 
@@ -2978,7 +4227,10 @@ static void PrintAggregate(
     TerrainBiomeScatterSmokeReport? biomeScatterSmokeReport,
     TerrainScenicLandmarkSmokeReport? scenicLandmarkSmokeReport,
     TerrainArtifactSmokeReport? artifactSmokeReport,
+    TerrainPlanJsonSmokeReport? planJsonSmokeReport,
+    TerrainEnumContractSmokeReport? enumContractSmokeReport,
     TerrainRuntimeApiSmokeReport? runtimeApiSmokeReport,
+    TerrainAnchorContractSmokeReport? anchorSmokeReport,
     TerrainRuntimeWorldSmokeReport? runtimeWorldSmokeReport,
     TerrainNativeSamplerSmokeReport? nativeSmokeReport,
     TerrainTileBenchmarkReport? tileBenchmarkReport)
@@ -3039,9 +4291,21 @@ static void PrintAggregate(
     {
         Console.WriteLine($"Open world artifact smoke: {(artifactSmokeReport.Value.Passed ? "PASS" : "FAIL")}");
     }
+    if (planJsonSmokeReport is not null)
+    {
+        Console.WriteLine($"Plan JSON roundtrip smoke: {(planJsonSmokeReport.Value.Passed ? "PASS" : "FAIL")}");
+    }
+    if (enumContractSmokeReport is not null)
+    {
+        Console.WriteLine($"Terrain enum contract smoke: {(enumContractSmokeReport.Value.Passed ? "PASS" : "FAIL")}");
+    }
     if (runtimeApiSmokeReport is not null)
     {
         Console.WriteLine($"Runtime TerrainWorld API smoke: {(runtimeApiSmokeReport.Value.Passed ? "PASS" : "FAIL")}");
+    }
+    if (anchorSmokeReport is not null)
+    {
+        Console.WriteLine($"Terrain anchor contract smoke: {(anchorSmokeReport.Value.Passed ? "PASS" : "FAIL")}");
     }
     if (runtimeWorldSmokeReport is not null)
     {
@@ -3308,6 +4572,31 @@ internal readonly record struct TerrainArtifactSmokeReport(
     bool ReportContainsRequiredSections,
     string Reason);
 
+/// <summary>Reports whether terrain plans roundtrip through the stable JSON persistence schema and reject drift.</summary>
+internal readonly record struct TerrainPlanJsonSmokeReport(
+    bool Passed,
+    bool MetadataPassed,
+    bool StringLoadPassed,
+    bool StringRoundtripMatches,
+    bool FileLoadPassed,
+    bool FileRoundtripMatches,
+    bool SeedMismatchRejected,
+    bool ProfileHashMismatchRejected,
+    bool EnumNameDriftRejected,
+    bool EnumValueDriftRejected,
+    bool RoundtripIsolationPassed,
+    bool SetWorldPlanPassed,
+    int JsonBytes,
+    long FileBytes,
+    string Reason);
+
+/// <summary>Reports whether public terrain enum names and numeric values match the stable external contract.</summary>
+internal readonly record struct TerrainEnumContractSmokeReport(
+    bool Passed,
+    int CheckedTypeCount,
+    int CheckedValueCount,
+    string Reason);
+
 /// <summary>Reports whether TerrainWorld's public runtime query facade matches the underlying samplers and exposes isolated plan snapshots.</summary>
 internal readonly record struct TerrainRuntimeApiSmokeReport(
     bool Passed,
@@ -3315,8 +4604,10 @@ internal readonly record struct TerrainRuntimeApiSmokeReport(
     bool SampleSurfaceMatchesSampler,
     bool SurfacePositionAxesPassed,
     bool NoPlanTryGetPassed,
+    bool NoPlanSnapshotPassed,
     bool EmptyPlanCollectionsPassed,
     bool PlanTryGetPassed,
+    bool PlanSnapshotTryGetPassed,
     int PointOfInterestCount,
     int RouteCount,
     bool TraversabilityQueryPassed,
@@ -3324,6 +4615,23 @@ internal readonly record struct TerrainRuntimeApiSmokeReport(
     bool ApiVersionPassed,
     bool PointSnapshotIsolated,
     bool RouteSnapshotIsolated,
+    bool WorldPlanSnapshotIsolated,
+    string Reason);
+
+/// <summary>Reports whether runtime gameplay anchors expose stable builder, group, meta, and snapshot contracts.</summary>
+internal readonly record struct TerrainAnchorContractSmokeReport(
+    bool Passed,
+    bool PointCountPassed,
+    bool RouteCountPassed,
+    bool PoiGroupMetaPassed,
+    bool RouteGroupMetaPassed,
+    bool PoiContractNamesPassed,
+    bool RouteContractNamesPassed,
+    bool RouteWaypointSnapshotPassed,
+    bool DescriptorRebuildPassed,
+    bool AnchorNodeConstantsPassed,
+    int PointAnchorCount,
+    int RouteAnchorCount,
     string Reason);
 
 /// <summary>Reports whether TerrainWorld's runtime plan entry creates indexed open-world content that materializes on tiles.</summary>

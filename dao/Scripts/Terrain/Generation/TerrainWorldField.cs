@@ -6,36 +6,36 @@ namespace Dao.Terrain.Generation;
 /// <summary>Broad landscape form classification for a terrain position.</summary>
 public enum TerrainLandscapeKind
 {
-    Ocean,
-    Coast,
-    Lowland,
-    Wetland,
-    ForestBasin,
-    RiverValley,
-    Canyon,
-    Highlands,
-    MountainMassif,
-    Snowfield,
-    VistaPlateau,
-    Lake
+    Ocean = 0,
+    Coast = 1,
+    Lowland = 2,
+    Wetland = 3,
+    ForestBasin = 4,
+    RiverValley = 5,
+    Canyon = 6,
+    Highlands = 7,
+    MountainMassif = 8,
+    Snowfield = 9,
+    VistaPlateau = 10,
+    Lake = 11
 }
 
 /// <summary>Climate-based biome classification for a terrain position.</summary>
 public enum TerrainBiomeKind
 {
-    Ocean,
-    Coast,
-    Island,
-    Plains,
-    Grassland,
-    Desert,
-    Oasis,
-    Forest,
-    Wetland,
-    Hills,
-    Mountains,
-    Snowfield,
-    Lake
+    Ocean = 0,
+    Coast = 1,
+    Island = 2,
+    Plains = 3,
+    Grassland = 4,
+    Desert = 5,
+    Oasis = 6,
+    Forest = 7,
+    Wetland = 8,
+    Hills = 9,
+    Mountains = 10,
+    Snowfield = 11,
+    Lake = 12
 }
 
 /// <summary>Complete set of derived terrain attributes sampled at a world position.</summary>

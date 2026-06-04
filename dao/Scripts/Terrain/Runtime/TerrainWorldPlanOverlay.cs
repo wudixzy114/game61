@@ -21,7 +21,7 @@ public partial class TerrainWorldPlanOverlay : Node3D
 
     private readonly Dictionary<TerrainPointOfInterestVisualKind, MultiMeshInstance3D> _pointMarkers = new();
     private MeshInstance3D? _routeRibbons;
-    private Node3D? _anchorRoot;
+    private TerrainWorldAnchorBuilder? _anchorBuilder;
     private TerrainWorldPlan? _plan;
 
     public TerrainWorldPlan? Plan => _plan;
@@ -76,10 +76,10 @@ public partial class TerrainWorldPlanOverlay : Node3D
             _routeRibbons = null;
         }
 
-        if (_anchorRoot is not null)
+        if (_anchorBuilder is not null)
         {
-            _anchorRoot.QueueFree();
-            _anchorRoot = null;
+            _anchorBuilder.QueueFree();
+            _anchorBuilder = null;
         }
     }
 
@@ -222,37 +222,13 @@ public partial class TerrainWorldPlanOverlay : Node3D
 
     private void BuildAnchors(TerrainWorldPlan plan, TerrainGenerationProfile profile)
     {
-        _anchorRoot = new Node3D { Name = "GameplayAnchors" };
-        AddChild(_anchorRoot);
-
-        var poiRoot = new Node3D { Name = "PointsOfInterest" };
-        _anchorRoot.AddChild(poiRoot);
-        foreach (TerrainWorldPointOfInterest point in plan.PointsOfInterest)
+        _anchorBuilder = new TerrainWorldAnchorBuilder
         {
-            var anchor = new TerrainWorldPointOfInterestAnchor();
-            poiRoot.AddChild(anchor);
-            TerrainPointOfInterestArchetype archetype = TerrainPointOfInterestArchetypeCatalog.Get(point.Kind);
-            anchor.Configure(point, PositionFor(point.WorldPosition, profile, AnchorHeightOffset + archetype.VerticalOffset));
-        }
-
-        var routeRoot = new Node3D { Name = "Routes" };
-        _anchorRoot.AddChild(routeRoot);
-        foreach (TerrainWorldRoute route in plan.Routes)
-        {
-            var anchor = new TerrainWorldRouteAnchor();
-            routeRoot.AddChild(anchor);
-            anchor.Configure(route, RouteAnchorPosition(route, profile));
-        }
-    }
-
-    private Vector3 RouteAnchorPosition(TerrainWorldRoute route, TerrainGenerationProfile profile)
-    {
-        if (route.Waypoints.Length == 0)
-        {
-            return Vector3.Zero;
-        }
-
-        return PositionFor(route.Waypoints[route.Waypoints.Length / 2], profile, AnchorHeightOffset);
+            Name = "GameplayAnchors",
+            AnchorHeightOffset = AnchorHeightOffset
+        };
+        AddChild(_anchorBuilder);
+        _anchorBuilder.ApplyPlan(plan, profile);
     }
 
     private Vector3 PositionFor(Vector2 world, TerrainGenerationProfile profile, float heightOffset)

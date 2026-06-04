@@ -6,6 +6,21 @@ namespace Dao.Terrain.Runtime;
 /// <summary>Runtime node for a planned POI, exposing archetype-driven gameplay metadata via Godot groups and meta properties.</summary>
 public partial class TerrainWorldPointOfInterestAnchor : Marker3D
 {
+    public const string GroupName = TerrainWorldAnchorContract.PointOfInterestGroup;
+    public const string MetaKeyId = TerrainWorldAnchorContract.PointOfInterestMetaKeyId;
+    public const string MetaKeyKind = TerrainWorldAnchorContract.PointOfInterestMetaKeyKind;
+    public const string MetaKeyVisual = TerrainWorldAnchorContract.PointOfInterestMetaKeyVisual;
+    public const string MetaKeyGameplayTag = TerrainWorldAnchorContract.PointOfInterestMetaKeyGameplayTag;
+    public const string MetaKeyScore = TerrainWorldAnchorContract.PointOfInterestMetaKeyScore;
+    public const string MetaKeyScenic = TerrainWorldAnchorContract.PointOfInterestMetaKeyScenic;
+    public const string MetaKeyTraversability = TerrainWorldAnchorContract.PointOfInterestMetaKeyTraversability;
+    public const string MetaKeySettlementTier = TerrainWorldAnchorContract.PointOfInterestMetaKeySettlementTier;
+    public const string MetaKeyLandscape = TerrainWorldAnchorContract.PointOfInterestMetaKeyLandscape;
+    public const string MetaKeyInteractionRadius = TerrainWorldAnchorContract.PointOfInterestMetaKeyInteractionRadius;
+    public const string MetaKeyEncounterBudget = TerrainWorldAnchorContract.PointOfInterestMetaKeyEncounterBudget;
+
+    public static string[] RequiredMetaKeys => TerrainWorldAnchorContract.GetPointOfInterestRequiredMetaKeys();
+
     public int Id { get; private set; }
     public TerrainPointOfInterestKind Kind { get; private set; }
     public Vector2 WorldPosition2D { get; private set; }
@@ -23,36 +38,42 @@ public partial class TerrainWorldPointOfInterestAnchor : Marker3D
     /// <summary>Sets up this anchor from plan data and places it at the computed world position.</summary>
     public void Configure(TerrainWorldPointOfInterest point, Vector3 worldPosition)
     {
-        TerrainPointOfInterestArchetype archetype = TerrainPointOfInterestArchetypeCatalog.Get(point.Kind);
+        TerrainWorldPointOfInterestAnchorDescriptor descriptor =
+            TerrainWorldAnchorContract.CreatePointOfInterestDescriptor(point);
+        Configure(descriptor, worldPosition);
+    }
 
-        Id = point.Id;
-        Kind = point.Kind;
-        WorldPosition2D = point.WorldPosition;
-        Score = point.Score;
-        Height = point.Height;
-        ScenicPotential = point.ScenicPotential;
-        Traversability = point.Traversability;
-        SettlementTier = point.SettlementTier;
-        LandscapeKind = point.LandscapeKind;
-        VisualKind = TerrainPointOfInterestArchetypeCatalog.VisualKindFor(point);
-        GameplayTag = archetype.GameplayTag;
-        InteractionRadius = archetype.InteractionRadius;
-        EncounterBudget = archetype.EncounterBudget;
+    /// <summary>Sets up this anchor from a stable gameplay descriptor and places it at the computed world position.</summary>
+    public void Configure(TerrainWorldPointOfInterestAnchorDescriptor descriptor, Vector3 worldPosition)
+    {
+        Id = descriptor.Id;
+        Kind = descriptor.Kind;
+        WorldPosition2D = descriptor.WorldPosition2D;
+        Score = descriptor.Score;
+        Height = descriptor.Height;
+        ScenicPotential = descriptor.ScenicPotential;
+        Traversability = descriptor.Traversability;
+        SettlementTier = descriptor.SettlementTier;
+        LandscapeKind = descriptor.LandscapeKind;
+        VisualKind = descriptor.VisualKind;
+        GameplayTag = descriptor.GameplayTag;
+        InteractionRadius = descriptor.InteractionRadius;
+        EncounterBudget = descriptor.EncounterBudget;
 
-        Name = $"POI_{Id:00}_{Kind}";
+        Name = descriptor.Name;
         GlobalPosition = worldPosition;
-        AddToGroup("terrain_poi");
-        AddToGroup(GameplayTag);
-        SetMeta("terrain_poi_id", Id);
-        SetMeta("terrain_poi_kind", Kind.ToString());
-        SetMeta("terrain_poi_visual", VisualKind.ToString());
-        SetMeta("terrain_poi_gameplay_tag", GameplayTag);
-        SetMeta("terrain_poi_score", Score);
-        SetMeta("terrain_poi_scenic", ScenicPotential);
-        SetMeta("terrain_poi_traversability", Traversability);
-        SetMeta("terrain_poi_settlement_tier", SettlementTier.ToString());
-        SetMeta("terrain_poi_landscape", LandscapeKind.ToString());
-        SetMeta("terrain_poi_interaction_radius", InteractionRadius);
-        SetMeta("terrain_poi_encounter_budget", EncounterBudget);
+        AddToGroup(descriptor.GroupName);
+        AddToGroup(descriptor.GameplayTagGroup);
+        SetMeta(MetaKeyId, Id);
+        SetMeta(MetaKeyKind, Kind.ToString());
+        SetMeta(MetaKeyVisual, VisualKind.ToString());
+        SetMeta(MetaKeyGameplayTag, GameplayTag);
+        SetMeta(MetaKeyScore, Score);
+        SetMeta(MetaKeyScenic, ScenicPotential);
+        SetMeta(MetaKeyTraversability, Traversability);
+        SetMeta(MetaKeySettlementTier, SettlementTier.ToString());
+        SetMeta(MetaKeyLandscape, LandscapeKind.ToString());
+        SetMeta(MetaKeyInteractionRadius, InteractionRadius);
+        SetMeta(MetaKeyEncounterBudget, EncounterBudget);
     }
 }

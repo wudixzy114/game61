@@ -7,18 +7,18 @@ namespace Dao.Terrain.Runtime;
 /// <summary>Visual representation kind for a POI, determining its editor/overlay mesh shape.</summary>
 public enum TerrainPointOfInterestVisualKind
 {
-    Settlement,
-    VistaSpire,
-    RiverCrossing,
-    MountainPass,
-    CoastalLanding,
-    ResourceGrove,
-    AncientSite,
-    CanyonOverlook,
-    Oasis,
-    Village,
-    Town,
-    OasisHub
+    Settlement = 0,
+    VistaSpire = 1,
+    RiverCrossing = 2,
+    MountainPass = 3,
+    CoastalLanding = 4,
+    ResourceGrove = 5,
+    AncientSite = 6,
+    CanyonOverlook = 7,
+    Oasis = 8,
+    Village = 9,
+    Town = 10,
+    OasisHub = 11
 }
 
 /// <summary>Describes the runtime visual, gameplay, and interaction properties for a POI kind.</summary>

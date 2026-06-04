@@ -93,6 +93,12 @@ public readonly record struct TerrainGenerationProfile(
     bool GenerateCollision,
     bool UseNativeSamplerWhenAvailable)
 {
+    /// <summary>Computes the stable content identity hash for this generation profile.</summary>
+    public string StableHash()
+    {
+        return TerrainProfileHash.Compute(this);
+    }
+
     /// <summary>Returns the tile vertex resolution for a given LOD (halved each step, minimum 8).</summary>
     public int ResolutionForLod(int lod)
     {

@@ -63,7 +63,7 @@ public static class TerrainWorldPlanExporter
             ? SavePlanMap(plan, profile, imageSize, baseLayer, mapPath)
             : directoryError;
         Error reportError = directoryError == Error.Ok
-            ? SaveTextReport(plan, planningGate, qualityGate, experienceGate, mapPath, reportPath)
+            ? SaveTextReport(plan, profile, planningGate, qualityGate, experienceGate, mapPath, reportPath)
             : directoryError;
 
         return new TerrainWorldPlanArtifactResult(
@@ -129,6 +129,29 @@ public static class TerrainWorldPlanExporter
         TerrainExperienceGateResult experienceGate,
         string? mapPath = null)
     {
+        return CreateTextReport(plan, profile: null, planningGate, qualityGate, experienceGate, mapPath);
+    }
+
+    /// <summary>Creates a detailed text report with profile identity metadata for audits and cache validation.</summary>
+    public static string CreateTextReport(
+        TerrainWorldPlan plan,
+        TerrainGenerationProfile profile,
+        TerrainWorldPlanningGateResult planningGate,
+        TerrainQualityGateResult qualityGate,
+        TerrainExperienceGateResult experienceGate,
+        string? mapPath = null)
+    {
+        return CreateTextReport(plan, (TerrainGenerationProfile?)profile, planningGate, qualityGate, experienceGate, mapPath);
+    }
+
+    private static string CreateTextReport(
+        TerrainWorldPlan plan,
+        TerrainGenerationProfile? profile,
+        TerrainWorldPlanningGateResult planningGate,
+        TerrainQualityGateResult qualityGate,
+        TerrainExperienceGateResult experienceGate,
+        string? mapPath)
+    {
         TerrainQualityReport quality = qualityGate.Report;
         TerrainWorldPlanningReport planning = planningGate.Report;
         TerrainExperienceReport experience = experienceGate.Report;
@@ -137,6 +160,10 @@ public static class TerrainWorldPlanExporter
         builder.AppendLine("Open World Terrain Plan");
         builder.AppendLine($"Terrain API Contract: {TerrainApiVersion.Contract}");
         builder.AppendLine($"Terrain API Version: {TerrainApiVersion.Version}");
+        if (profile is TerrainGenerationProfile value)
+        {
+            builder.AppendLine($"Terrain Profile Hash: {value.StableHash()}");
+        }
         builder.AppendLine(FormattableString.Invariant($"Center: {plan.Center.X:0.##}, {plan.Center.Y:0.##}"));
         builder.AppendLine(FormattableString.Invariant($"World size: {plan.WorldSize:0.##} meters"));
         builder.AppendLine(FormattableString.Invariant($"Planning grid: {plan.GridResolution} x {plan.GridResolution}"));
@@ -254,13 +281,38 @@ public static class TerrainWorldPlanExporter
         string? mapPath,
         string outputPath)
     {
+        return SaveTextReport(plan, profile: null, planningGate, qualityGate, experienceGate, mapPath, outputPath);
+    }
+
+    /// <summary>Saves a text report with profile identity metadata to a file.</summary>
+    public static Error SaveTextReport(
+        TerrainWorldPlan plan,
+        TerrainGenerationProfile profile,
+        TerrainWorldPlanningGateResult planningGate,
+        TerrainQualityGateResult qualityGate,
+        TerrainExperienceGateResult experienceGate,
+        string? mapPath,
+        string outputPath)
+    {
+        return SaveTextReport(plan, (TerrainGenerationProfile?)profile, planningGate, qualityGate, experienceGate, mapPath, outputPath);
+    }
+
+    private static Error SaveTextReport(
+        TerrainWorldPlan plan,
+        TerrainGenerationProfile? profile,
+        TerrainWorldPlanningGateResult planningGate,
+        TerrainQualityGateResult qualityGate,
+        TerrainExperienceGateResult experienceGate,
+        string? mapPath,
+        string outputPath)
+    {
         try
         {
             EnsureDirectoryForPath(outputPath);
             string path = FileSystemPath(outputPath);
             System.IO.File.WriteAllText(
                 path,
-                CreateTextReport(plan, planningGate, qualityGate, experienceGate, mapPath));
+                CreateTextReport(plan, profile, planningGate, qualityGate, experienceGate, mapPath));
             return Error.Ok;
         }
         catch (Exception exception)

@@ -191,17 +191,12 @@ public TerrainWorldField SampleField(Vector2 world);
 public TerrainSample SampleSurface(Vector2 world, float spacing = 4.0f);
 public Vector3 SurfacePositionAt(Vector2 world, float heightOffset = 0.0f);
 public bool TryGetWorldPlan(out TerrainWorldPlan plan);
-public ReadOnlySpan<TerrainWorldPointOfInterest> GetPointsOfInterest();
-public ReadOnlySpan<TerrainWorldRoute> GetRoutes();
-public bool IsTraversable(Vector2 world, float minTraversability = 0.45f);
-public bool IsAboveWater(Vector2 world, float margin = 0.0f);
-```
-
-如果 Godot/C# 版本或 API 对 `ReadOnlySpan` 暴露有约束，也可先使用数组：
-
-```csharp
+public TerrainWorldPlanSnapshot GetWorldPlanSnapshot();
+public bool TryGetWorldPlanSnapshot(out TerrainWorldPlanSnapshot snapshot);
 public TerrainWorldPointOfInterest[] GetPointsOfInterest();
 public TerrainWorldRoute[] GetRoutes();
+public bool IsTraversable(Vector2 world, float minTraversability = 0.45f);
+public bool IsAboveWater(Vector2 world, float margin = 0.0f);
 ```
 
 ### 5.2 查询方法行为约定
@@ -226,16 +221,32 @@ public TerrainWorldRoute[] GetRoutes();
 
 - 如果 `WorldPlan` 为空，返回 false。
 - 不隐式同步生成 plan，避免卡帧。
+- 返回当前 plan 引用，主要用于地形内部、高级工具和兼容场景；普通玩法模块应优先使用 snapshot facade。
+
+`GetWorldPlanSnapshot()`：
+
+- plan 未就绪时返回空 snapshot。
+- plan 就绪时返回 region、POI、route 的隔离快照。
+- route waypoint 数组深拷贝。
+- 调用方修改 snapshot 不会影响 `TerrainWorld` 内部 plan。
+
+`TryGetWorldPlanSnapshot(out TerrainWorldPlanSnapshot snapshot)`：
+
+- plan 未就绪时返回 false。
+- plan 就绪时返回 true 和隔离快照。
+- 不隐式同步生成 plan，避免卡帧。
+- 普通任务、AI、资源、导航、音频和 UI 模块优先使用该入口读取 plan 级数据。
 
 `GetPointsOfInterest()`：
 
 - 如果 plan 未就绪，返回空集合。
-- 不返回可修改内部数组，或文档说明调用方不得修改。
+- 返回 POI 数组快照；调用方修改返回数组不会影响内部 plan。
 
 `GetRoutes()`：
 
 - 如果 plan 未就绪，返回空集合。
-- 路线 waypoint 由上层模块只读使用。
+- 返回 route 数组快照。
+- route waypoint 数组深拷贝；调用方修改 route 或 waypoint 不会影响内部 plan。
 
 `IsTraversable(...)`：
 
@@ -578,16 +589,18 @@ AI/遭遇系统应该使用：
 - 可异步生成和应用的 open world plan。
 - POI、route、settlement、scatter、landmark 的规划和 tile 实体化闭环。
 - runtime anchor 和 group/meta 对接入口。
-- CLI 验证工具，可覆盖默认 seed 的生成、规划、tile、artifact、runtime API 和 runtime world smoke。
+- `TerrainWorldAnchorBuilder` 已从 debug overlay 中拆出，overlay 复用 builder 输出 gameplay anchors。
+- `TerrainWorldAnchorContract` 固定了 POI/route group、meta key 和 descriptor 生成契约。
+- `TerrainWorldPlanSerializer` 已定义 `terrain-plan-v1` JSON schema，写入 API/generator version、seed 和 profile hash。
+- open world plan 文本报告已输出 API contract、API version 和 profile hash。
+- CLI 验证工具，可覆盖默认 seed 的生成、规划、tile、artifact、plan JSON roundtrip、runtime API、anchor contract 和 runtime world smoke。
 
 尚不能定位为完全生产级稳定层，主要缺口是：
 
-- `WorldPlan` 公开数据仍可能被外部修改。
-- debug overlay 与 gameplay anchor builder 尚未解耦。
-- plan 持久化 schema 尚未正式定义。
+- `WorldPlan` 兼容入口仍返回内部 plan 引用，长期应继续只读化或降级为高级工具入口。
 - 确定性等级和 native/managed 差异边界尚未写入契约。
 - 性能预算尚未成为 CI 或发布门槛。
-- enum、meta、group、report、serializer 的迁移规则还不够严格。
+- enum 数值、report、serializer 的跨版本迁移规则还不够严格。
 
 ### 9.3 P0：公开数据不可变性
 
@@ -627,15 +640,16 @@ public TerrainWorldRoute[] GetRoutes();
 - 外部修改 `GetPointsOfInterest()` 返回数组不会影响内部 plan。
 - 外部修改 `GetRoutes()` 返回数组和 waypoint 数组不会影响内部 plan。
 - 外部无法通过一级稳定 API 修改 `WorldPlan` 内部状态。
-- validation 增加 `WorldPlan` snapshot isolation smoke。
+- validation 已增加 facade plan snapshot isolation smoke。
 
 ### 9.4 P0：Anchor Builder 与 Debug Overlay 解耦
 
-当前风险：
+当前状态：
 
-- `TerrainWorldPlanOverlay` 同时承担 debug 可视化和 gameplay anchor 输出。
-- 可视化开关、编辑器调试节点和 gameplay anchor 生命周期耦合。
-- 上层系统如果依赖 group/meta，不能被 debug overlay 是否启用影响。
+- `TerrainWorldAnchorBuilder` 已新增，负责从 plan 生成 gameplay anchors。
+- `TerrainWorldPlanOverlay` 已改为复用 builder，debug marker/ribbon 与 anchor 生成逻辑不再写在同一段实现里。
+- `TerrainWorldAnchorContract` 已固定 `terrain_poi`、`terrain_route` group 和必需 meta key。
+- 默认验证已加入 `Terrain anchor contract smoke`，检查 group/meta 名称、anchor 节点常量、descriptor 数量、字段一致性和 route waypoint 隔离。
 
 商业级要求：
 
@@ -643,7 +657,7 @@ public TerrainWorldRoute[] GetRoutes();
 - debug overlay 可以关闭，但 anchor builder 仍应可独立输出。
 - anchor group/meta 必须有 contract smoke。
 
-建议新增：
+已新增：
 
 ```csharp
 [GlobalClass]
@@ -660,7 +674,7 @@ public partial class TerrainWorldAnchorBuilder : Node3D
 }
 ```
 
-后续结构：
+当前结构：
 
 | 类型                                | 职责                        |
 | ----------------------------------- | --------------------------- |
@@ -671,26 +685,30 @@ public partial class TerrainWorldAnchorBuilder : Node3D
 
 验收标准：
 
-- 不显示 overlay 时仍可生成 `terrain_poi` 和 `terrain_route` anchor。
-- POI anchor 数量等于 plan POI 数量。
-- route anchor 数量等于 plan route 数量。
-- 所有必需 group/meta key 都被验证工具检查。
+- 不显示 overlay 时仍可通过 `TerrainWorldAnchorBuilder` 生成 `terrain_poi` 和 `terrain_route` anchor。
+- POI descriptor 数量等于 plan POI 数量。
+- route descriptor 数量等于 plan route 数量。
+- 所有必需 group/meta key 都由 `TerrainWorldAnchorContract` 固定，并由验证工具检查。
 
 ### 9.5 P0：Plan 持久化 Schema
 
-当前风险：
+当前状态：
 
-- 报告中已有 API contract/version，但还没有正式 plan 数据格式。
-- 存档、内容烘焙、CI artifact 对比、bug 复现都需要稳定 plan schema。
-- 只靠 seed 重新生成，无法覆盖未来 generator 变更、版本迁移和玩家世界状态叠加。
+- `TerrainWorldPlanSerializer` 已新增，当前 schema contract 为 `terrain-plan-v1`。
+- JSON 顶层已写入 plan/API/generator version、seed、profile hash、center、world size、grid resolution、regions、POI、routes 和 reports。
+- `Vector2` 已固定为 `{ "x": number, "z": number }`。
+- enum 已固定为 `{ "name": string, "value": int }`，读取时同时校验 name/value。
+- 带 `expectedProfile` 的读取入口会拒绝 seed 或 profile hash 不匹配的 plan。
+- route waypoint roundtrip 后不会共享原 plan 内部数组。
+- 默认验证已加入 `Plan JSON roundtrip smoke`，覆盖 string/file roundtrip、metadata、seed/hash drift、enum drift 和隔离性。
 
-建议新增契约：
+当前契约：
 
 ```text
 terrain-plan-v1
 ```
 
-建议 JSON 顶层字段：
+JSON 顶层字段：
 
 ```json
 {
@@ -713,29 +731,31 @@ terrain-plan-v1
 要求：
 
 - `Vector2` 统一序列化为 `{ "x": number, "z": number }`，避免 XZ/XY 混淆。
-- enum 序列化建议同时保留 string 和 int，迁移更安全。
+- enum 序列化同时保留 string 和 int，迁移更安全。
 - route waypoint 必须序列化为独立数组，不共享内部引用。
 - schema version 和 API version 必须同时写入。
 - 初期可以只支持当前版本读取，但必须检测不兼容版本并返回明确错误。
 
-建议新增：
+已新增：
 
 ```csharp
 public static class TerrainWorldPlanSerializer
 {
     public static string ToJson(TerrainWorldPlan plan, TerrainGenerationProfile profile);
     public static bool TryFromJson(string json, out TerrainWorldPlan? plan, out string error);
+    public static bool TryFromJson(string json, TerrainGenerationProfile expectedProfile, out TerrainWorldPlan? plan, out string error);
     public static Error SaveJson(TerrainWorldPlan plan, TerrainGenerationProfile profile, string outputPath);
     public static bool TryLoadJson(string inputPath, out TerrainWorldPlan? plan, out string error);
+    public static bool TryLoadJson(string inputPath, TerrainGenerationProfile expectedProfile, out TerrainWorldPlan? plan, out string error);
 }
 ```
 
 验收标准：
 
-- plan 导出再导入后，POI 数、route 数、waypoint 数和关键 report 数据一致。
+- plan 导出再导入后，region、POI、route、waypoint 和关键 report 数据一致。
 - 导入 plan 可用于 `TerrainWorld.SetWorldPlan()`。
-- report 输出 plan contract、API contract、API version、profile hash。
-- validation 增加 serialization roundtrip smoke。
+- report 输出 API contract、API version、profile hash。
+- validation 默认运行 `Plan JSON roundtrip smoke`。
 
 ### 9.6 P0：确定性等级契约
 
@@ -837,13 +857,11 @@ public enum TerrainPointOfInterestKind
 - seed 相同但 profile 不同会生成不同世界。
 - report、cache、plan、bug 复现、存档都需要一个稳定 profile 身份。
 
-建议新增：
+当前实现：
 
 ```csharp
 public string StableHash();
 ```
-
-或：
 
 ```csharp
 public static class TerrainProfileHash
@@ -863,7 +881,7 @@ public static class TerrainProfileHash
 
 - 同一 profile 多次计算 hash 一致。
 - 任意公开 generation 参数变化会改变 hash。
-- report 和 plan JSON 都包含 hash。
+- report 和 plan JSON 都包含 hash，并由默认 artifact/plan JSON smoke 覆盖。
 
 ### 9.9 P1：性能预算契约
 
@@ -1030,23 +1048,23 @@ dotnet run --project tools\TerrainValidation\TerrainValidation.csproj -- --seed-
 - 普通玩法模块不需要直接知道 `TerrainWorldFieldSampler.Sample(world, profile)` 的组合细节。
 - 查询方法不触发重型同步 plan 生成。
 
-### 阶段 2：Gameplay Anchor Builder 拆分
+### 阶段 2：Gameplay Anchor Builder 拆分（基础拆分已完成）
 
 目标：把 debug 可视化和 runtime anchor 输出解耦。
 
-建议改动：
+当前实现：
 
-- 新增 `TerrainWorldAnchorBuilder`。
-- `TerrainWorldPlanOverlay` 保留可视化职责。
-- anchor 生成逻辑迁出 overlay，或 overlay 复用 builder。
+- 已新增 `TerrainWorldAnchorBuilder`。
+- `TerrainWorldPlanOverlay` 保留 debug 可视化职责，并复用 builder 输出 gameplay anchors。
+- group/meta/name/descriptor 规则集中在 `TerrainWorldAnchorContract`。
 
-建议测试：
+验证覆盖：
 
-- `ApplyPlan` 后 POI anchors 数量等于 plan POI 数量。
-- route anchors 数量等于 plan route 数量。
-- 所有 POI anchor 包含 `terrain_poi` group。
-- 所有 route anchor 包含 `terrain_route` group。
-- 必须 meta key 全部存在。
+- 默认验证输出 `Terrain anchor contract smoke: PASS`。
+- POI descriptor 数量等于 plan POI 数量。
+- route descriptor 数量等于 plan route 数量。
+- POI/route group 与必需 meta key 未漂移。
+- route descriptor waypoint 数组不泄露 plan 内部数组。
 
 验收标准：
 
@@ -1075,51 +1093,59 @@ dotnet run --project tools\TerrainValidation\TerrainValidation.csproj -- --seed-
 - 破坏 API 前必须显式升级 major 版本。
 - CI 可以发现 anchor/meta 破坏。
 
-### 阶段 4：Plan 持久化
+### 阶段 4：Plan 持久化（基础 schema 已完成）
 
 目标：让地形 plan 可导出、可审核、可复用。
 
-建议新增：
+当前实现：
 
 - `TerrainWorldPlanSerializer`
 
-候选文件：
+文件：
 
 - `dao/Scripts/Terrain/Generation/TerrainWorldPlanSerializer.cs`
 
-建议 API：
+当前 API：
 
 ```csharp
 public static class TerrainWorldPlanSerializer
 {
-    public static string ToJson(TerrainWorldPlan plan);
-    public static TerrainWorldPlan FromJson(string json);
-    public static Error SaveJson(TerrainWorldPlan plan, string outputPath);
-    public static bool TryLoadJson(string inputPath, out TerrainWorldPlan plan);
+    public static string ToJson(TerrainWorldPlan plan, TerrainGenerationProfile profile);
+    public static bool TryFromJson(string json, out TerrainWorldPlan? plan, out string error);
+    public static bool TryFromJson(string json, TerrainGenerationProfile expectedProfile, out TerrainWorldPlan? plan, out string error);
+    public static Error SaveJson(TerrainWorldPlan plan, TerrainGenerationProfile profile, string outputPath);
+    public static bool TryLoadJson(string inputPath, out TerrainWorldPlan? plan, out string error);
+    public static bool TryLoadJson(string inputPath, TerrainGenerationProfile expectedProfile, out TerrainWorldPlan? plan, out string error);
 }
 ```
 
-注意：
+当前覆盖：
 
-- Godot `Vector2` 和 `Color` 序列化要明确格式。
-- 需要写入 API version。
-- 初期可以只支持当前版本读取。
+- Godot `Vector2` 已固定为 `{ "x": number, "z": number }`。
+- enum 已固定为 `{ "name": string, "value": int }`。
+- 已写入 API contract、API version、generator version、seed 和 profile hash。
+- 当前只支持当前版本读取，并拒绝不兼容版本。
+- profile-aware 读取会拒绝 seed/profile hash mismatch。
 
 验收标准：
 
-- 同一个 plan 导出再导入后，POI 数、route 数、关键 report 数据一致。
+- 同一个 plan 导出再导入后，region、POI、route、waypoint 和关键 report 数据一致。
 - 导入 plan 可用于 `TerrainWorld.SetWorldPlan()`。
+- 默认验证输出 `Plan JSON roundtrip smoke: PASS`。
 
 ### 阶段 5：验证工具升级
 
 目标：让 API 稳定性进入常规回归。
 
-建议给 `tools/TerrainValidation` 增加：
+当前 `tools/TerrainValidation` 已覆盖：
 
 - API contract smoke。
 - anchor contract smoke。
 - facade query smoke。
 - plan serialization smoke。
+
+仍建议增加：
+
 - multi-seed 默认 CI 模式。
 
 建议命令：
@@ -1170,18 +1196,21 @@ public partial class TerrainAssetMapping : Resource
 
 - 收紧公开数据不可变性，避免 `WorldPlan` 内部数组被外部修改。
 - 确定 API 分层和契约文档。
-- 固定 group/meta 命名，并加入 anchor contract smoke。
-- 拆分 gameplay anchor builder 和 debug overlay。
-- 定义 plan 持久化 schema。
 - 明确 deterministic contract、visual approximation、platform dependent 三类输出。
 - 固定 public enum 显式数值。
+- 收紧 plan/report/schema 的跨版本迁移规则。
 - 保持 `TerrainValidation` 全部通过。
+
+已完成的 P0 基础项：
+
+- 固定 group/meta 命名，并加入默认 anchor contract smoke。
+- 拆分 gameplay anchor builder 和 debug overlay 的基础职责，overlay 复用 builder。
+- 定义 `terrain-plan-v1` plan JSON schema，并加入默认 plan JSON roundtrip smoke。
+- 增加 generation profile stable hash，写入 plan JSON 和 open world plan report。
 
 ### P1：应尽快做
 
 - 增加 `TerrainWorld` 语义化查询扩展。
-- 增加 `TerrainApiVersion` 和 generator/profile hash 输出。
-- 实现 plan JSON 保存/读取。
 - 增加 CI 多 seed 校验。
 - 增加 Native parity 常规测试。
 - 增加 tile benchmark P50/P95/P99 报告。
@@ -1221,7 +1250,7 @@ public partial class TerrainAssetMapping : Resource
 - scenic landmark 有输出。
 - artifact 导出成功。
 - runtime smoke 成功。
-- anchor group/meta 完整。
+- anchor group/meta 完整，并由 `Terrain anchor contract smoke` 覆盖。
 - plan snapshot 不泄露内部可变数组。
 - plan JSON roundtrip 成功。
 - enum 数值 contract 未漂移。
@@ -1255,8 +1284,8 @@ public partial class TerrainAssetMapping : Resource
 
 1. 先收紧公开数据不可变性和 snapshot 契约。
 2. 再拆 gameplay anchor builder。
-3. 再定义 plan JSON schema、profile hash 和确定性等级。
-4. 再补 enum/group/meta/report contract smoke。
+3. 再定义确定性等级和 enum 显式数值契约。
+4. 再补 report/schema 迁移 contract smoke。
 5. 再补性能预算和 CI 分层。
 6. 最后扩展语义化查询和资产/导航/存档预留出口。
 
