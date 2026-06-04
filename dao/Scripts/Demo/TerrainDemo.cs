@@ -19,6 +19,10 @@ public partial class TerrainDemo : Node3D
     [Export(PropertyHint.Range, "2,80,1")] public float OpenWorldPlanRouteWidth { get; set; } = 16.0f;
     [Export] public string OpenWorldPlanOutputDirectory { get; set; } = "user://terrain";
 
+    private TerrainWorld? _pendingPlanArtifactWorld;
+    private bool _planArtifactsPending;
+    private bool _planArtifactsBuilt;
+
     public override void _Ready()
     {
         Name = "ProceduralTerrainDemo";
@@ -35,7 +39,15 @@ public partial class TerrainDemo : Node3D
 
         if (ValidateOpenWorldPlanOnReady || ShowOpenWorldPlanOverlayOnReady || ExportOpenWorldPlanOnReady)
         {
-            BuildOpenWorldPlanArtifacts(terrainWorld);
+            RequestOpenWorldPlanArtifacts(terrainWorld);
+        }
+    }
+
+    public override void _Process(double delta)
+    {
+        if (_planArtifactsPending && _pendingPlanArtifactWorld is not null)
+        {
+            TryBuildOpenWorldPlanArtifacts(_pendingPlanArtifactWorld, allowSynchronousFallback: false);
         }
     }
 
@@ -86,14 +98,36 @@ public partial class TerrainDemo : Node3D
         };
     }
 
-    private void BuildOpenWorldPlanArtifacts(TerrainWorld terrainWorld)
+    private void RequestOpenWorldPlanArtifacts(TerrainWorld terrainWorld)
     {
+        _pendingPlanArtifactWorld = terrainWorld;
+        _planArtifactsPending = true;
+        TryBuildOpenWorldPlanArtifacts(terrainWorld, allowSynchronousFallback: true);
+    }
+
+    private bool TryBuildOpenWorldPlanArtifacts(TerrainWorld terrainWorld, bool allowSynchronousFallback)
+    {
+        if (_planArtifactsBuilt)
+        {
+            return true;
+        }
+
         terrainWorld.OpenWorldPlanWorldSize = OpenWorldPlanWorldSize;
         TerrainGenerationProfile profile = terrainWorld.Profile;
         TerrainWorldPlan? currentPlan = terrainWorld.WorldPlan;
-        TerrainWorldPlan plan = currentPlan is not null && Mathf.IsEqualApprox(currentPlan.WorldSize, OpenWorldPlanWorldSize)
+        TerrainWorldPlan? plan = currentPlan is not null && Mathf.IsEqualApprox(currentPlan.WorldSize, OpenWorldPlanWorldSize)
             ? currentPlan
-            : terrainWorld.GenerateOpenWorldPlan(apply: true);
+            : null;
+        if (plan is null)
+        {
+            if (terrainWorld.IsOpenWorldPlanGenerationPending || !allowSynchronousFallback)
+            {
+                return false;
+            }
+
+            plan = terrainWorld.GenerateOpenWorldPlan(apply: true);
+        }
+
         TerrainWorldPlanningGateResult planningGate = TerrainWorldPlanner.ValidateOpenWorldPlanning(plan);
         TerrainQualityGateResult qualityGate = TerrainQualityAnalyzer.ValidateOpenWorldDefault(plan.QualityReport);
         TerrainExperienceGateResult experienceGate = TerrainExperienceAnalyzer.ValidateOpenWorldDefault(plan.ExperienceReport);
@@ -122,7 +156,10 @@ public partial class TerrainDemo : Node3D
 
         if (!ExportOpenWorldPlanOnReady)
         {
-            return;
+            _planArtifactsBuilt = true;
+            _planArtifactsPending = false;
+            _pendingPlanArtifactWorld = null;
+            return true;
         }
 
         TerrainWorldPlanArtifactResult export = TerrainWorldPlanExporter.SaveOpenWorldArtifacts(
@@ -140,6 +177,11 @@ public partial class TerrainDemo : Node3D
                 $"Open world terrain artifact export failed. " +
                 $"Map save: {export.MapSaveError}, report save: {export.ReportSaveError}.");
         }
+
+        _planArtifactsBuilt = true;
+        _planArtifactsPending = false;
+        _pendingPlanArtifactWorld = null;
+        return true;
     }
 
     private void CreateOpenWorldPlanOverlay(TerrainWorldPlan plan, TerrainGenerationProfile profile)

@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Threading;
+using System.Threading.Tasks;
 using Dao.Terrain;
 using Dao.Terrain.Generation;
 using Dao.Terrain.Runtime;
@@ -1454,7 +1456,12 @@ static TerrainRuntimeWorldSmokeReport ValidateRuntimeWorldPlanMaterialization(
     TerrainGenerationProfile profile,
     float worldSize)
 {
-    TerrainWorldPlan plan = TerrainWorld.CreateRuntimeOpenWorldPlan(profile, worldSize);
+    TerrainWorldPlan syncPlan = TerrainWorld.CreateRuntimeOpenWorldPlan(profile, worldSize);
+    var asyncPlanWatch = Stopwatch.StartNew();
+    TerrainWorldPlan plan = TerrainWorld.CreateRuntimeOpenWorldPlanAsync(profile, worldSize).GetAwaiter().GetResult();
+    asyncPlanWatch.Stop();
+    bool asyncPlanMatchesSync = RuntimePlansMatch(syncPlan, plan);
+    TerrainRuntimeWorldCancellationReport cancellationReport = ValidateRuntimeWorldPlanCancellation(profile, worldSize);
     TerrainQualityGateResult qualityGate = TerrainQualityAnalyzer.ValidateOpenWorldDefault(plan.QualityReport);
     TerrainWorldPlanningGateResult planningGate = TerrainWorldPlanner.ValidateOpenWorldPlanning(plan);
     TerrainExperienceGateResult experienceGate = TerrainExperienceAnalyzer.ValidateOpenWorldDefault(plan.ExperienceReport);
@@ -1517,6 +1524,8 @@ static TerrainRuntimeWorldSmokeReport ValidateRuntimeWorldPlanMaterialization(
     int settlementInteriorScatterCount = SettlementInteriorScatterCount(scatterLandmarkCounts);
     int routeLandmarkCount = roadMarkerCount + bridgeSpanCount;
     bool passed =
+        asyncPlanMatchesSync &&
+        cancellationReport.Passed &&
         qualityGate.Passed &&
         planningGate.Passed &&
         experienceGate.Passed &&
@@ -1532,6 +1541,8 @@ static TerrainRuntimeWorldSmokeReport ValidateRuntimeWorldPlanMaterialization(
     string reason = passed
         ? "runtime TerrainWorld plan entry generated indexed routes/POIs that materialized on tiles"
         : RuntimeWorldFailureReason(
+            asyncPlanMatchesSync,
+            cancellationReport.Passed,
             qualityGate,
             planningGate,
             experienceGate,
@@ -1554,6 +1565,10 @@ static TerrainRuntimeWorldSmokeReport ValidateRuntimeWorldPlanMaterialization(
         roadMarkerCount,
         bridgeSpanCount,
         settlementInteriorScatterCount,
+        asyncPlanWatch.Elapsed.TotalMilliseconds,
+        asyncPlanMatchesSync,
+        cancellationReport.ElapsedMilliseconds,
+        cancellationReport.Passed,
         corridorIndex.HasSegments,
         poiIndex.HasPoints,
         qualityGate.Passed,
@@ -1563,7 +1578,95 @@ static TerrainRuntimeWorldSmokeReport ValidateRuntimeWorldPlanMaterialization(
         reason);
 }
 
+static TerrainRuntimeWorldCancellationReport ValidateRuntimeWorldPlanCancellation(
+    TerrainGenerationProfile profile,
+    float worldSize)
+{
+    TerrainGenerationProfile cancellationProfile = profile with
+    {
+        StreamRadiusChunks = Math.Max(profile.StreamRadiusChunks, 10)
+    };
+    float cancellationWorldSize = Mathf.Max(worldSize * 2.0f, cancellationProfile.ChunkSize * 128.0f);
+    using var cancellation = new CancellationTokenSource();
+    var watch = Stopwatch.StartNew();
+    Task<TerrainWorldPlan> task = TerrainWorld.CreateRuntimeOpenWorldPlanAsync(
+        cancellationProfile,
+        cancellationWorldSize,
+        cancellation.Token);
+    cancellation.CancelAfter(TimeSpan.FromMilliseconds(12));
+
+    try
+    {
+        _ = task.GetAwaiter().GetResult();
+        watch.Stop();
+        return new TerrainRuntimeWorldCancellationReport(false, watch.Elapsed.TotalMilliseconds);
+    }
+    catch (OperationCanceledException)
+    {
+        watch.Stop();
+        return new TerrainRuntimeWorldCancellationReport(task.IsCanceled, watch.Elapsed.TotalMilliseconds);
+    }
+    catch
+    {
+        watch.Stop();
+        return new TerrainRuntimeWorldCancellationReport(false, watch.Elapsed.TotalMilliseconds);
+    }
+}
+
+static bool RuntimePlansMatch(TerrainWorldPlan expected, TerrainWorldPlan actual)
+{
+    if (!Mathf.IsEqualApprox(expected.WorldSize, actual.WorldSize) ||
+        expected.GridResolution != actual.GridResolution ||
+        expected.PointsOfInterest.Length != actual.PointsOfInterest.Length ||
+        expected.Routes.Length != actual.Routes.Length)
+    {
+        return false;
+    }
+
+    TerrainWorldPlanningReport expectedPlanning = expected.PlanningReport;
+    TerrainWorldPlanningReport actualPlanning = actual.PlanningReport;
+    if (expectedPlanning.PointOfInterestCount != actualPlanning.PointOfInterestCount ||
+        expectedPlanning.RouteCount != actualPlanning.RouteCount ||
+        expectedPlanning.VillageCount != actualPlanning.VillageCount ||
+        expectedPlanning.TownCount != actualPlanning.TownCount ||
+        expectedPlanning.OasisHubCount != actualPlanning.OasisHubCount)
+    {
+        return false;
+    }
+
+    for (int i = 0; i < expected.PointsOfInterest.Length; i++)
+    {
+        TerrainWorldPointOfInterest a = expected.PointsOfInterest[i];
+        TerrainWorldPointOfInterest b = actual.PointsOfInterest[i];
+        if (a.Id != b.Id ||
+            a.Kind != b.Kind ||
+            a.SettlementTier != b.SettlementTier ||
+            a.WorldPosition.DistanceSquaredTo(b.WorldPosition) > 0.01f ||
+            Math.Abs(a.Score - b.Score) > 0.0001f)
+        {
+            return false;
+        }
+    }
+
+    for (int i = 0; i < expected.Routes.Length; i++)
+    {
+        TerrainWorldRoute a = expected.Routes[i];
+        TerrainWorldRoute b = actual.Routes[i];
+        if (a.FromPointId != b.FromPointId ||
+            a.ToPointId != b.ToPointId ||
+            a.Kind != b.Kind ||
+            a.Waypoints.Length != b.Waypoints.Length)
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 static string RuntimeWorldFailureReason(
+    bool asyncPlanMatchesSync,
+    bool asyncPlanCancellationPassed,
     TerrainQualityGateResult qualityGate,
     TerrainWorldPlanningGateResult planningGate,
     TerrainExperienceGateResult experienceGate,
@@ -1577,6 +1680,16 @@ static string RuntimeWorldFailureReason(
     int bridgeSpanCount,
     int settlementInteriorScatterCount)
 {
+    if (!asyncPlanMatchesSync)
+    {
+        return "async runtime open world plan did not match the synchronous runtime plan";
+    }
+
+    if (!asyncPlanCancellationPassed)
+    {
+        return "async runtime open world plan did not honor cancellation";
+    }
+
     if (!qualityGate.Passed || !planningGate.Passed || !experienceGate.Passed || !archetypeGate.Passed)
     {
         return "runtime open world plan failed readiness gates";
@@ -1615,6 +1728,8 @@ static void PrintRuntimeWorldSmoke(TerrainRuntimeWorldSmokeReport report)
     Console.WriteLine(
         $"Runtime TerrainWorld smoke: {(report.Passed ? "PASS" : "FAIL")} " +
         $"POIs {report.MaterializedPointCount}/{report.PointOfInterestCount}, routes {report.RouteCount}, tiles {report.SampledTileCount}, " +
+        $"async {report.AsyncPlanMilliseconds:0.0} ms/{(report.AsyncPlanMatchesSync ? "match" : "mismatch")}, " +
+        $"cancel {report.AsyncPlanCancellationMilliseconds:0.0} ms/{(report.AsyncPlanCancellationPassed ? "pass" : "fail")}, " +
         $"indices route/POI {(report.HasCorridorIndex ? "yes" : "no")}/{(report.HasPointIndex ? "yes" : "no")}, " +
         $"markers/bridges {report.RoadMarkerCount}/{report.BridgeSpanCount}, settlement scatter {report.SettlementInteriorScatterCount}, " +
         $"gates Q/P/E/A {(report.QualityGatePassed ? "pass" : "fail")}/{(report.PlanningGatePassed ? "pass" : "fail")}/{(report.ExperienceGatePassed ? "pass" : "fail")}/{(report.ArchetypeGatePassed ? "pass" : "fail")} " +
@@ -2847,6 +2962,10 @@ internal readonly record struct TerrainRuntimeWorldSmokeReport(
     int RoadMarkerCount,
     int BridgeSpanCount,
     int SettlementInteriorScatterCount,
+    double AsyncPlanMilliseconds,
+    bool AsyncPlanMatchesSync,
+    double AsyncPlanCancellationMilliseconds,
+    bool AsyncPlanCancellationPassed,
     bool HasCorridorIndex,
     bool HasPointIndex,
     bool QualityGatePassed,
@@ -2854,6 +2973,11 @@ internal readonly record struct TerrainRuntimeWorldSmokeReport(
     bool ExperienceGatePassed,
     bool ArchetypeGatePassed,
     string Reason);
+
+/// <summary>Reports whether async runtime plan generation responds to cancellation.</summary>
+internal readonly record struct TerrainRuntimeWorldCancellationReport(
+    bool Passed,
+    double ElapsedMilliseconds);
 
 /// <summary>Pairs a world position with a score for sorting scatter candidate regions.</summary>
 internal readonly record struct GameplayScatterRegionCandidate(

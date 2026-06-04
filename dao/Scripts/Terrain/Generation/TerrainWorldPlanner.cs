@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Text;
+using System.Threading;
 using Godot;
 
 namespace Dao.Terrain.Generation;
@@ -225,7 +226,8 @@ public static class TerrainWorldPlanner
         float worldSize,
         int gridResolution,
         int maxPointsOfInterest = 36,
-        int maxRoutes = 18)
+        int maxRoutes = 18,
+        CancellationToken cancellationToken = default)
     {
         int resolution = Mathf.Clamp(gridResolution, 8, 256);
         int safeMaxPoints = Mathf.Clamp(maxPointsOfInterest, 4, 512);
@@ -239,6 +241,8 @@ public static class TerrainWorldPlanner
 
         for (int y = 0; y < resolution; y++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             for (int x = 0; x < resolution; x++)
             {
                 Vector2 world = CellCenter(center, safeWorldSize, resolution, x, y);
@@ -264,11 +268,11 @@ public static class TerrainWorldPlanner
             }
         }
 
-        TerrainWorldPointOfInterest[] points = SelectPointsOfInterest(candidates, profile, safeMaxPoints, cellSize, safeWorldSize);
-        TerrainWorldRoute[] routes = BuildRoutes(points, fields, profile, resolution, safeMaxRoutes);
-        TerrainQualityReport qualityReport = TerrainQualityAnalyzer.Analyze(profile, center, safeWorldSize, resolution);
+        TerrainWorldPointOfInterest[] points = SelectPointsOfInterest(candidates, profile, safeMaxPoints, cellSize, safeWorldSize, cancellationToken);
+        TerrainWorldRoute[] routes = BuildRoutes(points, fields, profile, resolution, safeMaxRoutes, cancellationToken);
+        TerrainQualityReport qualityReport = TerrainQualityAnalyzer.Analyze(profile, center, safeWorldSize, resolution, cancellationToken);
         TerrainWorldPlanningReport planningReport = AnalyzePlanning(points, routes, safeWorldSize);
-        TerrainExperienceReport experienceReport = TerrainExperienceAnalyzer.Analyze(regions, points, routes, planningReport);
+        TerrainExperienceReport experienceReport = TerrainExperienceAnalyzer.Analyze(regions, points, routes, planningReport, cancellationToken);
 
         return new TerrainWorldPlan(
             center,
@@ -286,7 +290,8 @@ public static class TerrainWorldPlanner
     public static TerrainWorldPlan CreateOpenWorldPlan(
         TerrainGenerationProfile profile,
         Vector2 center,
-        float worldSize)
+        float worldSize,
+        CancellationToken cancellationToken = default)
     {
         int planningResolution = Mathf.Clamp(profile.StreamRadiusChunks * 10, 48, 128);
         return CreatePlan(
@@ -295,7 +300,8 @@ public static class TerrainWorldPlanner
             worldSize,
             planningResolution,
             maxPointsOfInterest: 48,
-            maxRoutes: 64);
+            maxRoutes: 64,
+            cancellationToken: cancellationToken);
     }
 
     /// <summary>Analyzes a plan's POI and route statistics into a <see cref="TerrainWorldPlanningReport"/>.</summary>
@@ -425,9 +431,10 @@ public static class TerrainWorldPlanner
     public static TerrainWorldPlanningGateResult ValidateOpenWorldPlanning(
         TerrainGenerationProfile profile,
         Vector2 center,
-        float worldSize)
+        float worldSize,
+        CancellationToken cancellationToken = default)
     {
-        TerrainWorldPlan plan = CreateOpenWorldPlan(profile, center, worldSize);
+        TerrainWorldPlan plan = CreateOpenWorldPlan(profile, center, worldSize, cancellationToken);
         return ValidateOpenWorldPlanning(plan);
     }
 
@@ -558,8 +565,11 @@ public static class TerrainWorldPlanner
         TerrainGenerationProfile profile,
         int maxPoints,
         float cellSize,
-        float worldSize)
+        float worldSize,
+        CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+
         candidates.Sort((a, b) => b.Score.CompareTo(a.Score));
         var selected = new List<TerrainWorldPointOfInterest>(maxPoints);
         var kindCounts = new Dictionary<TerrainPointOfInterestKind, int>();
@@ -573,12 +583,17 @@ public static class TerrainWorldPlanner
             TerrainPointOfInterestKind.Oasis,
             maxPoints,
             perKindLimit,
-            minDistanceSquared * 0.36f);
+            minDistanceSquared * 0.36f,
+            cancellationToken);
 
         foreach (TerrainPointOfInterestKind kind in Enum.GetValues<TerrainPointOfInterestKind>())
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             foreach (PoiCandidate candidate in candidates)
             {
+                cancellationToken.ThrowIfCancellationRequested();
+
                 if (candidate.Kind != kind)
                 {
                     continue;
@@ -605,10 +620,13 @@ public static class TerrainWorldPlanner
             maxPoints,
             perKindLimit,
             minDistanceSquared,
-            worldSize);
+            worldSize,
+            cancellationToken);
 
         foreach (PoiCandidate candidate in candidates)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             TrySelectPoint(
                 selected,
                 kindCounts,
@@ -629,7 +647,8 @@ public static class TerrainWorldPlanner
         TerrainPointOfInterestKind requiredKind,
         int maxPoints,
         int perKindLimit,
-        float minDistanceSquared)
+        float minDistanceSquared,
+        CancellationToken cancellationToken)
     {
         kindCounts.TryGetValue(requiredKind, out int existingCount);
         if (existingCount > 0)
@@ -639,6 +658,8 @@ public static class TerrainWorldPlanner
 
         foreach (PoiCandidate candidate in candidates)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             if (candidate.Kind != requiredKind)
             {
                 continue;
@@ -665,17 +686,22 @@ public static class TerrainWorldPlanner
         int maxPoints,
         int perKindLimit,
         float minDistanceSquared,
-        float worldSize)
+        float worldSize,
+        CancellationToken cancellationToken)
     {
         int targetCount = Mathf.Clamp(Mathf.CeilToInt(maxPoints * 0.44f), selected.Count, maxPoints);
         while (selected.Count < targetCount)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             int bestIndex = -1;
             float bestScore = float.NegativeInfinity;
             float currentCoverage = ComputePointCoverage(selected, worldSize);
 
             for (int i = 0; i < candidates.Count; i++)
             {
+                cancellationToken.ThrowIfCancellationRequested();
+
                 PoiCandidate candidate = candidates[i];
                 if (!CanSelectPoint(
                     selected,
@@ -845,7 +871,8 @@ public static class TerrainWorldPlanner
         TerrainWorldField[] fields,
         TerrainGenerationProfile profile,
         int resolution,
-        int maxRoutes)
+        int maxRoutes,
+        CancellationToken cancellationToken)
     {
         if (points.Length < 2 || maxRoutes == 0)
         {
@@ -862,14 +889,20 @@ public static class TerrainWorldPlanner
 
         while (remaining.Count > 0 && routes.Count < maxRoutes)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             TerrainWorldRoute? bestRoute = null;
             int bestTo = -1;
             float bestScore = float.PositiveInfinity;
 
             foreach (int from in connected)
             {
+                cancellationToken.ThrowIfCancellationRequested();
+
                 foreach (int to in remaining)
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
+
                     float distance = points[from].WorldPosition.DistanceTo(points[to].WorldPosition);
                     float score = distance * (1.0f - Mathf.Min(points[from].Score, points[to].Score) * 0.25f);
                     if (score >= bestScore)
@@ -877,7 +910,7 @@ public static class TerrainWorldPlanner
                         continue;
                     }
 
-                    TerrainWorldRoute? route = TryBuildRoute(points[from], points[to], fields, profile, resolution);
+                    TerrainWorldRoute? route = TryBuildRoute(points[from], points[to], fields, profile, resolution, cancellationToken);
                     if (route is null)
                     {
                         continue;
@@ -899,7 +932,7 @@ public static class TerrainWorldPlanner
             remaining.Remove(bestTo);
         }
 
-        AddSecondaryRoutes(points, fields, profile, resolution, maxRoutes, routes);
+        AddSecondaryRoutes(points, fields, profile, resolution, maxRoutes, routes, cancellationToken);
         return routes.ToArray();
     }
 
@@ -909,7 +942,8 @@ public static class TerrainWorldPlanner
         TerrainGenerationProfile profile,
         int resolution,
         int maxRoutes,
-        List<TerrainWorldRoute> routes)
+        List<TerrainWorldRoute> routes,
+        CancellationToken cancellationToken)
     {
         if (routes.Count >= maxRoutes || points.Length < 3)
         {
@@ -932,7 +966,7 @@ public static class TerrainWorldPlanner
             }
         }
 
-        AddSettlementConnectorRoutes(points, fields, profile, resolution, maxRoutes, routes, existingEdges, routeDegree);
+        AddSettlementConnectorRoutes(points, fields, profile, resolution, maxRoutes, routes, existingEdges, routeDegree, cancellationToken);
         if (routes.Count >= maxRoutes)
         {
             return;
@@ -945,8 +979,12 @@ public static class TerrainWorldPlanner
 
         for (int from = 0; from < points.Length - 1; from++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             for (int to = from + 1; to < points.Length; to++)
             {
+                cancellationToken.ThrowIfCancellationRequested();
+
                 long key = PointPairKey(points[from].Id, points[to].Id);
                 if (existingEdges.Contains(key))
                 {
@@ -972,6 +1010,8 @@ public static class TerrainWorldPlanner
         int maxCandidateTests = Mathf.Max(64, (maxRoutes - routes.Count) * 10);
         foreach (SecondaryRouteCandidate candidate in candidates)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             if (routes.Count >= maxRoutes || testedCandidates >= maxCandidateTests)
             {
                 break;
@@ -986,7 +1026,7 @@ public static class TerrainWorldPlanner
             }
 
             testedCandidates++;
-            TerrainWorldRoute? route = TryBuildRoute(from, to, fields, profile, resolution);
+            TerrainWorldRoute? route = TryBuildRoute(from, to, fields, profile, resolution, cancellationToken);
             if (route is null)
             {
                 continue;
@@ -1007,7 +1047,8 @@ public static class TerrainWorldPlanner
         int maxRoutes,
         List<TerrainWorldRoute> routes,
         HashSet<long> existingEdges,
-        int[] routeDegree)
+        int[] routeDegree,
+        CancellationToken cancellationToken)
     {
         int settlementCount = CountSettlementHubs(points);
         if (routes.Count >= maxRoutes || settlementCount < 2)
@@ -1029,6 +1070,8 @@ public static class TerrainWorldPlanner
 
         for (int from = 0; from < points.Length - 1; from++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             if (!IsSettlementHub(points[from]))
             {
                 continue;
@@ -1036,6 +1079,8 @@ public static class TerrainWorldPlanner
 
             for (int to = from + 1; to < points.Length; to++)
             {
+                cancellationToken.ThrowIfCancellationRequested();
+
                 if (!IsSettlementHub(points[to]))
                 {
                     continue;
@@ -1066,6 +1111,8 @@ public static class TerrainWorldPlanner
         int maxCandidateTests = Mathf.Max(32, (targetSettlementRoutes - settlementRouteCount) * 8);
         foreach (SecondaryRouteCandidate candidate in candidates)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             if (routes.Count >= maxRoutes ||
                 settlementRouteCount >= targetSettlementRoutes ||
                 testedCandidates >= maxCandidateTests)
@@ -1082,7 +1129,7 @@ public static class TerrainWorldPlanner
             }
 
             testedCandidates++;
-            TerrainWorldRoute? route = TryBuildRoute(from, to, fields, profile, resolution);
+            TerrainWorldRoute? route = TryBuildRoute(from, to, fields, profile, resolution, cancellationToken);
             if (route is null)
             {
                 continue;
@@ -1382,8 +1429,11 @@ public static class TerrainWorldPlanner
         TerrainWorldPointOfInterest to,
         TerrainWorldField[] fields,
         TerrainGenerationProfile profile,
-        int resolution)
+        int resolution,
+        CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+
         int start = Index(from.GridX, from.GridY, resolution);
         int goal = Index(to.GridX, to.GridY, resolution);
         int count = fields.Length;
@@ -1393,6 +1443,8 @@ public static class TerrainWorldPlanner
 
         for (int i = 0; i < count; i++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             cameFrom[i] = -1;
             costSoFar[i] = float.PositiveInfinity;
         }
@@ -1403,6 +1455,8 @@ public static class TerrainWorldPlanner
 
         while (frontier.Count > 0)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             int current = frontier.Dequeue();
             if (current == goal)
             {
@@ -1415,6 +1469,8 @@ public static class TerrainWorldPlanner
 
             for (int oy = -1; oy <= 1; oy++)
             {
+                cancellationToken.ThrowIfCancellationRequested();
+
                 for (int ox = -1; ox <= 1; ox++)
                 {
                     if (ox == 0 && oy == 0)
@@ -1472,6 +1528,8 @@ public static class TerrainWorldPlanner
 
         foreach (int index in path)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             TerrainWorldField field = fields[index];
             scenic += field.ScenicPotential;
             traversability += field.Traversability;

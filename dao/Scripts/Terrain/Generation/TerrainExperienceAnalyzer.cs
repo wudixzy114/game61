@@ -1,5 +1,6 @@
 using System;
 using System.Text;
+using System.Threading;
 using Godot;
 
 namespace Dao.Terrain.Generation;
@@ -53,9 +54,11 @@ public readonly record struct TerrainExperienceGateResult(
 public static class TerrainExperienceAnalyzer
 {
     /// <summary>Analyzes a world plan to produce an experience report.</summary>
-    public static TerrainExperienceReport Analyze(TerrainWorldPlan plan)
+    public static TerrainExperienceReport Analyze(
+        TerrainWorldPlan plan,
+        CancellationToken cancellationToken = default)
     {
-        return Analyze(plan.Regions, plan.PointsOfInterest, plan.Routes, plan.PlanningReport);
+        return Analyze(plan.Regions, plan.PointsOfInterest, plan.Routes, plan.PlanningReport, cancellationToken);
     }
 
     /// <summary>Analyzes raw region, POI, and route data to produce an experience report.</summary>
@@ -63,7 +66,8 @@ public static class TerrainExperienceAnalyzer
         ReadOnlySpan<TerrainWorldRegion> regions,
         ReadOnlySpan<TerrainWorldPointOfInterest> pointsOfInterest,
         ReadOnlySpan<TerrainWorldRoute> routes,
-        TerrainWorldPlanningReport planningReport)
+        TerrainWorldPlanningReport planningReport,
+        CancellationToken cancellationToken = default)
     {
         double exposureSum = 0.0;
         double resourceSum = 0.0;
@@ -76,6 +80,8 @@ public static class TerrainExperienceAnalyzer
 
         foreach (TerrainWorldRegion region in regions)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             if (region.RegionKind == TerrainWorldRegionKind.Ocean)
             {
                 continue;
@@ -116,16 +122,18 @@ public static class TerrainExperienceAnalyzer
             averageResource,
             averageHazard,
             (float)(encounterSum * invPlayableRegionCount),
-            ComputeRouteRhythmScore(routes, planningReport),
-            ComputePointOfInterestValue(pointsOfInterest),
+            ComputeRouteRhythmScore(routes, planningReport, cancellationToken),
+            ComputePointOfInterestValue(pointsOfInterest, cancellationToken),
             ComputeRiskRewardBalance(averageResource, averageHazard),
-            ComputeScenicAnchorRatio(pointsOfInterest));
+            ComputeScenicAnchorRatio(pointsOfInterest, cancellationToken));
     }
 
     /// <summary>Analyzes and validates a world plan against default open-world experience thresholds.</summary>
-    public static TerrainExperienceGateResult ValidateOpenWorldDefault(TerrainWorldPlan plan)
+    public static TerrainExperienceGateResult ValidateOpenWorldDefault(
+        TerrainWorldPlan plan,
+        CancellationToken cancellationToken = default)
     {
-        return Validate(Analyze(plan), TerrainExperienceThresholds.OpenWorldDefault);
+        return Validate(Analyze(plan, cancellationToken), TerrainExperienceThresholds.OpenWorldDefault);
     }
 
     /// <summary>Validates a pre-computed experience report against default open-world thresholds.</summary>
@@ -211,7 +219,8 @@ public static class TerrainExperienceAnalyzer
 
     private static float ComputeRouteRhythmScore(
         ReadOnlySpan<TerrainWorldRoute> routes,
-        TerrainWorldPlanningReport planningReport)
+        TerrainWorldPlanningReport planningReport,
+        CancellationToken cancellationToken)
     {
         if (routes.Length == 0)
         {
@@ -225,6 +234,8 @@ public static class TerrainExperienceAnalyzer
 
         foreach (TerrainWorldRoute route in routes)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             scenicSum += route.AverageScenicPotential;
             traversabilitySum += route.AverageTraversability;
             kindCounts[Mathf.Clamp((int)route.Kind, 0, kindCounts.Length - 1)]++;
@@ -250,7 +261,9 @@ public static class TerrainExperienceAnalyzer
             1.0f);
     }
 
-    private static float ComputePointOfInterestValue(ReadOnlySpan<TerrainWorldPointOfInterest> pointsOfInterest)
+    private static float ComputePointOfInterestValue(
+        ReadOnlySpan<TerrainWorldPointOfInterest> pointsOfInterest,
+        CancellationToken cancellationToken)
     {
         if (pointsOfInterest.Length == 0)
         {
@@ -263,6 +276,8 @@ public static class TerrainExperienceAnalyzer
         float settlementSum = 0.0f;
         foreach (TerrainWorldPointOfInterest point in pointsOfInterest)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             scoreSum += point.Score;
             scenicSum += point.ScenicPotential;
             traversalSum += point.Traversability;
@@ -291,7 +306,9 @@ public static class TerrainExperienceAnalyzer
         return Mathf.Clamp(averageResource * 0.62f + hazardShape * 0.38f, 0.0f, 1.0f);
     }
 
-    private static float ComputeScenicAnchorRatio(ReadOnlySpan<TerrainWorldPointOfInterest> pointsOfInterest)
+    private static float ComputeScenicAnchorRatio(
+        ReadOnlySpan<TerrainWorldPointOfInterest> pointsOfInterest,
+        CancellationToken cancellationToken)
     {
         if (pointsOfInterest.Length == 0)
         {
@@ -301,6 +318,8 @@ public static class TerrainExperienceAnalyzer
         int scenicAnchors = 0;
         foreach (TerrainWorldPointOfInterest point in pointsOfInterest)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             if (point.Kind is TerrainPointOfInterestKind.Vista or
                     TerrainPointOfInterestKind.MountainPass or
                     TerrainPointOfInterestKind.CanyonOverlook or

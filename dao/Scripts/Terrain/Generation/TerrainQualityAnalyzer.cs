@@ -1,5 +1,6 @@
 using System;
 using System.Text;
+using System.Threading;
 using Godot;
 
 namespace Dao.Terrain.Generation;
@@ -145,7 +146,8 @@ public static class TerrainQualityAnalyzer
         TerrainGenerationProfile profile,
         Vector2 center,
         float worldSize,
-        int sampleResolution)
+        int sampleResolution,
+        CancellationToken cancellationToken = default)
     {
         int resolution = Mathf.Clamp(sampleResolution, 8, 1024);
         int sampleCount = resolution * resolution;
@@ -163,6 +165,8 @@ public static class TerrainQualityAnalyzer
 
         for (int y = 0; y < resolution; y++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             for (int x = 0; x < resolution; x++)
             {
                 float tx = resolution == 1 ? 0.0f : x / (float)(resolution - 1);
@@ -274,9 +278,10 @@ public static class TerrainQualityAnalyzer
         Vector2 center,
         float worldSize,
         int sampleResolution,
-        TerrainQualityThresholds thresholds)
+        TerrainQualityThresholds thresholds,
+        CancellationToken cancellationToken = default)
     {
-        TerrainQualityReport report = Analyze(profile, center, worldSize, sampleResolution);
+        TerrainQualityReport report = Analyze(profile, center, worldSize, sampleResolution, cancellationToken);
         return ValidateReport(report, thresholds);
     }
 
@@ -387,9 +392,10 @@ public static class TerrainQualityAnalyzer
         TerrainGenerationProfile profile,
         Vector2 center,
         float worldSize,
-        int sampleResolution)
+        int sampleResolution,
+        CancellationToken cancellationToken = default)
     {
-        return Validate(profile, center, worldSize, sampleResolution, TerrainQualityThresholds.OpenWorldDefault);
+        return Validate(profile, center, worldSize, sampleResolution, TerrainQualityThresholds.OpenWorldDefault, cancellationToken);
     }
 
     private static void AppendGate(

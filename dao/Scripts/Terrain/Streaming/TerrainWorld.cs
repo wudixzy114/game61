@@ -19,6 +19,8 @@ public partial class TerrainWorld : Node3D
     [Export] public bool CreateWaterPlane { get; set; } = true;
     [ExportGroup("Open World Planning")]
     [Export] public bool GenerateOpenWorldPlanOnReady { get; set; } = true;
+    [Export] public bool GenerateOpenWorldPlanAsync { get; set; } = true;
+    [Export] public bool StreamTerrainBeforeOpenWorldPlanReady { get; set; } = true;
     [Export] public bool ValidateGeneratedOpenWorldPlan { get; set; } = true;
     [Export] public bool PrintGeneratedOpenWorldPlanSummary { get; set; } = false;
     [Export(PropertyHint.Range, "1024,65536,1")] public float OpenWorldPlanWorldSize { get; set; } = 12_288.0f;
@@ -30,6 +32,7 @@ public partial class TerrainWorld : Node3D
     private readonly LinkedList<TerrainTileCacheKey> _tileCacheLru = new();
     private readonly List<PendingTileJob> _retiredJobs = new();
     private readonly HashSet<TerrainTileCoord> _desiredCoords = new();
+    private PendingWorldPlanJob? _worldPlanJob;
     private TerrainGenerationProfile _profile;
     private TerrainWorldPlan? _worldPlan;
     private TerrainRouteCorridorIndex _routeCorridors = TerrainRouteCorridorIndex.Empty;
@@ -39,6 +42,7 @@ public partial class TerrainWorld : Node3D
     private Material _waterMaterial = null!;
     private MeshInstance3D? _waterPlane;
     private double _streamTimer;
+    private int _worldPlanGenerationVersion;
     private bool _isReady;
 
     /// <summary>Current immutable terrain generation profile used by streaming jobs.</summary>
@@ -46,6 +50,8 @@ public partial class TerrainWorld : Node3D
 
     /// <summary>Current open-world plan driving route corridors, POI footprints, settlements, and gameplay landmarks.</summary>
     public TerrainWorldPlan? WorldPlan => _worldPlan;
+    /// <summary>True while the runtime open-world plan is being generated on a worker thread.</summary>
+    public bool IsOpenWorldPlanGenerationPending => _worldPlanJob is not null;
 
     public override void _Ready()
     {
@@ -79,6 +85,7 @@ public partial class TerrainWorld : Node3D
     public override void _Process(double delta)
     {
         DisposeCompletedRetiredJobs();
+        SubmitCompletedWorldPlanJob();
         SubmitCompletedJobs();
 
         _streamTimer += delta;
@@ -93,6 +100,8 @@ public partial class TerrainWorld : Node3D
 
     public override void _ExitTree()
     {
+        _worldPlanGenerationVersion++;
+        CancelWorldPlanJob();
         CancelAllJobs();
         DisposeCompletedRetiredJobs();
     }
@@ -107,6 +116,8 @@ public partial class TerrainWorld : Node3D
     /// <summary>Sets or clears the world plan, rebuilding corridor and POI indices and invalidating the tile cache.</summary>
     public void SetWorldPlan(TerrainWorldPlan? worldPlan)
     {
+        _worldPlanGenerationVersion++;
+        CancelWorldPlanJob();
         _worldPlan = worldPlan;
         ApplyPlanIndexChanges();
     }
@@ -118,7 +129,8 @@ public partial class TerrainWorld : Node3D
         _profile = Settings.Snapshot();
         if (GenerateOpenWorldPlanOnReady)
         {
-            _worldPlan = GenerateOpenWorldPlan(apply: false);
+            _worldPlan = null;
+            PrepareGeneratedWorldPlan();
         }
 
         RebuildPlanIndices();
@@ -143,6 +155,8 @@ public partial class TerrainWorld : Node3D
             _profile = Settings.Snapshot();
         }
 
+        _worldPlanGenerationVersion++;
+        CancelWorldPlanJob();
         float worldSize = Mathf.Max(_profile.ChunkSize, OpenWorldPlanWorldSize);
         TerrainWorldPlan plan = CreateRuntimeOpenWorldPlan(_profile, worldSize);
 
@@ -160,21 +174,52 @@ public partial class TerrainWorld : Node3D
     }
 
     /// <summary>Creates the open-world plan used by TerrainWorld runtime streaming for a profile and world size.</summary>
-    public static TerrainWorldPlan CreateRuntimeOpenWorldPlan(TerrainGenerationProfile profile, float worldSize)
+    public static TerrainWorldPlan CreateRuntimeOpenWorldPlan(
+        TerrainGenerationProfile profile,
+        float worldSize,
+        CancellationToken cancellationToken = default)
     {
-        return CreateRuntimeOpenWorldPlan(profile, Vector2.Zero, worldSize);
+        return CreateRuntimeOpenWorldPlan(profile, Vector2.Zero, worldSize, cancellationToken);
+    }
+
+    /// <summary>Creates the open-world plan used by TerrainWorld runtime streaming on a background worker.</summary>
+    public static Task<TerrainWorldPlan> CreateRuntimeOpenWorldPlanAsync(
+        TerrainGenerationProfile profile,
+        float worldSize,
+        CancellationToken cancellationToken = default)
+    {
+        return CreateRuntimeOpenWorldPlanAsync(profile, Vector2.Zero, worldSize, cancellationToken);
+    }
+
+    /// <summary>Creates the open-world plan used by TerrainWorld runtime streaming on a background worker.</summary>
+    public static Task<TerrainWorldPlan> CreateRuntimeOpenWorldPlanAsync(
+        TerrainGenerationProfile profile,
+        Vector2 center,
+        float worldSize,
+        CancellationToken cancellationToken = default)
+    {
+        float safeWorldSize = Mathf.Max(profile.ChunkSize, worldSize);
+        return Task.Run(
+            () =>
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                return CreateRuntimeOpenWorldPlan(profile, center, safeWorldSize, cancellationToken);
+            },
+            cancellationToken);
     }
 
     /// <summary>Creates the open-world plan used by TerrainWorld runtime streaming for a profile, center, and world size.</summary>
     public static TerrainWorldPlan CreateRuntimeOpenWorldPlan(
         TerrainGenerationProfile profile,
         Vector2 center,
-        float worldSize)
+        float worldSize,
+        CancellationToken cancellationToken = default)
     {
         return TerrainWorldPlanner.CreateOpenWorldPlan(
             profile,
             center,
-            Mathf.Max(profile.ChunkSize, worldSize));
+            Mathf.Max(profile.ChunkSize, worldSize),
+            cancellationToken);
     }
 
     private void EnsureGeneratedWorldPlan()
@@ -184,7 +229,88 @@ public partial class TerrainWorld : Node3D
             return;
         }
 
+        PrepareGeneratedWorldPlan();
+    }
+
+    private void PrepareGeneratedWorldPlan()
+    {
+        if (GenerateOpenWorldPlanAsync)
+        {
+            StartOpenWorldPlanJob();
+            return;
+        }
+
         _worldPlan = GenerateOpenWorldPlan(apply: false);
+    }
+
+    private void StartOpenWorldPlanJob()
+    {
+        CancelWorldPlanJob();
+        _worldPlanGenerationVersion++;
+        TerrainGenerationProfile planProfile = _profile;
+        float worldSize = Mathf.Max(planProfile.ChunkSize, OpenWorldPlanWorldSize);
+        var cancellation = new CancellationTokenSource();
+        Task<TerrainWorldPlan> task = CreateRuntimeOpenWorldPlanAsync(planProfile, worldSize, cancellation.Token);
+        ObserveWorldPlanTaskCompletion(task);
+        _worldPlanJob = new PendingWorldPlanJob(_worldPlanGenerationVersion, planProfile, worldSize, cancellation, task);
+    }
+
+    private void SubmitCompletedWorldPlanJob()
+    {
+        if (_worldPlanJob is not { } job || !job.Task.IsCompleted)
+        {
+            return;
+        }
+
+        _worldPlanJob = null;
+        if (job.Task.IsCanceled)
+        {
+            job.Cancellation.Dispose();
+            return;
+        }
+
+        if (job.Task.IsFaulted)
+        {
+            job.Cancellation.Dispose();
+            GD.PushError($"Open world terrain plan generation failed: {job.Task.Exception?.GetBaseException().Message}");
+            return;
+        }
+
+        if (job.Version != _worldPlanGenerationVersion ||
+            !job.Profile.Equals(_profile) ||
+            !Mathf.IsEqualApprox(job.WorldSize, Mathf.Max(_profile.ChunkSize, OpenWorldPlanWorldSize)))
+        {
+            job.Cancellation.Dispose();
+            return;
+        }
+
+        TerrainWorldPlan plan = job.Task.Result;
+        job.Cancellation.Dispose();
+        if (ValidateGeneratedOpenWorldPlan || PrintGeneratedOpenWorldPlanSummary)
+        {
+            ReportGeneratedOpenWorldPlan(plan);
+        }
+
+        _worldPlan = plan;
+        ApplyPlanIndexChanges();
+    }
+
+    private void CancelWorldPlanJob()
+    {
+        if (_worldPlanJob is not { } job)
+        {
+            return;
+        }
+
+        _worldPlanJob = null;
+        if (job.Task.IsCompleted)
+        {
+            job.Cancellation.Dispose();
+            return;
+        }
+
+        job.Cancellation.Cancel();
+        ObserveRetiredWorldPlanTaskCompletion(job.Task, job.Cancellation);
     }
 
     private void ApplyPlanIndexChanges()
@@ -248,6 +374,11 @@ public partial class TerrainWorld : Node3D
 
     private void UpdateStreaming(bool force)
     {
+        if (_worldPlanJob is not null && !StreamTerrainBeforeOpenWorldPlanReady)
+        {
+            return;
+        }
+
         ResolveFocus();
         if (_focus is null)
         {
@@ -633,6 +764,41 @@ public partial class TerrainWorld : Node3D
         }
     }
 
+    private static void ObserveWorldPlanTaskCompletion(Task<TerrainWorldPlan> task)
+    {
+        _ = task.ContinueWith(
+            static completed =>
+            {
+                if (completed.IsFaulted)
+                {
+                    _ = completed.Exception;
+                }
+            },
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+    }
+
+    private static void ObserveRetiredWorldPlanTaskCompletion(
+        Task<TerrainWorldPlan> task,
+        CancellationTokenSource cancellation)
+    {
+        _ = task.ContinueWith(
+            static (completed, state) =>
+            {
+                if (completed.IsFaulted)
+                {
+                    _ = completed.Exception;
+                }
+
+                ((CancellationTokenSource)state!).Dispose();
+            },
+            cancellation,
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+    }
+
     private sealed record PendingTileJob(
         TerrainTileCoord Coord,
         int Lod,
@@ -641,6 +807,13 @@ public partial class TerrainWorld : Node3D
         int TerrainFeatureKey,
         CancellationTokenSource Cancellation,
         Task<TerrainTileData> Task);
+
+    private sealed record PendingWorldPlanJob(
+        int Version,
+        TerrainGenerationProfile Profile,
+        float WorldSize,
+        CancellationTokenSource Cancellation,
+        Task<TerrainWorldPlan> Task);
 
     private readonly record struct DesiredTileRequest(int Lod, bool IncludeCollision);
     private readonly record struct TerrainTileCacheKey(
