@@ -111,6 +111,8 @@ public static partial class TerrainTileBuilder
         float bestScore = 0.0f;
         TerrainLandmarkData bestWaterfall = default;
         float bestWaterfallScore = 0.0f;
+        TerrainLandmarkData bestDesertMonolith = default;
+        float bestDesertMonolithScore = 0.0f;
         TerrainLandmarkData bestCanyonNeedle = default;
         float bestCanyonNeedleScore = 0.0f;
         TerrainLandmarkData bestNaturalArch = default;
@@ -138,7 +140,8 @@ public static partial class TerrainTileBuilder
             float waterfallScore = ScoreWaterfallLandmark(field, slope, elevation);
             float score = waterfallScore;
             ConsiderNaturalLandmark(TerrainLandmarkKind.DuneCrest, ScoreDuneCrestLandmark(field, slope, elevation), ref kind, ref score);
-            ConsiderNaturalLandmark(TerrainLandmarkKind.DesertMonolith, ScoreDesertMonolithLandmark(field, slope, elevation), ref kind, ref score);
+            float desertMonolithScore = ScoreDesertMonolithLandmark(field, slope, elevation);
+            ConsiderNaturalLandmark(TerrainLandmarkKind.DesertMonolith, desertMonolithScore, ref kind, ref score);
             float canyonNeedleScore = ScoreCanyonNeedleLandmark(field, slope, elevation);
             ConsiderNaturalLandmark(TerrainLandmarkKind.CanyonNeedle, canyonNeedleScore, ref kind, ref score);
             ConsiderNaturalLandmark(TerrainLandmarkKind.IceSpire, ScoreIceSpireLandmark(field, slope, elevation), ref kind, ref score);
@@ -156,6 +159,16 @@ public static partial class TerrainTileBuilder
                     new Vector3(localX, height, localZ),
                     Mathf.Clamp(waterfallScore, 0.0f, 1.0f),
                     $"Waterfall_{coord.X}_{coord.Z}");
+            }
+
+            if (desertMonolithScore > bestDesertMonolithScore)
+            {
+                bestDesertMonolithScore = desertMonolithScore;
+                bestDesertMonolith = new TerrainLandmarkData(
+                    TerrainLandmarkKind.DesertMonolith,
+                    new Vector3(localX, height, localZ),
+                    Mathf.Clamp(desertMonolithScore, 0.0f, 1.0f),
+                    $"DesertMonolith_{coord.X}_{coord.Z}");
             }
 
             if (canyonNeedleScore > bestCanyonNeedleScore)
@@ -211,6 +224,14 @@ public static partial class TerrainTileBuilder
             IsDistinctNaturalLandmark(bestWaterfall.LocalPosition, landmarks))
         {
             AddNaturalLandmarkInstance(coord, profile, bestWaterfall, 1643, 315, scatter, landmarks);
+            addedLandmark = true;
+        }
+
+        if (best.Kind != TerrainLandmarkKind.DesertMonolith &&
+            bestDesertMonolithScore >= NaturalLandmarkThreshold(TerrainLandmarkKind.DesertMonolith) &&
+            IsDistinctNaturalLandmark(bestDesertMonolith.LocalPosition, landmarks))
+        {
+            AddNaturalLandmarkInstance(coord, profile, bestDesertMonolith, 1657, 323, scatter, landmarks);
             addedLandmark = true;
         }
 

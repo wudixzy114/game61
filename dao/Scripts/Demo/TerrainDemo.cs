@@ -98,6 +98,7 @@ public partial class TerrainDemo : Node3D
             $"land {qualityGate.Report.LandRatio:0.000}, scenic {qualityGate.Report.ScenicRatio:0.000}, " +
             $"encounter {experienceGate.Report.AverageEncounterPotential:0.000}, rhythm {experienceGate.Report.RouteRhythmScore:0.000}, " +
             $"connected {planningGate.Report.ConnectedPointRatio:0.000}, " +
+            $"settlement net {planningGate.Report.ConnectedSettlementRatio:0.000}/{planningGate.Report.SettlementRouteCount}, " +
             $"coverage {planningGate.Report.PointOfInterestWorldCoverage:0.000}/{planningGate.Report.RouteWorldCoverage:0.000}.");
 
         if (!planningGate.Passed || !qualityGate.Passed || !experienceGate.Passed)

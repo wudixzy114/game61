@@ -190,6 +190,7 @@ static void PrintSeedResult(TerrainValidationResult result, bool detailed)
         $"traversable {quality.TraversableLandRatio:0.000}, POIs {planning.PointOfInterestCount}, " +
         $"settlements V/T/O {planning.VillageCount}/{planning.TownCount}/{planning.OasisHubCount}, " +
         $"routes {planning.RouteCount}, connected {planning.ConnectedPointRatio:0.000}, " +
+        $"settlement net {planning.ConnectedSettlementRatio:0.000}/{planning.SettlementRouteCount}, " +
         $"coverage {planning.PointOfInterestWorldCoverage:0.000}/{planning.RouteWorldCoverage:0.000}, " +
         $"encounter {experience.AverageEncounterPotential:0.000}, rhythm {experience.RouteRhythmScore:0.000}, " +
         $"experience {(result.ExperienceGate.Passed ? "PASS" : "FAIL")}, archetypes {(result.ArchetypeGate.Passed ? "PASS" : "FAIL")}");
@@ -211,6 +212,7 @@ static void PrintSeedResult(TerrainValidationResult result, bool detailed)
     Console.WriteLine($"POIs/routes: {planning.PointOfInterestCount} / {planning.RouteCount}");
     Console.WriteLine($"Villages/towns/oasis hubs: {planning.VillageCount} / {planning.TownCount} / {planning.OasisHubCount}");
     Console.WriteLine($"Connected point ratio: {planning.ConnectedPointRatio:0.000}");
+    Console.WriteLine($"Connected settlement ratio / direct settlement routes: {planning.ConnectedSettlementRatio:0.000} / {planning.SettlementRouteCount}");
     Console.WriteLine($"World coverage POIs/routes: {planning.PointOfInterestWorldCoverage:0.000} / {planning.RouteWorldCoverage:0.000}");
     Console.WriteLine($"Average route scenic/traversability: {planning.AverageRouteScenicPotential:0.000} / {planning.AverageRouteTraversability:0.000}");
     Console.WriteLine("Open world experience gate:");
@@ -421,9 +423,7 @@ static TerrainPoiTileSmokeReport ValidatePoiTileMaterialization(
     foreach (TerrainWorldPointOfInterest point in plan.PointsOfInterest)
     {
         expected.Add(PoiLandmarkName(point));
-        coords.Add(new TerrainTileCoord(
-            Mathf.FloorToInt(point.WorldPosition.X / profile.ChunkSize),
-            Mathf.FloorToInt(point.WorldPosition.Y / profile.ChunkSize)));
+        AddPoiFootprintCoords(coords, point, profile);
     }
 
     var materialized = new HashSet<string>(StringComparer.Ordinal);
@@ -490,6 +490,7 @@ static TerrainPoiTileSmokeReport ValidatePoiTileMaterialization(
     int marketStallScatterCount = scatterKindCounts[(int)TerrainLandmarkKind.MarketStall];
     int watchTowerScatterCount = scatterKindCounts[(int)TerrainLandmarkKind.WatchTower];
     int oasisGardenScatterCount = scatterKindCounts[(int)TerrainLandmarkKind.OasisGarden];
+    int settlementGatewayScatterCount = scatterKindCounts[(int)TerrainLandmarkKind.SettlementGateway];
     int settlementServiceScatterCount =
         villageWellScatterCount +
         marketStallScatterCount +
@@ -512,12 +513,13 @@ static TerrainPoiTileSmokeReport ValidatePoiTileMaterialization(
         marketStallScatterCount > 0 &&
         watchTowerScatterCount > 0 &&
         settlementServiceScatterCount >= settlementLandmarkCount &&
+        settlementGatewayScatterCount >= settlementLandmarkCount &&
         (kindCounts[(int)TerrainLandmarkKind.OasisHub] == 0 ||
             (oasisCanopyScatterCount > 0 && oasisPoolScatterCount > 0 && oasisGardenScatterCount > 0)) &&
         landmarkScatterCount >= expected.Count &&
         footprintReport.Passed;
     string reason = passed
-        ? "planned POIs materialized as tile landmarks with settlement service anchors"
+        ? "planned POIs materialized as tile landmarks with settlement services and road-connected gateways"
         : "planned POIs missing from tile landmark data";
 
     return new TerrainPoiTileSmokeReport(
@@ -544,6 +546,7 @@ static TerrainPoiTileSmokeReport ValidatePoiTileMaterialization(
         marketStallScatterCount,
         watchTowerScatterCount,
         oasisGardenScatterCount,
+        settlementGatewayScatterCount,
         settlementServiceScatterCount,
         footprintReport.InfluencedVertexCount,
         footprintReport.MaxHeightDelta,
@@ -626,6 +629,26 @@ static string PoiLandmarkName(TerrainWorldPointOfInterest point)
     return $"POI_{point.Id:00}_{point.Kind}";
 }
 
+static void AddPoiFootprintCoords(
+    HashSet<TerrainTileCoord> coords,
+    TerrainWorldPointOfInterest point,
+    TerrainGenerationProfile profile)
+{
+    float radius = TerrainPointOfInterestIndex.FootprintRadiusFor(point, profile);
+    int minX = Mathf.FloorToInt((point.WorldPosition.X - radius) / profile.ChunkSize);
+    int maxX = Mathf.FloorToInt((point.WorldPosition.X + radius) / profile.ChunkSize);
+    int minZ = Mathf.FloorToInt((point.WorldPosition.Y - radius) / profile.ChunkSize);
+    int maxZ = Mathf.FloorToInt((point.WorldPosition.Y + radius) / profile.ChunkSize);
+
+    for (int z = minZ; z <= maxZ; z++)
+    {
+        for (int x = minX; x <= maxX; x++)
+        {
+            coords.Add(new TerrainTileCoord(x, z));
+        }
+    }
+}
+
 static void PrintPoiTileSmoke(TerrainPoiTileSmokeReport report)
 {
     Console.WriteLine(
@@ -637,6 +660,7 @@ static void PrintPoiTileSmoke(TerrainPoiTileSmokeReport report)
         $"interior scatter {report.SettlementInteriorScatterCount}/{report.SettlementLandmarkCount}, " +
         $"interior kinds H/B/C/P/W {report.VillageHouseScatterCount}/{report.TownBlockScatterCount}/{report.OasisCanopyScatterCount}/{report.SettlementPlazaScatterCount}/{report.OasisPoolScatterCount}, " +
         $"services well/market/tower/garden {report.VillageWellScatterCount}/{report.MarketStallScatterCount}/{report.WatchTowerScatterCount}/{report.OasisGardenScatterCount}, " +
+        $"gateways {report.SettlementGatewayScatterCount}, " +
         $"footprint vertices {report.FootprintInfluencedVertexCount}, max footprint delta {report.FootprintMaxHeightDelta:0.000}/{report.FootprintMaxColorDelta:0.000}, " +
         $"layout color vertices {report.LayoutColorVertexCount}, max layout color {report.LayoutMaxColorDelta:0.000}, " +
         $"landmark scatter {report.LandmarkScatterCount} ({report.Reason})");
@@ -1103,6 +1127,7 @@ static TerrainScenicLandmarkSmokeReport ValidateScenicLandmarkMaterialization(
     bool passed =
         waterfallCount > 0 &&
         biomeScenicLandmarkCount > 0 &&
+        desertMonolithCount > 0 &&
         canyonNeedleCount > 0 &&
         naturalArchCount > 0 &&
         geothermalSpringCount > 0 &&
@@ -1368,6 +1393,8 @@ static bool ReportContainsRequiredArtifactSections(string reportText)
         reportText.Contains("Open World Planning Gate", StringComparison.Ordinal) &&
         reportText.Contains("Open World Experience Gate", StringComparison.Ordinal) &&
         reportText.Contains("Settlement Development", StringComparison.Ordinal) &&
+        reportText.Contains("Settlement Network", StringComparison.Ordinal) &&
+        reportText.Contains("Connected settlement ratio", StringComparison.Ordinal) &&
         reportText.Contains("Biome Counts", StringComparison.Ordinal) &&
         reportText.Contains("Route Counts", StringComparison.Ordinal) &&
         reportText.Contains("Top Points Of Interest", StringComparison.Ordinal);
@@ -1617,11 +1644,14 @@ static TerrainTileBenchmarkReport BenchmarkTerrainTiles(
     int requestedTileCount)
 {
     TerrainTileCoord[] coords = SelectBenchmarkTileCoords(profile, plan, requestedTileCount);
+    TerrainTileBenchmarkCoverage coverage = AnalyzeBenchmarkTileCoverage(profile, plan, coords);
     TerrainRouteCorridorIndex corridorIndex = TerrainRouteCorridorIndex.FromPlan(plan, profile);
     TerrainPointOfInterestIndex poiIndex = TerrainPointOfInterestIndex.FromPlan(plan, profile);
     TerrainGenerationProfile managedProfile = profile with { UseNativeSamplerWhenAvailable = false };
     TerrainGenerationProfile nativeProfile = profile with { UseNativeSamplerWhenAvailable = true };
     bool nativeAvailable = NativeTerrainBridge.IsAvailable;
+    bool nativeSelected = nativeAvailable &&
+        TerrainTileBuilder.ShouldUseNativeSamplerForTileGeneration(nativeProfile, lod: 0);
     TerrainTileBenchmarkThresholds thresholds = TerrainTileBenchmarkThresholds.Default;
 
     if (coords.Length == 0)
@@ -1629,8 +1659,10 @@ static TerrainTileBenchmarkReport BenchmarkTerrainTiles(
         return new TerrainTileBenchmarkReport(
             false,
             nativeAvailable,
+            nativeSelected,
             requestedTileCount,
             0,
+            coverage,
             default,
             default,
             0,
@@ -1686,7 +1718,9 @@ static TerrainTileBenchmarkReport BenchmarkTerrainTiles(
         : 0.0;
     bool passed = EvaluateTileBenchmark(
         coords.Length,
+        coverage,
         nativeAvailable,
+        nativeSelected,
         managed,
         native,
         parityTileCount,
@@ -1699,8 +1733,10 @@ static TerrainTileBenchmarkReport BenchmarkTerrainTiles(
     return new TerrainTileBenchmarkReport(
         passed,
         nativeAvailable,
+        nativeSelected,
         requestedTileCount,
         coords.Length,
+        coverage,
         managed,
         native,
         parityTileCount,
@@ -1768,7 +1804,9 @@ static TerrainTileBenchmarkPass BestTileBenchmarkPass(
 
 static bool EvaluateTileBenchmark(
     int measuredTileCount,
+    TerrainTileBenchmarkCoverage coverage,
     bool nativeAvailable,
+    bool nativeSelected,
     TerrainTileBenchmarkPass managed,
     TerrainTileBenchmarkPass native,
     int parityTileCount,
@@ -1781,6 +1819,41 @@ static bool EvaluateTileBenchmark(
     if (measuredTileCount <= 0 || managed.TileCount != measuredTileCount)
     {
         reason = "managed benchmark did not measure the requested tile set";
+        return false;
+    }
+
+    int requiredBiomeKinds = RequiredBenchmarkCoverage(thresholds.MinBenchmarkBiomeKinds, measuredTileCount, tilesPerRequirement: 6);
+    if (coverage.DistinctBiomeKinds < requiredBiomeKinds)
+    {
+        reason = $"benchmark biome coverage {coverage.DistinctBiomeKinds} below {requiredBiomeKinds}";
+        return false;
+    }
+
+    int requiredLandscapeKinds = RequiredBenchmarkCoverage(thresholds.MinBenchmarkLandscapeKinds, measuredTileCount, tilesPerRequirement: 7);
+    if (coverage.DistinctLandscapeKinds < requiredLandscapeKinds)
+    {
+        reason = $"benchmark landscape coverage {coverage.DistinctLandscapeKinds} below {requiredLandscapeKinds}";
+        return false;
+    }
+
+    int requiredPoiTiles = RequiredBenchmarkCoverage(thresholds.MinBenchmarkPointOfInterestTiles, measuredTileCount, tilesPerRequirement: 5);
+    if (coverage.PointOfInterestTileCount < requiredPoiTiles)
+    {
+        reason = $"benchmark POI tiles {coverage.PointOfInterestTileCount} below {requiredPoiTiles}";
+        return false;
+    }
+
+    int requiredRouteTiles = RequiredBenchmarkCoverage(thresholds.MinBenchmarkRouteTiles, measuredTileCount, tilesPerRequirement: 5);
+    if (coverage.RouteTileCount < requiredRouteTiles)
+    {
+        reason = $"benchmark route tiles {coverage.RouteTileCount} below {requiredRouteTiles}";
+        return false;
+    }
+
+    int requiredGameplayRichTiles = RequiredBenchmarkCoverage(thresholds.MinBenchmarkGameplayRichTiles, measuredTileCount, tilesPerRequirement: 4);
+    if (coverage.GameplayRichTileCount < requiredGameplayRichTiles)
+    {
+        reason = $"benchmark gameplay-rich tiles {coverage.GameplayRichTileCount} below {requiredGameplayRichTiles}";
         return false;
     }
 
@@ -1799,6 +1872,12 @@ static bool EvaluateTileBenchmark(
     if (!nativeAvailable)
     {
         reason = "native sampler unavailable; managed tile build stayed within benchmark thresholds";
+        return true;
+    }
+
+    if (!nativeSelected)
+    {
+        reason = "native sampler available but adaptive selector kept the faster managed backend within thresholds";
         return true;
     }
 
@@ -1841,6 +1920,17 @@ static bool EvaluateTileBenchmark(
 
     reason = "native-enabled render tile build benchmark stayed within thresholds";
     return true;
+}
+
+static int RequiredBenchmarkCoverage(int threshold, int measuredTileCount, int tilesPerRequirement)
+{
+    if (measuredTileCount <= 0)
+    {
+        return threshold;
+    }
+
+    int scaled = Math.Max(1, measuredTileCount / Math.Max(1, tilesPerRequirement));
+    return Math.Min(threshold, scaled);
 }
 
 static TerrainTileBenchmarkPass MeasureTileBuildPass(
@@ -1926,15 +2016,29 @@ static TerrainTileCoord[] SelectBenchmarkTileCoords(
     int maxCoords = Math.Max(1, requestedTileCount);
     var coords = new List<TerrainTileCoord>(maxCoords);
     var seen = new HashSet<TerrainTileCoord>();
+    int poiQuota = Math.Min(maxCoords, Math.Max(1, maxCoords / 5));
+    int routeQuota = Math.Min(maxCoords, coords.Count + Math.Max(1, maxCoords / 5));
 
+    var poiCandidates = new List<GameplayScatterRegionCandidate>(plan.PointsOfInterest.Length);
     foreach (TerrainWorldPointOfInterest point in plan.PointsOfInterest)
     {
-        if (TryAddBenchmarkCoord(coords, seen, point.WorldPosition, profile, maxCoords))
+        float settlementWeight = point.SettlementTier switch
         {
-            return coords.ToArray();
-        }
+            TerrainSettlementTier.Town => 0.26f,
+            TerrainSettlementTier.OasisHub => 0.24f,
+            TerrainSettlementTier.Village => 0.18f,
+            _ => 0.0f
+        };
+        float score = point.Score * 0.42f +
+            point.ScenicPotential * 0.24f +
+            point.Traversability * 0.12f +
+            settlementWeight;
+        poiCandidates.Add(new GameplayScatterRegionCandidate(point.WorldPosition, score));
     }
 
+    AddSortedBenchmarkCoords(poiCandidates, profile, coords, seen, poiQuota);
+
+    var routeCandidates = new List<GameplayScatterRegionCandidate>(plan.Routes.Length * 4);
     foreach (TerrainWorldRoute route in plan.Routes)
     {
         if (route.Waypoints.Length == 0)
@@ -1942,12 +2046,24 @@ static TerrainTileCoord[] SelectBenchmarkTileCoords(
             continue;
         }
 
-        if (TryAddBenchmarkCoord(coords, seen, route.Waypoints[route.Waypoints.Length / 2], profile, maxCoords))
+        float routeScore = route.AverageScenicPotential * 0.42f +
+            route.AverageTraversability * 0.30f +
+            (1.0f / Math.Max(1.0f, route.Cost)) * 0.04f;
+        routeCandidates.Add(new GameplayScatterRegionCandidate(route.Waypoints[0], routeScore * 0.94f));
+        routeCandidates.Add(new GameplayScatterRegionCandidate(route.Waypoints[route.Waypoints.Length / 2], routeScore));
+        routeCandidates.Add(new GameplayScatterRegionCandidate(route.Waypoints[^1], routeScore * 0.90f));
+
+        int stride = Math.Max(1, route.Waypoints.Length / 4);
+        for (int i = stride; i < route.Waypoints.Length; i += stride)
         {
-            return coords.ToArray();
+            routeCandidates.Add(new GameplayScatterRegionCandidate(route.Waypoints[i], routeScore * 0.96f));
         }
     }
 
+    AddSortedBenchmarkCoords(routeCandidates, profile, coords, seen, routeQuota);
+
+    var biomeCandidates = CreateBenchmarkGroupBuckets<TerrainBiomeKind>();
+    var landscapeCandidates = CreateBenchmarkGroupBuckets<TerrainLandscapeKind>();
     var candidates = new List<GameplayScatterRegionCandidate>(plan.Regions.Length);
     foreach (TerrainWorldRegion region in plan.Regions)
     {
@@ -1956,23 +2072,17 @@ static TerrainTileCoord[] SelectBenchmarkTileCoords(
             continue;
         }
 
-        float score =
-            region.ScenicPotential * 0.30f +
-            region.EncounterPotential * 0.25f +
-            region.ResourcePotential * 0.20f +
-            region.HazardPotential * 0.20f +
-            region.Traversability * 0.05f;
+        float score = BenchmarkRegionStressScore(region);
+        int biomeIndex = Mathf.Clamp((int)region.BiomeKind, 0, biomeCandidates.Length - 1);
+        int landscapeIndex = Mathf.Clamp((int)region.LandscapeKind, 0, landscapeCandidates.Length - 1);
+        biomeCandidates[biomeIndex].Add(new GameplayScatterRegionCandidate(region.WorldPosition, score));
+        landscapeCandidates[landscapeIndex].Add(new GameplayScatterRegionCandidate(region.WorldPosition, score));
         candidates.Add(new GameplayScatterRegionCandidate(region.WorldPosition, score));
     }
 
-    candidates.Sort((a, b) => b.Score.CompareTo(a.Score));
-    foreach (GameplayScatterRegionCandidate candidate in candidates)
-    {
-        if (TryAddBenchmarkCoord(coords, seen, candidate.WorldPosition, profile, maxCoords))
-        {
-            return coords.ToArray();
-        }
-    }
+    AddBestBenchmarkGroupCoords(biomeCandidates, profile, coords, seen, maxCoords);
+    AddBestBenchmarkGroupCoords(landscapeCandidates, profile, coords, seen, maxCoords);
+    AddSortedBenchmarkCoords(candidates, profile, coords, seen, maxCoords);
 
     int radius = 0;
     while (coords.Count < maxCoords)
@@ -1998,6 +2108,160 @@ static TerrainTileCoord[] SelectBenchmarkTileCoords(
     }
 
     return coords.ToArray();
+}
+
+static TerrainTileBenchmarkCoverage AnalyzeBenchmarkTileCoverage(
+    TerrainGenerationProfile profile,
+    TerrainWorldPlan plan,
+    TerrainTileCoord[] coords)
+{
+    var biomeKinds = new HashSet<TerrainBiomeKind>();
+    var landscapeKinds = new HashSet<TerrainLandscapeKind>();
+    var poiTiles = new HashSet<TerrainTileCoord>();
+    var routeTiles = new HashSet<TerrainTileCoord>();
+
+    foreach (TerrainWorldPointOfInterest point in plan.PointsOfInterest)
+    {
+        poiTiles.Add(WorldToCoord(point.WorldPosition, profile));
+    }
+
+    foreach (TerrainWorldRoute route in plan.Routes)
+    {
+        foreach (Vector2 waypoint in route.Waypoints)
+        {
+            routeTiles.Add(WorldToCoord(waypoint, profile));
+        }
+    }
+
+    int poiTileCount = 0;
+    int routeTileCount = 0;
+    int gameplayRichTileCount = 0;
+    foreach (TerrainTileCoord coord in coords)
+    {
+        Vector2 origin = coord.Origin(profile.ChunkSize);
+        var center = new Vector2(origin.X + profile.ChunkSize * 0.5f, origin.Y + profile.ChunkSize * 0.5f);
+        TerrainWorldField field = TerrainWorldFieldSampler.Sample(center, profile);
+        biomeKinds.Add(field.BiomeKind);
+        landscapeKinds.Add(field.LandscapeKind);
+
+        if (poiTiles.Contains(coord))
+        {
+            poiTileCount++;
+        }
+
+        if (routeTiles.Contains(coord))
+        {
+            routeTileCount++;
+        }
+
+        if (IsBenchmarkGameplayRich(field))
+        {
+            gameplayRichTileCount++;
+        }
+    }
+
+    return new TerrainTileBenchmarkCoverage(
+        biomeKinds.Count,
+        landscapeKinds.Count,
+        poiTileCount,
+        routeTileCount,
+        gameplayRichTileCount);
+}
+
+static List<GameplayScatterRegionCandidate>[] CreateBenchmarkGroupBuckets<TEnum>()
+    where TEnum : struct, Enum
+{
+    TEnum[] values = Enum.GetValues<TEnum>();
+    var buckets = new List<GameplayScatterRegionCandidate>[values.Length];
+    for (int i = 0; i < buckets.Length; i++)
+    {
+        buckets[i] = new List<GameplayScatterRegionCandidate>();
+    }
+
+    return buckets;
+}
+
+static void AddBestBenchmarkGroupCoords(
+    List<GameplayScatterRegionCandidate>[] groups,
+    TerrainGenerationProfile profile,
+    List<TerrainTileCoord> coords,
+    HashSet<TerrainTileCoord> seen,
+    int maxCoords)
+{
+    foreach (List<GameplayScatterRegionCandidate> group in groups)
+    {
+        if (coords.Count >= maxCoords || group.Count == 0)
+        {
+            continue;
+        }
+
+        group.Sort((a, b) => b.Score.CompareTo(a.Score));
+        TryAddBenchmarkCoord(coords, seen, group[0].WorldPosition, profile, maxCoords);
+    }
+}
+
+static void AddSortedBenchmarkCoords(
+    List<GameplayScatterRegionCandidate> candidates,
+    TerrainGenerationProfile profile,
+    List<TerrainTileCoord> coords,
+    HashSet<TerrainTileCoord> seen,
+    int maxCoords)
+{
+    if (coords.Count >= maxCoords || candidates.Count == 0)
+    {
+        return;
+    }
+
+    candidates.Sort((a, b) => b.Score.CompareTo(a.Score));
+    foreach (GameplayScatterRegionCandidate candidate in candidates)
+    {
+        if (TryAddBenchmarkCoord(coords, seen, candidate.WorldPosition, profile, maxCoords))
+        {
+            return;
+        }
+    }
+}
+
+static float BenchmarkRegionStressScore(TerrainWorldRegion region)
+{
+    float biomeStress = region.BiomeKind switch
+    {
+        TerrainBiomeKind.Desert => 0.18f,
+        TerrainBiomeKind.Oasis => 0.18f,
+        TerrainBiomeKind.Snowfield => 0.16f,
+        TerrainBiomeKind.Wetland => 0.15f,
+        TerrainBiomeKind.Lake => 0.15f,
+        TerrainBiomeKind.Coast => 0.13f,
+        TerrainBiomeKind.Island => 0.13f,
+        _ => 0.0f
+    };
+    float landscapeStress = region.LandscapeKind switch
+    {
+        TerrainLandscapeKind.Canyon => 0.18f,
+        TerrainLandscapeKind.MountainMassif => 0.17f,
+        TerrainLandscapeKind.Snowfield => 0.16f,
+        TerrainLandscapeKind.Lake => 0.15f,
+        TerrainLandscapeKind.RiverValley => 0.14f,
+        TerrainLandscapeKind.Coast => 0.12f,
+        _ => 0.0f
+    };
+
+    return region.ScenicPotential * 0.24f +
+        region.EncounterPotential * 0.22f +
+        region.ResourcePotential * 0.16f +
+        region.HazardPotential * 0.22f +
+        region.Exposure * 0.10f +
+        region.Traversability * 0.06f +
+        biomeStress +
+        landscapeStress;
+}
+
+static bool IsBenchmarkGameplayRich(TerrainWorldField field)
+{
+    return field.EncounterPotential >= 0.52f ||
+        field.ResourcePotential >= 0.50f ||
+        field.HazardPotential >= 0.42f ||
+        field.ScenicPotential >= 0.62f;
 }
 
 static bool TryAddBenchmarkCoord(
@@ -2031,7 +2295,7 @@ static TerrainTileCoord WorldToCoord(Vector2 world, TerrainGenerationProfile pro
 static void PrintTileBenchmark(TerrainTileBenchmarkReport report)
 {
     Console.WriteLine(
-        $"Tile generation benchmark: {(report.Passed ? "PASS" : "FAIL")} native available {report.NativeAvailable}, " +
+        $"Tile generation benchmark: {(report.Passed ? "PASS" : "FAIL")} native available/selected {report.NativeAvailable}/{report.NativeSelectedForTileGeneration}, " +
         $"tiles {report.MeasuredTileCount}/{report.RequestedTileCount}, " +
         $"passes {report.MeasurementPassCount}, native speedup {report.NativeSpeedup:0.00}x, parity tiles {report.ParityTileCount}, " +
         $"max parity delta {report.MaxHeightDelta:0.000}/{report.MaxColorDelta:0.000} ({report.Reason})");
@@ -2043,7 +2307,7 @@ static void PrintTileBenchmark(TerrainTileBenchmarkReport report)
     PrintTileBenchmarkPass("Managed", report.Managed);
     if (report.NativeAvailable)
     {
-        PrintTileBenchmarkPass("Native", report.Native);
+        PrintTileBenchmarkPass(report.NativeSelectedForTileGeneration ? "Native" : "Native-enabled adaptive", report.Native);
     }
 }
 
@@ -2087,6 +2351,8 @@ static void PrintAggregate(
     Console.WriteLine($"POI count min/avg/max: {aggregate.MinPoiCount} / {aggregate.AveragePoiCount:0.0} / {aggregate.MaxPoiCount}");
     Console.WriteLine($"Route count min/avg/max: {aggregate.MinRouteCount} / {aggregate.AverageRouteCount:0.0} / {aggregate.MaxRouteCount}");
     Console.WriteLine($"Connected ratio min/avg/max: {aggregate.MinConnectedPointRatio:0.000} / {aggregate.AverageConnectedPointRatio:0.000} / {aggregate.MaxConnectedPointRatio:0.000}");
+    Console.WriteLine($"Connected settlement ratio min/avg/max: {aggregate.MinConnectedSettlementRatio:0.000} / {aggregate.AverageConnectedSettlementRatio:0.000} / {aggregate.MaxConnectedSettlementRatio:0.000}");
+    Console.WriteLine($"Settlement routes min/avg/max: {aggregate.MinSettlementRouteCount} / {aggregate.AverageSettlementRouteCount:0.0} / {aggregate.MaxSettlementRouteCount}");
     Console.WriteLine($"POI coverage min/avg/max: {aggregate.MinPointOfInterestWorldCoverage:0.000} / {aggregate.AveragePointOfInterestWorldCoverage:0.000} / {aggregate.MaxPointOfInterestWorldCoverage:0.000}");
     Console.WriteLine($"Route coverage min/avg/max: {aggregate.MinRouteWorldCoverage:0.000} / {aggregate.AverageRouteWorldCoverage:0.000} / {aggregate.MaxRouteWorldCoverage:0.000}");
     Console.WriteLine($"Route scenic min/avg/max: {aggregate.MinRouteScenicPotential:0.000} / {aggregate.AverageRouteScenicPotential:0.000} / {aggregate.MaxRouteScenicPotential:0.000}");
@@ -2302,6 +2568,7 @@ internal readonly record struct TerrainPoiTileSmokeReport(
     int MarketStallScatterCount,
     int WatchTowerScatterCount,
     int OasisGardenScatterCount,
+    int SettlementGatewayScatterCount,
     int SettlementServiceScatterCount,
     int FootprintInfluencedVertexCount,
     float FootprintMaxHeightDelta,
@@ -2408,12 +2675,22 @@ internal readonly record struct TerrainNativeSamplerSmokeReport(
     float TileMaxColorDelta,
     string Reason);
 
-/// <summary>Reports managed vs native tile generation benchmark results including timing, allocations, and parity.</summary>
+/// <summary>Reports how representative the benchmark tile set is across gameplay, routes, POIs, biomes, and landscapes.</summary>
+internal readonly record struct TerrainTileBenchmarkCoverage(
+    int DistinctBiomeKinds,
+    int DistinctLandscapeKinds,
+    int PointOfInterestTileCount,
+    int RouteTileCount,
+    int GameplayRichTileCount);
+
+/// <summary>Reports managed vs native tile generation benchmark results including timing, allocations, parity, and sample coverage.</summary>
 internal readonly record struct TerrainTileBenchmarkReport(
     bool Passed,
     bool NativeAvailable,
+    bool NativeSelectedForTileGeneration,
     int RequestedTileCount,
     int MeasuredTileCount,
+    TerrainTileBenchmarkCoverage Coverage,
     TerrainTileBenchmarkPass Managed,
     TerrainTileBenchmarkPass Native,
     int ParityTileCount,
@@ -2431,6 +2708,11 @@ internal readonly record struct TerrainTileBenchmarkThresholds(
     double MaxAllocatedKilobytesPerTile,
     double MinNativeSpeedup,
     int MinParityTileCount,
+    int MinBenchmarkBiomeKinds,
+    int MinBenchmarkLandscapeKinds,
+    int MinBenchmarkPointOfInterestTiles,
+    int MinBenchmarkRouteTiles,
+    int MinBenchmarkGameplayRichTiles,
     float MaxParityHeightDelta,
     float MaxParityColorDelta)
 {
@@ -2440,6 +2722,11 @@ internal readonly record struct TerrainTileBenchmarkThresholds(
         MaxAllocatedKilobytesPerTile: 320.0,
         MinNativeSpeedup: 1.00,
         MinParityTileCount: 8,
+        MinBenchmarkBiomeKinds: 7,
+        MinBenchmarkLandscapeKinds: 6,
+        MinBenchmarkPointOfInterestTiles: 8,
+        MinBenchmarkRouteTiles: 8,
+        MinBenchmarkGameplayRichTiles: 12,
         MaxParityHeightDelta: 0.05f,
         MaxParityColorDelta: 0.03f);
 }
@@ -2471,6 +2758,8 @@ internal sealed class TerrainValidationAggregate
     private double _poiCountSum;
     private double _routeCountSum;
     private double _connectedPointRatioSum;
+    private double _connectedSettlementRatioSum;
+    private double _settlementRouteCountSum;
     private double _pointOfInterestWorldCoverageSum;
     private double _routeWorldCoverageSum;
     private double _routeScenicPotentialSum;
@@ -2494,6 +2783,10 @@ internal sealed class TerrainValidationAggregate
     public int MaxRouteCount { get; private set; } = int.MinValue;
     public float MinConnectedPointRatio { get; private set; } = float.PositiveInfinity;
     public float MaxConnectedPointRatio { get; private set; } = float.NegativeInfinity;
+    public float MinConnectedSettlementRatio { get; private set; } = float.PositiveInfinity;
+    public float MaxConnectedSettlementRatio { get; private set; } = float.NegativeInfinity;
+    public int MinSettlementRouteCount { get; private set; } = int.MaxValue;
+    public int MaxSettlementRouteCount { get; private set; } = int.MinValue;
     public float MinPointOfInterestWorldCoverage { get; private set; } = float.PositiveInfinity;
     public float MaxPointOfInterestWorldCoverage { get; private set; } = float.NegativeInfinity;
     public float MinRouteWorldCoverage { get; private set; } = float.PositiveInfinity;
@@ -2523,6 +2816,8 @@ internal sealed class TerrainValidationAggregate
     public double AveragePoiCount => Average(_poiCountSum);
     public double AverageRouteCount => Average(_routeCountSum);
     public double AverageConnectedPointRatio => Average(_connectedPointRatioSum);
+    public double AverageConnectedSettlementRatio => Average(_connectedSettlementRatioSum);
+    public double AverageSettlementRouteCount => Average(_settlementRouteCountSum);
     public double AveragePointOfInterestWorldCoverage => Average(_pointOfInterestWorldCoverageSum);
     public double AverageRouteWorldCoverage => Average(_routeWorldCoverageSum);
     public double AverageRouteScenicPotential => Average(_routeScenicPotentialSum);
@@ -2546,6 +2841,8 @@ internal sealed class TerrainValidationAggregate
         _poiCountSum += planning.PointOfInterestCount;
         _routeCountSum += planning.RouteCount;
         _connectedPointRatioSum += planning.ConnectedPointRatio;
+        _connectedSettlementRatioSum += planning.ConnectedSettlementRatio;
+        _settlementRouteCountSum += planning.SettlementRouteCount;
         _pointOfInterestWorldCoverageSum += planning.PointOfInterestWorldCoverage;
         _routeWorldCoverageSum += planning.RouteWorldCoverage;
         _routeScenicPotentialSum += planning.AverageRouteScenicPotential;
@@ -2569,6 +2866,10 @@ internal sealed class TerrainValidationAggregate
         MaxRouteCount = Math.Max(MaxRouteCount, planning.RouteCount);
         MinConnectedPointRatio = Math.Min(MinConnectedPointRatio, planning.ConnectedPointRatio);
         MaxConnectedPointRatio = Math.Max(MaxConnectedPointRatio, planning.ConnectedPointRatio);
+        MinConnectedSettlementRatio = Math.Min(MinConnectedSettlementRatio, planning.ConnectedSettlementRatio);
+        MaxConnectedSettlementRatio = Math.Max(MaxConnectedSettlementRatio, planning.ConnectedSettlementRatio);
+        MinSettlementRouteCount = Math.Min(MinSettlementRouteCount, planning.SettlementRouteCount);
+        MaxSettlementRouteCount = Math.Max(MaxSettlementRouteCount, planning.SettlementRouteCount);
         MinPointOfInterestWorldCoverage = Math.Min(MinPointOfInterestWorldCoverage, planning.PointOfInterestWorldCoverage);
         MaxPointOfInterestWorldCoverage = Math.Max(MaxPointOfInterestWorldCoverage, planning.PointOfInterestWorldCoverage);
         MinRouteWorldCoverage = Math.Min(MinRouteWorldCoverage, planning.RouteWorldCoverage);

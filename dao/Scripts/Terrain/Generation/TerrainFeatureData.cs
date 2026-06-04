@@ -57,7 +57,8 @@ public enum TerrainLandmarkKind
     VillageWell,
     MarketStall,
     WatchTower,
-    OasisGarden
+    OasisGarden,
+    SettlementGateway
 }
 
 /// <summary>A single placed scatter object (tree, rock, landmark, etc.) with transform and tint.</summary>

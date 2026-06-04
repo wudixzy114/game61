@@ -28,6 +28,36 @@ public static class NativeTerrainBridge
         }
     }
 
+    /// <summary>True if the native library can sample full terrain field grids for tile generation.</summary>
+    public static bool SupportsFieldGridSampler
+    {
+        get
+        {
+            EnsureInitialized();
+            return _sampleFieldGridV2 is not null || _sampleFieldGridV1 is not null;
+        }
+    }
+
+    /// <summary>True if the native library can sample already-derived gameplay fields and classifications.</summary>
+    public static bool SupportsDerivedFieldGridSampler
+    {
+        get
+        {
+            EnsureInitialized();
+            return _sampleFieldGridV2 is not null;
+        }
+    }
+
+    /// <summary>True if the native library can sample height grids.</summary>
+    public static bool SupportsHeightGridSampler
+    {
+        get
+        {
+            EnsureInitialized();
+            return _sampleHeightGridV2 is not null || _sampleHeightGrid is not null;
+        }
+    }
+
     /// <summary>Attempts to fill a height grid using the native sampler. Returns false if the native library is unavailable.</summary>
     public static bool TrySampleHeightGrid(
         TerrainTileCoord coord,

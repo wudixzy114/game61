@@ -40,6 +40,17 @@ public static partial class TerrainTileBuilder
                 corridorSegments,
                 origin,
                 scatter);
+            AddSettlementGatewayScatter(
+                profile,
+                resolution,
+                vertexCountPerSide,
+                step,
+                heights,
+                fields,
+                point,
+                corridorSegments,
+                origin,
+                scatter);
 
             float localX = point.WorldPosition.X - origin.X;
             float localZ = point.WorldPosition.Y - origin.Y;
@@ -138,6 +149,166 @@ public static partial class TerrainTileBuilder
                 tint,
                 kind));
         }
+    }
+
+    private static void AddSettlementGatewayScatter(
+        TerrainGenerationProfile profile,
+        int resolution,
+        int vertexCountPerSide,
+        float step,
+        float[] heights,
+        TerrainWorldField[] fields,
+        TerrainWorldPointOfInterest point,
+        TerrainRouteCorridorSegment[] corridorSegments,
+        Vector2 origin,
+        List<TerrainScatterInstance> scatter)
+    {
+        if (point.SettlementTier == TerrainSettlementTier.None)
+        {
+            return;
+        }
+
+        float radius = TerrainPointOfInterestIndex.FootprintRadiusFor(point, profile);
+        if (!TryFindSettlementGatewayApproach(point, corridorSegments, radius, out Vector2 approach, out TerrainRouteKind routeKind))
+        {
+            return;
+        }
+
+        Vector2 world = point.WorldPosition + approach * radius * 0.62f;
+        float localX = world.X - origin.X;
+        float localZ = world.Y - origin.Y;
+        if (localX < 0.0f || localZ < 0.0f || localX > profile.ChunkSize || localZ > profile.ChunkSize)
+        {
+            return;
+        }
+
+        float height = SampleHeightBilinear(localX, localZ, resolution, step, heights, vertexCountPerSide);
+        if (height < profile.SeaLevel - 2.0f)
+        {
+            return;
+        }
+
+        TerrainWorldField field = SampleFieldBilinear(localX, localZ, resolution, step, fields, vertexCountPerSide);
+        Vector2 side = new(-approach.Y, approach.X);
+        float rotation = Mathf.Atan2(side.Y, side.X);
+        float scale = SettlementGatewayScale(point.SettlementTier, point.Score, routeKind);
+        Color tint = SettlementGatewayColor(point.SettlementTier, routeKind, field);
+        scatter.Add(new TerrainScatterInstance(
+            TerrainScatterKind.Landmark,
+            new Vector3(localX, height + 0.06f, localZ),
+            rotation,
+            scale,
+            tint,
+            TerrainLandmarkKind.SettlementGateway));
+    }
+
+    private static bool TryFindSettlementGatewayApproach(
+        TerrainWorldPointOfInterest point,
+        TerrainRouteCorridorSegment[] corridorSegments,
+        float radius,
+        out Vector2 approach,
+        out TerrainRouteKind routeKind)
+    {
+        approach = Vector2.Zero;
+        routeKind = TerrainRouteKind.PrimaryTrail;
+        float maxDistance = radius * 2.35f;
+        float maxDistanceSquared = maxDistance * maxDistance;
+        float bestScore = float.PositiveInfinity;
+
+        foreach (TerrainRouteCorridorSegment segment in corridorSegments)
+        {
+            float t = ClosestPointT(point.WorldPosition, segment.From, segment.To);
+            Vector2 closest = segment.From.Lerp(segment.To, t);
+            float distanceSquared = point.WorldPosition.DistanceSquaredTo(closest);
+            if (distanceSquared > maxDistanceSquared)
+            {
+                continue;
+            }
+
+            Vector2 candidateApproach = closest - point.WorldPosition;
+            if (candidateApproach.LengthSquared() > radius * radius * 0.025f)
+            {
+                candidateApproach = candidateApproach.Normalized();
+            }
+            else if (segment.Direction.LengthSquared() > 0.0001f)
+            {
+                candidateApproach = t > 0.5f ? -segment.Direction : segment.Direction;
+            }
+            else
+            {
+                continue;
+            }
+
+            float routePriority = segment.Kind switch
+            {
+                TerrainRouteKind.PrimaryTrail => 0.12f,
+                TerrainRouteKind.RiverRoad => 0.10f,
+                TerrainRouteKind.CoastalPath => 0.09f,
+                TerrainRouteKind.ScenicTrail => 0.07f,
+                TerrainRouteKind.RidgePass => 0.05f,
+                _ => 0.0f
+            };
+            float score = distanceSquared - routePriority * radius * radius;
+            if (score >= bestScore)
+            {
+                continue;
+            }
+
+            bestScore = score;
+            approach = candidateApproach;
+            routeKind = segment.Kind;
+        }
+
+        return approach.LengthSquared() > 0.0001f;
+    }
+
+    private static float SettlementGatewayScale(
+        TerrainSettlementTier tier,
+        float score,
+        TerrainRouteKind routeKind)
+    {
+        float tierScale = tier switch
+        {
+            TerrainSettlementTier.Town => 3.20f,
+            TerrainSettlementTier.OasisHub => 2.90f,
+            TerrainSettlementTier.Village => 2.55f,
+            _ => 2.40f
+        };
+        float routeScale = routeKind switch
+        {
+            TerrainRouteKind.PrimaryTrail => 1.08f,
+            TerrainRouteKind.RiverRoad => 1.04f,
+            TerrainRouteKind.CoastalPath => 1.02f,
+            _ => 1.0f
+        };
+
+        return tierScale * routeScale * Mathf.Lerp(0.92f, 1.16f, Mathf.Clamp(score, 0.0f, 1.0f));
+    }
+
+    private static Color SettlementGatewayColor(
+        TerrainSettlementTier tier,
+        TerrainRouteKind routeKind,
+        TerrainWorldField field)
+    {
+        Color baseColor = tier switch
+        {
+            TerrainSettlementTier.Town => new Color(0.68f, 0.42f, 0.25f),
+            TerrainSettlementTier.OasisHub => new Color(0.16f, 0.58f, 0.42f),
+            TerrainSettlementTier.Village => new Color(0.62f, 0.48f, 0.28f),
+            _ => new Color(0.50f, 0.40f, 0.26f)
+        };
+        Color routeTint = routeKind switch
+        {
+            TerrainRouteKind.RiverRoad => new Color(0.38f, 0.48f, 0.38f),
+            TerrainRouteKind.CoastalPath => new Color(0.58f, 0.56f, 0.40f),
+            TerrainRouteKind.RidgePass => new Color(0.54f, 0.52f, 0.46f),
+            TerrainRouteKind.ScenicTrail => new Color(0.72f, 0.54f, 0.28f),
+            _ => new Color(0.56f, 0.42f, 0.26f)
+        };
+
+        return baseColor
+            .Lerp(routeTint, 0.28f)
+            .Lerp(Colors.White, Mathf.Clamp(field.ScenicPotential * 0.10f, 0.0f, 0.10f));
     }
 
     private static TerrainLandmarkKind SettlementInteriorKind(TerrainSettlementTier tier, int index)
@@ -579,6 +750,7 @@ public static partial class TerrainTileBuilder
             TerrainLandmarkKind.MarketStall => 2.7f,
             TerrainLandmarkKind.WatchTower => 4.2f,
             TerrainLandmarkKind.OasisGarden => 3.0f,
+            TerrainLandmarkKind.SettlementGateway => 3.0f,
             TerrainLandmarkKind.Waterfall => 7.2f,
             TerrainLandmarkKind.RoadMarker => 2.0f,
             TerrainLandmarkKind.BridgeSpan => 4.4f,
@@ -619,6 +791,7 @@ public static partial class TerrainTileBuilder
             TerrainLandmarkKind.MarketStall => new Color(0.76f, 0.45f, 0.22f),
             TerrainLandmarkKind.WatchTower => new Color(0.58f, 0.44f, 0.28f),
             TerrainLandmarkKind.OasisGarden => new Color(0.12f, 0.58f, 0.32f),
+            TerrainLandmarkKind.SettlementGateway => new Color(0.64f, 0.46f, 0.28f),
             TerrainLandmarkKind.Waterfall => new Color(0.30f, 0.62f, 0.82f),
             TerrainLandmarkKind.RoadMarker => new Color(0.56f, 0.44f, 0.28f),
             TerrainLandmarkKind.BridgeSpan => new Color(0.44f, 0.34f, 0.25f),

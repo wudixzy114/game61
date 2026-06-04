@@ -1,7 +1,7 @@
 using System;
 using System.Buffers;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using Godot;
@@ -13,10 +13,15 @@ public static partial class TerrainTileBuilder
 {
     private const float SkirtEnabledThreshold = 0.001f;
     private const int ParallelSurfaceProcessingVertexThreshold = 2048;
+    private const int NativeSamplerSelectionMinResolution = 32;
+    private const int NativeSamplerSelectionMeasurementPasses = 2;
+    private const float NativeSamplerSelectionMinSpeedup = 1.08f;
     private static readonly int SurfaceProcessingMaxDegreeOfParallelism = ComputeSurfaceProcessingMaxDegreeOfParallelism();
     private static readonly SemaphoreSlim SurfaceProcessingParallelBuildSlots = new(ComputeSurfaceProcessingParallelBuildSlotCount());
-    private static readonly ConcurrentDictionary<int, int[]> SurfaceIndexCache = new();
-    private static readonly ConcurrentDictionary<int, int[]> SkirtedIndexCache = new();
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<int, int[]> SurfaceIndexCache = new();
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<int, int[]> SkirtedIndexCache = new();
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<TerrainTileSamplingDecisionKey, Lazy<TerrainTileSamplingDecision>> NativeSamplerSelectionCache = new();
+    private static double NativeSamplerSelectionMeasurementSink;
 
     /// <summary>Builds a terrain tile without route or POI data.</summary>
     public static TerrainTileData Build(
@@ -51,6 +56,58 @@ public static partial class TerrainTileBuilder
         TerrainPointOfInterestIndex pointOfInterestIndex,
         CancellationToken cancellationToken = default)
     {
+        return Build(
+            coord,
+            lod,
+            profile,
+            includeCollision,
+            routeCorridors,
+            pointOfInterestIndex,
+            cancellationToken,
+            TerrainTileSamplingBackendMode.Adaptive);
+    }
+
+    /// <summary>Returns whether the adaptive tile builder will use the native sampler for this profile and LOD.</summary>
+    public static bool ShouldUseNativeSamplerForTileGeneration(TerrainGenerationProfile profile, int lod)
+    {
+        if (!profile.UseNativeSamplerWhenAvailable ||
+            !NativeTerrainBridge.SupportsFieldGridSampler)
+        {
+            return false;
+        }
+
+        int safeLod = Mathf.Clamp(lod, 0, profile.MaxLod);
+        int resolution = profile.ResolutionForLod(safeLod);
+        if (resolution < NativeSamplerSelectionMinResolution)
+        {
+            return false;
+        }
+
+        var key = new TerrainTileSamplingDecisionKey(profile, safeLod, resolution);
+        try
+        {
+            return NativeSamplerSelectionCache.GetOrAdd(
+                key,
+                static samplingKey => new Lazy<TerrainTileSamplingDecision>(
+                    () => CalibrateNativeSamplerSelection(samplingKey.Profile, samplingKey.Lod, samplingKey.Resolution),
+                    LazyThreadSafetyMode.ExecutionAndPublication)).Value.UseNative;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static TerrainTileData Build(
+        TerrainTileCoord coord,
+        int lod,
+        TerrainGenerationProfile profile,
+        bool includeCollision,
+        TerrainRouteCorridorIndex routeCorridors,
+        TerrainPointOfInterestIndex pointOfInterestIndex,
+        CancellationToken cancellationToken,
+        TerrainTileSamplingBackendMode samplingBackendMode)
+    {
         cancellationToken.ThrowIfCancellationRequested();
 
         int resolution = profile.ResolutionForLod(lod);
@@ -63,7 +120,13 @@ public static partial class TerrainTileBuilder
         bool returnNativeFieldSamples = false;
         bool useNativeFields = false;
         bool nativeFieldsContainDerivedData = false;
-        if (profile.UseNativeSamplerWhenAvailable)
+        bool useNativeTileGeneration = samplingBackendMode switch
+        {
+            TerrainTileSamplingBackendMode.Native => profile.UseNativeSamplerWhenAvailable && NativeTerrainBridge.IsAvailable,
+            TerrainTileSamplingBackendMode.Managed => false,
+            _ => ShouldUseNativeSamplerForTileGeneration(profile, lod)
+        };
+        if (useNativeTileGeneration)
         {
             nativeFieldSamples = ArrayPool<float>.Shared.Rent(nativeFieldSampleCount);
             returnNativeFieldSamples = true;
@@ -84,7 +147,7 @@ public static partial class TerrainTileBuilder
 
         float[] nativeHeights = [];
         bool useNativeHeights = !useNativeFields &&
-            profile.UseNativeSamplerWhenAvailable &&
+            useNativeTileGeneration &&
             NativeTerrainBridge.TrySampleHeightGrid(coord, resolution, profile, out nativeHeights);
         float managedLandBalanceOffset = !useNativeFields && !useNativeHeights
             ? TerrainWorldFieldSampler.LandBalanceOffsetFor(profile)
@@ -402,6 +465,241 @@ public static partial class TerrainTileBuilder
             (useNativeFields || vertexCount >= ParallelSurfaceProcessingVertexThreshold) &&
             vertexCount >= ParallelSurfaceProcessingVertexThreshold &&
             SurfaceProcessingMaxDegreeOfParallelism > 1;
+    }
+
+    private static TerrainTileSamplingDecision CalibrateNativeSamplerSelection(
+        TerrainGenerationProfile profile,
+        int lod,
+        int resolution)
+    {
+        if (!NativeTerrainBridge.SupportsFieldGridSampler)
+        {
+            return TerrainTileSamplingDecision.Managed("native field grid unavailable");
+        }
+
+        TerrainGenerationProfile managedProfile = profile with { UseNativeSamplerWhenAvailable = false };
+        TerrainGenerationProfile nativeProfile = profile with { UseNativeSamplerWhenAvailable = true };
+        TerrainTileCoord[] coords = NativeSamplerCalibrationCoords(profile.Seed);
+
+        if (!TryWarmUpFieldBackend(managedProfile, resolution, TerrainTileSamplingBackendMode.Managed, coords[0]) ||
+            !TryWarmUpFieldBackend(nativeProfile, resolution, TerrainTileSamplingBackendMode.Native, coords[0]))
+        {
+            return TerrainTileSamplingDecision.Managed("native field sampling warmup failed");
+        }
+
+        double bestManagedMilliseconds = double.PositiveInfinity;
+        double bestNativeMilliseconds = double.PositiveInfinity;
+        for (int pass = 0; pass < NativeSamplerSelectionMeasurementPasses; pass++)
+        {
+            if ((pass & 1) == 0)
+            {
+                bestManagedMilliseconds = Math.Min(
+                    bestManagedMilliseconds,
+                    MeasureFieldSamplingMillisecondsPerTile(managedProfile, resolution, TerrainTileSamplingBackendMode.Managed, coords));
+                bestNativeMilliseconds = Math.Min(
+                    bestNativeMilliseconds,
+                    MeasureFieldSamplingMillisecondsPerTile(nativeProfile, resolution, TerrainTileSamplingBackendMode.Native, coords));
+            }
+            else
+            {
+                bestNativeMilliseconds = Math.Min(
+                    bestNativeMilliseconds,
+                    MeasureFieldSamplingMillisecondsPerTile(nativeProfile, resolution, TerrainTileSamplingBackendMode.Native, coords));
+                bestManagedMilliseconds = Math.Min(
+                    bestManagedMilliseconds,
+                    MeasureFieldSamplingMillisecondsPerTile(managedProfile, resolution, TerrainTileSamplingBackendMode.Managed, coords));
+            }
+        }
+
+        if (!double.IsFinite(bestManagedMilliseconds) ||
+            !double.IsFinite(bestNativeMilliseconds) ||
+            bestNativeMilliseconds <= 0.0)
+        {
+            return TerrainTileSamplingDecision.Managed("native field sampling measurement failed");
+        }
+
+        double speedup = bestManagedMilliseconds / bestNativeMilliseconds;
+        bool useNative = speedup >= NativeSamplerSelectionMinSpeedup;
+        return new TerrainTileSamplingDecision(
+            useNative,
+            bestManagedMilliseconds,
+            bestNativeMilliseconds,
+            speedup,
+            resolution,
+            useNative
+                ? "native field grid won calibration"
+                : "managed field sampler won calibration");
+    }
+
+    private static bool TryWarmUpFieldBackend(
+        TerrainGenerationProfile profile,
+        int resolution,
+        TerrainTileSamplingBackendMode backendMode,
+        TerrainTileCoord coord)
+    {
+        try
+        {
+            return TryMeasureFieldSampling(profile, resolution, backendMode, [coord], out _);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static double MeasureFieldSamplingMillisecondsPerTile(
+        TerrainGenerationProfile profile,
+        int resolution,
+        TerrainTileSamplingBackendMode backendMode,
+        TerrainTileCoord[] coords)
+    {
+        Stopwatch stopwatch = Stopwatch.StartNew();
+        bool measured = TryMeasureFieldSampling(profile, resolution, backendMode, coords, out double checksum);
+        stopwatch.Stop();
+        NativeSamplerSelectionMeasurementSink = checksum;
+        return !measured || coords.Length == 0
+            ? double.PositiveInfinity
+            : stopwatch.Elapsed.TotalMilliseconds / coords.Length;
+    }
+
+    private static bool TryMeasureFieldSampling(
+        TerrainGenerationProfile profile,
+        int resolution,
+        TerrainTileSamplingBackendMode backendMode,
+        ReadOnlySpan<TerrainTileCoord> coords,
+        out double checksum)
+    {
+        checksum = 0.0;
+        int vertexCountPerSide = resolution + 1;
+        int vertexCount = vertexCountPerSide * vertexCountPerSide;
+        float step = profile.ChunkSize / resolution;
+
+        if (backendMode == TerrainTileSamplingBackendMode.Native)
+        {
+            int nativeFieldSampleCount = vertexCount * TerrainWorldFieldSampler.NativeFieldGridStride;
+            float[] nativeFieldSamples = ArrayPool<float>.Shared.Rent(nativeFieldSampleCount);
+            try
+            {
+                foreach (TerrainTileCoord coord in coords)
+                {
+                    if (!NativeTerrainBridge.TrySampleFieldGrid(
+                            coord,
+                            resolution,
+                            profile,
+                            nativeFieldSamples,
+                            nativeFieldSampleCount,
+                            out bool containsDerivedFields))
+                    {
+                        return false;
+                    }
+
+                    checksum += AccumulateNativeFieldGridChecksum(
+                        coord,
+                        profile,
+                        resolution,
+                        vertexCountPerSide,
+                        step,
+                        nativeFieldSamples,
+                        containsDerivedFields);
+                }
+            }
+            finally
+            {
+                ArrayPool<float>.Shared.Return(nativeFieldSamples);
+            }
+
+            return true;
+        }
+
+        float landBalanceOffset = TerrainWorldFieldSampler.LandBalanceOffsetFor(profile);
+        foreach (TerrainTileCoord coord in coords)
+        {
+            checksum += AccumulateManagedFieldGridChecksum(
+                coord,
+                profile,
+                resolution,
+                vertexCountPerSide,
+                step,
+                landBalanceOffset);
+        }
+
+        return true;
+    }
+
+    private static double AccumulateManagedFieldGridChecksum(
+        TerrainTileCoord coord,
+        TerrainGenerationProfile profile,
+        int resolution,
+        int vertexCountPerSide,
+        float step,
+        float landBalanceOffset)
+    {
+        double checksum = 0.0;
+        Vector2 origin = coord.Origin(profile.ChunkSize);
+        for (int z = 0; z <= resolution; z++)
+        {
+            for (int x = 0; x <= resolution; x++)
+            {
+                Vector2 world = new(origin.X + x * step, origin.Y + z * step);
+                TerrainWorldField field = TerrainWorldFieldSampler.Sample(world, profile, landBalanceOffset);
+                checksum += FieldSamplingChecksum(field, Index(x, z, vertexCountPerSide));
+            }
+        }
+
+        return checksum;
+    }
+
+    private static double AccumulateNativeFieldGridChecksum(
+        TerrainTileCoord coord,
+        TerrainGenerationProfile profile,
+        int resolution,
+        int vertexCountPerSide,
+        float step,
+        float[] nativeFieldSamples,
+        bool containsDerivedFields)
+    {
+        double checksum = 0.0;
+        Vector2 origin = coord.Origin(profile.ChunkSize);
+        for (int z = 0; z <= resolution; z++)
+        {
+            for (int x = 0; x <= resolution; x++)
+            {
+                int index = Index(x, z, vertexCountPerSide);
+                Vector2 world = new(origin.X + x * step, origin.Y + z * step);
+                TerrainWorldField field = TerrainWorldFieldSampler.SampleNativeFieldGrid(
+                    world,
+                    profile,
+                    nativeFieldSamples,
+                    index,
+                    containsDerivedFields);
+                checksum += FieldSamplingChecksum(field, index);
+            }
+        }
+
+        return checksum;
+    }
+
+    private static double FieldSamplingChecksum(TerrainWorldField field, int index)
+    {
+        return field.Height +
+            field.River +
+            field.ScenicPotential +
+            field.Traversability +
+            field.EncounterPotential +
+            (int)field.BiomeKind * 0.03125 +
+            (int)field.LandscapeKind * 0.015625 +
+            index * 0.000001;
+    }
+
+    private static TerrainTileCoord[] NativeSamplerCalibrationCoords(int seed)
+    {
+        int xOffset = (int)(Hash01(seed, seed * 17 + 31, 5939, seed + 761) * 5.0f) - 2;
+        int zOffset = (int)(Hash01(seed * 3 - 7, seed + 97, 5987, seed + 769) * 5.0f) - 2;
+        return
+        [
+            new TerrainTileCoord(0, 0),
+            new TerrainTileCoord(1 + xOffset, -1 + zOffset)
+        ];
     }
 
     private static void ReturnPooled<T>(T[] array)
@@ -952,6 +1250,38 @@ public static partial class TerrainTileBuilder
     private static int Index(int x, int z, int vertexCountPerSide)
     {
         return z * vertexCountPerSide + x;
+    }
+
+    private enum TerrainTileSamplingBackendMode
+    {
+        Adaptive,
+        Managed,
+        Native
+    }
+
+    private readonly record struct TerrainTileSamplingDecisionKey(
+        TerrainGenerationProfile Profile,
+        int Lod,
+        int Resolution);
+
+    private readonly record struct TerrainTileSamplingDecision(
+        bool UseNative,
+        double ManagedMillisecondsPerTile,
+        double NativeMillisecondsPerTile,
+        double Speedup,
+        int Resolution,
+        string Reason)
+    {
+        public static TerrainTileSamplingDecision Managed(string reason)
+        {
+            return new TerrainTileSamplingDecision(
+                false,
+                0.0,
+                0.0,
+                0.0,
+                0,
+                reason);
+        }
     }
 
 }

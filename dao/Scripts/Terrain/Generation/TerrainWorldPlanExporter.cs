@@ -164,6 +164,8 @@ public static class TerrainWorldPlanExporter
         builder.AppendLine(FormattableString.Invariant(
             $"Connected point ratio: {planning.ConnectedPointRatio:0.000}"));
         builder.AppendLine(FormattableString.Invariant(
+            $"Connected settlement ratio: {planning.ConnectedSettlementRatio:0.000}"));
+        builder.AppendLine(FormattableString.Invariant(
             $"World coverage POIs/routes: {planning.PointOfInterestWorldCoverage:0.000} / {planning.RouteWorldCoverage:0.000}"));
         builder.AppendLine(FormattableString.Invariant(
             $"Average point score: {planning.AveragePointScore:0.000}"));
@@ -197,6 +199,13 @@ public static class TerrainWorldPlanExporter
         AppendSettlementTierCount(builder, TerrainSettlementTier.Village, planning.VillageCount);
         AppendSettlementTierCount(builder, TerrainSettlementTier.Town, planning.TownCount);
         AppendSettlementTierCount(builder, TerrainSettlementTier.OasisHub, planning.OasisHubCount);
+
+        builder.AppendLine();
+        builder.AppendLine("Settlement Network");
+        builder.AppendLine(FormattableString.Invariant(
+            $"Connected settlement ratio: {planning.ConnectedSettlementRatio:0.000}"));
+        builder.AppendLine(FormattableString.Invariant(
+            $"Direct settlement routes: {planning.SettlementRouteCount}"));
 
         builder.AppendLine();
         builder.AppendLine("Biome Counts");

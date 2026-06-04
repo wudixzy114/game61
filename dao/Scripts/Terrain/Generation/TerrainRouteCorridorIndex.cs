@@ -23,11 +23,16 @@ public readonly record struct TerrainRouteCorridorSample(
 public readonly record struct TerrainRouteCorridorSegment(
     Vector2 From,
     Vector2 To,
+    Vector2 Delta,
+    Vector2 Direction,
+    float LengthSquared,
     float FromHeight,
     float ToHeight,
     TerrainRouteKind Kind,
     float CoreWidth,
     float ShoulderWidth,
+    float CoreInnerWidth,
+    float ShoulderWidthSquared,
     float ScenicPotential,
     float Traversability);
 
@@ -84,14 +89,24 @@ public sealed class TerrainRouteCorridorIndex
 
                 float fromHeight = CorridorHeight(from, profile);
                 float toHeight = CorridorHeight(to, profile);
+                Vector2 delta = to - from;
+                float lengthSquared = delta.LengthSquared();
+                Vector2 direction = lengthSquared > 0.0001f
+                    ? delta / Mathf.Sqrt(lengthSquared)
+                    : Vector2.Zero;
                 var segment = new TerrainRouteCorridorSegment(
                     from,
                     to,
+                    delta,
+                    direction,
+                    lengthSquared,
                     fromHeight,
                     toHeight,
                     route.Kind,
                     width.CoreWidth,
                     width.ShoulderWidth,
+                    width.CoreWidth * 0.72f,
+                    width.ShoulderWidth * width.ShoulderWidth,
                     route.AverageScenicPotential,
                     route.AverageTraversability);
 
@@ -140,24 +155,20 @@ public sealed class TerrainRouteCorridorIndex
         for (int i = 0; i < segments.Length; i++)
         {
             TerrainRouteCorridorSegment segment = segments[i];
-            float t = ClosestPointT(world, segment.From, segment.To);
-            Vector2 closest = segment.From.Lerp(segment.To, t);
-            float distance = world.DistanceTo(closest);
-            if (distance > segment.ShoulderWidth)
+            float t = ClosestPointT(world, segment.From, segment.Delta, segment.LengthSquared);
+            Vector2 closest = segment.From + segment.Delta * t;
+            float distanceSquared = world.DistanceSquaredTo(closest);
+            if (distanceSquared > segment.ShoulderWidthSquared)
             {
                 continue;
             }
 
+            float distance = Mathf.Sqrt(distanceSquared);
             float influence = 1.0f - Mathf.SmoothStep(segment.CoreWidth, segment.ShoulderWidth, distance);
-            float core = 1.0f - Mathf.SmoothStep(segment.CoreWidth * 0.72f, segment.CoreWidth, distance);
+            float core = 1.0f - Mathf.SmoothStep(segment.CoreInnerWidth, segment.CoreWidth, distance);
             influence = Mathf.Clamp(influence, 0.0f, 1.0f);
             core = Mathf.Clamp(core, 0.0f, 1.0f);
             float targetHeight = Mathf.Lerp(segment.FromHeight, segment.ToHeight, t);
-            Vector2 segmentDirection = segment.To - segment.From;
-            Vector2 direction = segmentDirection.LengthSquared() > 0.0001f
-                ? segmentDirection.Normalized()
-                : Vector2.Zero;
-
             if (influence <= best.Influence && distance >= best.Distance)
             {
                 continue;
@@ -172,7 +183,7 @@ public sealed class TerrainRouteCorridorIndex
                 targetHeight,
                 segment.ScenicPotential,
                 segment.Traversability,
-                direction);
+                segment.Direction);
         }
 
         return best;
@@ -216,16 +227,14 @@ public sealed class TerrainRouteCorridorIndex
         return Mathf.Max(field.Height, profile.SeaLevel + 2.0f);
     }
 
-    private static float ClosestPointT(Vector2 point, Vector2 from, Vector2 to)
+    private static float ClosestPointT(Vector2 point, Vector2 from, Vector2 delta, float lengthSquared)
     {
-        Vector2 segment = to - from;
-        float lengthSquared = segment.LengthSquared();
         if (lengthSquared <= 0.0001f)
         {
             return 0.0f;
         }
 
-        return Mathf.Clamp((point - from).Dot(segment) / lengthSquared, 0.0f, 1.0f);
+        return Mathf.Clamp((point - from).Dot(delta) / lengthSquared, 0.0f, 1.0f);
     }
 
     private static CorridorWidth WidthFor(TerrainRouteKind kind)
