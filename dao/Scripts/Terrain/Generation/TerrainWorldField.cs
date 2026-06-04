@@ -16,7 +16,8 @@ public enum TerrainLandscapeKind
     Highlands,
     MountainMassif,
     Snowfield,
-    VistaPlateau
+    VistaPlateau,
+    Lake
 }
 
 /// <summary>Climate-based biome classification for a terrain position.</summary>
@@ -33,7 +34,8 @@ public enum TerrainBiomeKind
     Wetland,
     Hills,
     Mountains,
-    Snowfield
+    Snowfield,
+    Lake
 }
 
 /// <summary>Complete set of derived terrain attributes sampled at a world position.</summary>
@@ -46,6 +48,7 @@ public readonly record struct TerrainWorldField(
     float Mountains,
     float BroadElevation,
     float River,
+    float Lake,
     float Moisture,
     float Temperature,
     float ScenicPotential,
@@ -60,17 +63,25 @@ public readonly record struct TerrainWorldField(
 /// <summary>Primary sampler that computes all terrain field values (height, climate, resources, etc.) at any world coordinate.</summary>
 public static class TerrainWorldFieldSampler
 {
-    public const int NativeFieldGridStride = 17;
+    public const int NativeFieldGridStride = 18;
 
     private static readonly ConcurrentDictionary<TerrainGenerationProfile, float> LandBalanceOffsets = new();
-    private const int MaxNativeBiomeKind = (int)TerrainBiomeKind.Snowfield;
-    private const int MaxNativeLandscapeKind = (int)TerrainLandscapeKind.VistaPlateau;
+    private const int MaxNativeBiomeKind = (int)TerrainBiomeKind.Lake;
+    private const int MaxNativeLandscapeKind = (int)TerrainLandscapeKind.Lake;
 
     /// <summary>Full terrain sample at a world position, computing all field attributes including height.</summary>
     public static TerrainWorldField Sample(Vector2 world, TerrainGenerationProfile profile)
     {
         TerrainShapeTerms terms = SampleShapeTerms(world, profile, includeMicroDetail: true);
         float height = BuildHeight(terms, profile);
+        return BuildField(world, profile, terms, height);
+    }
+
+    /// <summary>Full terrain sample using a caller-cached land-balance offset for hot grid sampling paths.</summary>
+    public static TerrainWorldField Sample(Vector2 world, TerrainGenerationProfile profile, float landBalanceOffset)
+    {
+        TerrainShapeTerms terms = SampleShapeTerms(world, profile, includeMicroDetail: true);
+        float height = BuildHeight(terms, profile, landBalanceOffset);
         return BuildField(world, profile, terms, height);
     }
 
@@ -99,8 +110,8 @@ public static class TerrainWorldFieldSampler
         float height = samples[offset];
         if (containsDerivedFields)
         {
-            TerrainBiomeKind biome = (TerrainBiomeKind)Mathf.Clamp(Mathf.RoundToInt(samples[offset + 15]), 0, MaxNativeBiomeKind);
-            TerrainLandscapeKind landscape = (TerrainLandscapeKind)Mathf.Clamp(Mathf.RoundToInt(samples[offset + 16]), 0, MaxNativeLandscapeKind);
+            TerrainBiomeKind biome = (TerrainBiomeKind)Mathf.Clamp(Mathf.RoundToInt(samples[offset + 16]), 0, MaxNativeBiomeKind);
+            TerrainLandscapeKind landscape = (TerrainLandscapeKind)Mathf.Clamp(Mathf.RoundToInt(samples[offset + 17]), 0, MaxNativeLandscapeKind);
             return new TerrainWorldField(
                 world,
                 height,
@@ -118,6 +129,7 @@ public static class TerrainWorldFieldSampler
                 samples[offset + 12],
                 samples[offset + 13],
                 samples[offset + 14],
+                samples[offset + 15],
                 biome,
                 landscape);
         }
@@ -139,7 +151,8 @@ public static class TerrainWorldFieldSampler
             samples[offset + 13],
             samples[offset + 14],
             samples[offset + 15],
-            samples[offset + 16]);
+            samples[offset + 16],
+            samples[offset + 17]);
         return BuildField(world, profile, terms, height);
     }
 
@@ -232,9 +245,20 @@ public static class TerrainWorldFieldSampler
             profile.Seed + 317,
             4);
         float baseTemperature = Mathf.Clamp(1.0f - latitude + temperatureNoise * 0.16f - 0.04f, 0.0f, 1.0f);
+        float rainShadowNoise = ProceduralNoise.Ridged(
+            (climateWarp.X + 2281.0f) / (profile.ContinentScale * 0.64f),
+            (climateWarp.Y - 3167.0f) / (profile.ContinentScale * 0.64f),
+            profile.Seed + 389,
+            4);
+        float rainShadowAridity =
+            Mathf.SmoothStep(0.50f, 0.82f, rainShadowNoise) *
+            Mathf.SmoothStep(0.38f, 0.78f, baseTemperature) *
+            Mathf.SmoothStep(0.34f, 0.82f, continent + island * 0.18f) *
+            (1.0f - Mathf.SmoothStep(0.74f, 0.94f, baseMoisture));
         float aridity = (1.0f - Mathf.SmoothStep(0.30f, 0.58f, baseMoisture)) *
             Mathf.SmoothStep(0.52f, 0.84f, baseTemperature) *
             Mathf.SmoothStep(0.33f, 0.78f, continent + island * 0.22f);
+        aridity = Mathf.Clamp(Mathf.Max(aridity, rainShadowAridity * 0.82f), 0.0f, 1.0f);
         float lowlandMask = Mathf.SmoothStep(0.36f, 0.72f, continent + island * 0.25f) *
             (1.0f - Mathf.SmoothStep(0.22f, 0.50f, mountains));
         float plains = lowlandMask *
@@ -251,6 +275,31 @@ public static class TerrainWorldFieldSampler
             Mathf.SmoothStep(0.42f, 0.78f, continent + island * 0.18f);
         float alpine = Mathf.SmoothStep(0.48f, 0.76f, mountains) *
             Mathf.SmoothStep(0.52f, 0.86f, continent + island * 0.12f);
+        float lakeBlob = ProceduralNoise.Fbm(
+            (warped.X + 4211.0f) / (profile.ContinentScale * 0.31f),
+            (warped.Y - 2753.0f) / (profile.ContinentScale * 0.31f),
+            profile.Seed + 431,
+            5) * 0.5f + 0.5f;
+        float lakePocket = ProceduralNoise.Ridged(
+            (warped.X - 1487.0f) / (profile.MountainScale * 0.92f),
+            (warped.Y + 3191.0f) / (profile.MountainScale * 0.92f),
+            profile.Seed + 443,
+            4);
+        float inlandWaterMask = Mathf.SmoothStep(0.36f, 0.74f, continent + island * 0.16f);
+        float lowlandLake =
+            Mathf.SmoothStep(0.58f, 0.79f, lakeBlob) *
+            Mathf.SmoothStep(0.42f, 0.76f, lakePocket) *
+            inlandWaterMask *
+            (1.0f - Mathf.SmoothStep(0.32f, 0.62f, mountains)) *
+            Mathf.Lerp(0.62f, 1.18f, Mathf.Clamp(baseMoisture + river * 0.18f - aridity * 0.20f, 0.0f, 1.0f));
+        float alpineLake =
+            Mathf.SmoothStep(0.34f, 0.58f, mountains) *
+            (1.0f - Mathf.SmoothStep(0.64f, 0.84f, mountains)) *
+            Mathf.SmoothStep(0.60f, 0.83f, lakeBlob) *
+            Mathf.SmoothStep(0.54f, 0.82f, lakePocket) *
+            inlandWaterMask *
+            0.72f;
+        float lake = Mathf.Clamp(Mathf.Max(lowlandLake, alpineLake), 0.0f, 1.0f);
         float duneDetail = ProceduralNoise.Ridged(
             (world.X + 541.0f) / 360.0f,
             (world.Y - 877.0f) / 360.0f,
@@ -272,6 +321,7 @@ public static class TerrainWorldFieldSampler
             mountains,
             broad,
             river,
+            lake,
             micro,
             baseMoisture,
             baseTemperature,
@@ -287,8 +337,13 @@ public static class TerrainWorldFieldSampler
 
     private static float BuildHeight(TerrainShapeTerms terms, TerrainGenerationProfile profile)
     {
+        return BuildHeight(terms, profile, GetLandBalanceOffset(profile));
+    }
+
+    private static float BuildHeight(TerrainShapeTerms terms, TerrainGenerationProfile profile, float landBalanceOffset)
+    {
         float height = BuildUnbalancedHeight(terms, profile);
-        height -= GetLandBalanceOffset(profile);
+        height -= landBalanceOffset;
 
         float terraceMask = Mathf.SmoothStep(0.52f, 0.86f, terms.Mountains) *
             profile.VistaFrequency *
@@ -322,6 +377,9 @@ public static class TerrainWorldFieldSampler
             (terms.Island * profile.HeightScale * 0.25f);
         height = Mathf.Lerp(height, lowlandTarget, lowlandFlatness * 0.62f);
         height += terms.Aridity * (terms.DuneDetail - 0.40f) * profile.HeightScale * 0.075f;
+        height -= terms.Lake *
+            Mathf.Lerp(profile.HeightScale * 0.030f, profile.HeightScale * 0.070f, 1.0f - Mathf.Clamp(terms.Mountains, 0.0f, 1.0f)) *
+            (0.72f + terms.Wetland * 0.28f);
         height -= terms.Wetland *
             Mathf.SmoothStep(0.26f, 0.72f, terms.Continent + terms.Island * 0.20f) *
             profile.HeightScale *
@@ -378,7 +436,7 @@ public static class TerrainWorldFieldSampler
         float height)
     {
         float moisture = Mathf.Clamp(
-            terms.BaseMoisture + terms.River * 0.45f - terms.Aridity * 0.22f + terms.Wetland * 0.16f,
+            terms.BaseMoisture + terms.River * 0.45f + terms.Lake * 0.52f - terms.Aridity * 0.22f + terms.Wetland * 0.16f,
             0.0f,
             1.0f);
         float temperature = Mathf.Clamp(
@@ -405,6 +463,7 @@ public static class TerrainWorldFieldSampler
             terms.Mountains,
             terms.BroadElevation,
             terms.River,
+            terms.Lake,
             moisture,
             temperature,
             scenicPotential,
@@ -437,10 +496,13 @@ public static class TerrainWorldFieldSampler
             (1.0f - Mathf.SmoothStep(0.34f, 0.64f, terms.Mountains));
         float islandVista = terms.Island *
             Mathf.Clamp(1.0f - Mathf.Abs(height - profile.SeaLevel - 58.0f) / 260.0f, 0.0f, 1.0f);
+        float lakeVista = terms.Lake *
+            Mathf.SmoothStep(profile.SeaLevel + 18.0f, profile.SeaLevel + profile.HeightScale * 0.32f, height) *
+            (1.0f - Mathf.SmoothStep(profile.SeaLevel + profile.HeightScale * 0.76f, profile.SeaLevel + profile.HeightScale * 0.96f, height));
 
         float dominantVista = Mathf.Max(
             Mathf.Max(ridgeScore * 0.92f, riverContrast * 0.86f),
-            Mathf.Max(Mathf.Max(coastDrama * 0.74f, highlandScore * 0.72f), Mathf.Max(desertVista * 0.54f, islandVista * 0.64f)));
+            Mathf.Max(Mathf.Max(coastDrama * 0.74f, highlandScore * 0.72f), Mathf.Max(Mathf.Max(desertVista * 0.54f, islandVista * 0.64f), lakeVista * 0.72f)));
 
         float blendedVista =
             ridgeScore * 0.30f +
@@ -450,7 +512,8 @@ public static class TerrainWorldFieldSampler
             coastDrama * 0.10f +
             biomeContrast * 0.06f +
             desertVista * 0.06f +
-            islandVista * 0.05f;
+            islandVista * 0.05f +
+            lakeVista * 0.08f;
 
         return Mathf.Clamp(
             Mathf.Max(dominantVista, blendedVista) * (0.94f + profile.VistaFrequency * 0.12f),
@@ -467,7 +530,8 @@ public static class TerrainWorldFieldSampler
         float lowlandBonus = Mathf.Clamp(terms.Plains * 0.18f + terms.Aridity * 0.10f + terms.Wetland * 0.04f, 0.0f, 0.24f);
         float ruggedPenalty = Mathf.Clamp(terms.Mountains * 1.45f - lowlandBonus, 0.0f, 0.82f);
         float riverPenalty = terms.River * 0.24f;
-        return Mathf.Clamp(land * (1.0f - ruggedPenalty) * (1.0f - riverPenalty), 0.0f, 1.0f);
+        float lakePenalty = terms.Lake * 0.76f;
+        return Mathf.Clamp(land * (1.0f - ruggedPenalty) * (1.0f - riverPenalty) * (1.0f - lakePenalty), 0.0f, 1.0f);
     }
 
     private static float ComputeExposure(
@@ -480,12 +544,15 @@ public static class TerrainWorldFieldSampler
         float ridge = Mathf.SmoothStep(0.20f, 0.64f, terms.Mountains);
         float plateau = Mathf.SmoothStep(0.34f, 0.70f, terms.Shelf * terms.BroadElevation);
         float coastal = Mathf.Clamp(1.0f - Mathf.Abs(height - profile.SeaLevel - 18.0f) / 210.0f, 0.0f, 1.0f);
+        float lakeShore = terms.Lake *
+            Mathf.SmoothStep(profile.SeaLevel + 10.0f, profile.SeaLevel + profile.HeightScale * 0.36f, height);
 
         return Mathf.Clamp(
             Mathf.Max(elevation * 0.58f, ridge * 0.70f) +
             plateau * 0.16f +
             scenicPotential * 0.18f +
-            coastal * 0.08f,
+            coastal * 0.08f +
+            lakeShore * 0.06f,
             0.0f,
             1.0f);
     }
@@ -499,11 +566,11 @@ public static class TerrainWorldFieldSampler
         float traversability)
     {
         float land = Mathf.SmoothStep(profile.SeaLevel + 8.0f, profile.SeaLevel + 58.0f, height);
-        float waterAccess = Mathf.SmoothStep(0.18f, 0.66f, terms.River);
+        float waterAccess = Mathf.Max(Mathf.SmoothStep(0.18f, 0.66f, terms.River), Mathf.SmoothStep(0.32f, 0.72f, terms.Lake));
         float climate = Mathf.Clamp(1.0f - Mathf.Abs(temperature - 0.54f) * 1.75f, 0.0f, 1.0f);
         float lowElevation = 1.0f - Mathf.SmoothStep(profile.SeaLevel + 320.0f, profile.SeaLevel + profile.HeightScale * 0.92f, height);
         float oasis = terms.Aridity * Mathf.SmoothStep(0.38f, 0.78f, terms.River + moisture * 0.24f);
-        float arableLowland = Mathf.Clamp(terms.Plains * 0.12f + terms.Wetland * 0.16f + oasis * 0.24f, 0.0f, 0.32f);
+        float arableLowland = Mathf.Clamp(terms.Plains * 0.12f + terms.Wetland * 0.16f + terms.Lake * 0.10f + oasis * 0.24f, 0.0f, 0.34f);
         float soil = Mathf.Clamp(
             moisture * 0.52f +
             climate * 0.22f +
@@ -530,6 +597,8 @@ public static class TerrainWorldFieldSampler
         float canyon = terms.River * Mathf.SmoothStep(0.05f, 0.30f, terms.Mountains);
         float riverRisk = Mathf.SmoothStep(0.66f, 0.92f, terms.River) *
             Mathf.SmoothStep(profile.SeaLevel + 8.0f, profile.SeaLevel + profile.HeightScale * 0.48f, height);
+        float lakeRisk = Mathf.SmoothStep(0.46f, 0.86f, terms.Lake) *
+            Mathf.SmoothStep(profile.SeaLevel + 8.0f, profile.SeaLevel + profile.HeightScale * 0.42f, height);
         float highElevation = Mathf.SmoothStep(profile.SeaLevel + 260.0f, profile.SeaLevel + profile.HeightScale * 0.92f, height);
         float exposedRidge = Mathf.SmoothStep(0.16f, 0.52f, exposure);
         float snow = temperature < 0.22f
@@ -556,7 +625,7 @@ public static class TerrainWorldFieldSampler
 
         return Mathf.Clamp(
             Mathf.Max(
-                Mathf.Max(Mathf.Max(rugged * 0.74f, canyon * 0.82f), riverRisk * 0.50f),
+            Mathf.Max(Mathf.Max(rugged * 0.74f, canyon * 0.82f), Mathf.Max(riverRisk * 0.50f, lakeRisk * 0.42f)),
                 Mathf.Max(
                     Mathf.Max(desertExposure * 0.64f, floodRisk * 0.62f),
                     Mathf.Max(coastalStorm * 0.46f, frontierWildland * 0.48f))) +
@@ -567,6 +636,7 @@ public static class TerrainWorldFieldSampler
             isolation * 0.16f +
             heatRisk * 0.28f +
             floodRisk * 0.18f +
+            lakeRisk * 0.16f +
             islandIsolation * 0.20f +
             coastalStorm * 0.10f +
             frontierWildland * 0.12f,
@@ -610,7 +680,12 @@ public static class TerrainWorldFieldSampler
             return TerrainBiomeKind.Coast;
         }
 
-        if (height > profile.SeaLevel + 680.0f || (temperature < 0.20f && height > profile.SeaLevel + 360.0f))
+        if (IsLake(height, profile, terms))
+        {
+            return TerrainBiomeKind.Lake;
+        }
+
+        if (IsSnowfield(height, profile, terms, temperature))
         {
             return TerrainBiomeKind.Snowfield;
         }
@@ -628,9 +703,7 @@ public static class TerrainWorldFieldSampler
             return TerrainBiomeKind.Oasis;
         }
 
-        if (terms.Aridity > 0.48f &&
-            moisture < 0.56f &&
-            height < profile.SeaLevel + 460.0f)
+        if (IsDesertLowland(height, profile, terms, moisture, temperature))
         {
             return TerrainBiomeKind.Desert;
         }
@@ -684,7 +757,12 @@ public static class TerrainWorldFieldSampler
             return TerrainLandscapeKind.Coast;
         }
 
-        if (height > profile.SeaLevel + 680.0f || (temperature < 0.20f && height > profile.SeaLevel + 360.0f))
+        if (IsLake(height, profile, terms))
+        {
+            return TerrainLandscapeKind.Lake;
+        }
+
+        if (IsSnowfield(height, profile, terms, temperature))
         {
             return TerrainLandscapeKind.Snowfield;
         }
@@ -734,6 +812,59 @@ public static class TerrainWorldFieldSampler
         return TerrainLandscapeKind.Lowland;
     }
 
+    private static bool IsSnowfield(
+        float height,
+        TerrainGenerationProfile profile,
+        TerrainShapeTerms terms,
+        float temperature)
+    {
+        float normalizedTemperature = Mathf.Clamp(temperature / 0.46f, 0.0f, 1.0f);
+        float climateSnowLine = profile.SeaLevel + profile.HeightScale * Mathf.Lerp(0.30f, 0.55f, normalizedTemperature);
+        float alpineLowering = profile.HeightScale * Mathf.Clamp(terms.Alpine * 0.16f + terms.Mountains * 0.10f + terms.Hills * 0.045f, 0.0f, 0.19f);
+        float snowLine = climateSnowLine - alpineLowering;
+        float minimumElevation = profile.SeaLevel + profile.HeightScale * 0.22f;
+
+        return height > snowLine &&
+            height > minimumElevation &&
+            (temperature < 0.45f || terms.Alpine > 0.34f || terms.Mountains > 0.28f);
+    }
+
+    private static bool IsLake(
+        float height,
+        TerrainGenerationProfile profile,
+        TerrainShapeTerms terms)
+    {
+        return terms.Lake > 0.46f &&
+            height > profile.SeaLevel + 8.0f &&
+            height < profile.SeaLevel + profile.HeightScale * 0.68f &&
+            terms.Continent + terms.Island * 0.18f > 0.34f;
+    }
+
+    private static bool IsDesertLowland(
+        float height,
+        TerrainGenerationProfile profile,
+        TerrainShapeTerms terms,
+        float moisture,
+        float temperature)
+    {
+        if (height < profile.SeaLevel + 12.0f ||
+            height > profile.SeaLevel + 460.0f ||
+            terms.Mountains > 0.44f ||
+            terms.Wetland > 0.42f)
+        {
+            return false;
+        }
+
+        float warmDryness =
+            (1.0f - Mathf.SmoothStep(0.44f, 0.68f, moisture)) *
+            Mathf.SmoothStep(0.38f, 0.72f, temperature);
+        float aridLowland = terms.Aridity * 0.74f + warmDryness * 0.26f;
+        bool coreDesert = terms.Aridity > 0.44f && moisture < 0.62f;
+        bool dryPlain = aridLowland > 0.36f && moisture < 0.58f && temperature > 0.34f && terms.Forest < 0.62f;
+
+        return coreDesert || dryPlain;
+    }
+
     private readonly record struct TerrainShapeTerms(
         float Continent,
         float Basin,
@@ -741,6 +872,7 @@ public static class TerrainWorldFieldSampler
         float Mountains,
         float BroadElevation,
         float River,
+        float Lake,
         float MicroDetail,
         float BaseMoisture,
         float BaseTemperature,

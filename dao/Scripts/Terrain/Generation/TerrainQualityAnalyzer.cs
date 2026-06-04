@@ -12,7 +12,12 @@ public readonly record struct TerrainQualityThresholds(
     float MinScenicRatio,
     float MinTraversableLandRatio,
     int MinDistinctLandscapeKinds,
-    int MinDistinctBiomeKinds)
+    int MinDistinctBiomeKinds,
+    float MinPlainsGrasslandRatio,
+    float MinDesertOasisRatio,
+    float MinIslandCoastRatio,
+    float MinHillMountainRatio,
+    float MinSnowRatio)
 {
     public static TerrainQualityThresholds OpenWorldDefault { get; } = new(
         MinLandRatio: 0.38f,
@@ -21,7 +26,12 @@ public readonly record struct TerrainQualityThresholds(
         MinScenicRatio: 0.045f,
         MinTraversableLandRatio: 0.28f,
         MinDistinctLandscapeKinds: 6,
-        MinDistinctBiomeKinds: 7);
+        MinDistinctBiomeKinds: 7,
+        MinPlainsGrasslandRatio: 0.10f,
+        MinDesertOasisRatio: 0.005f,
+        MinIslandCoastRatio: 0.015f,
+        MinHillMountainRatio: 0.004f,
+        MinSnowRatio: 0.004f);
 }
 
 /// <summary>Detailed terrain quality metrics from sampling a world region.</summary>
@@ -63,6 +73,12 @@ public readonly record struct TerrainQualityReport(
     int MountainsCount,
     int BiomeSnowfieldCount)
 {
+    public float PlainsGrasslandRatio => Ratio(PlainsCount + GrasslandCount);
+    public float DesertOasisRatio => Ratio(DesertCount + OasisCount);
+    public float IslandCoastRatio => Ratio(IslandCount + Math.Max(CoastCount, BiomeCoastCount));
+    public float HillMountainRatio => Ratio(Math.Max(HillsCount + MountainsCount, HighlandsCount + MountainMassifCount + VistaPlateauCount));
+    public float SnowRatio => Ratio(Math.Max(SnowfieldCount, BiomeSnowfieldCount));
+
     public int CountFor(TerrainLandscapeKind kind)
     {
         return kind switch
@@ -100,6 +116,11 @@ public readonly record struct TerrainQualityReport(
             TerrainBiomeKind.Snowfield => BiomeSnowfieldCount,
             _ => 0
         };
+    }
+
+    private float Ratio(int count)
+    {
+        return SampleCount <= 0 ? 0.0f : count / (float)SampleCount;
     }
 }
 
@@ -299,6 +320,41 @@ public static class TerrainQualityAnalyzer
             report.DistinctBiomeKinds >= thresholds.MinDistinctBiomeKinds,
             report.DistinctBiomeKinds.ToString(),
             $">= {thresholds.MinDistinctBiomeKinds}",
+            ref passed);
+        AppendGate(
+            summary,
+            "plains/grassland coverage",
+            report.PlainsGrasslandRatio >= thresholds.MinPlainsGrasslandRatio,
+            $"{report.PlainsGrasslandRatio:0.000}",
+            $">= {thresholds.MinPlainsGrasslandRatio:0.000}",
+            ref passed);
+        AppendGate(
+            summary,
+            "desert/oasis coverage",
+            report.DesertOasisRatio >= thresholds.MinDesertOasisRatio,
+            $"{report.DesertOasisRatio:0.000}",
+            $">= {thresholds.MinDesertOasisRatio:0.000}",
+            ref passed);
+        AppendGate(
+            summary,
+            "island/coast coverage",
+            report.IslandCoastRatio >= thresholds.MinIslandCoastRatio,
+            $"{report.IslandCoastRatio:0.000}",
+            $">= {thresholds.MinIslandCoastRatio:0.000}",
+            ref passed);
+        AppendGate(
+            summary,
+            "hill/mountain coverage",
+            report.HillMountainRatio >= thresholds.MinHillMountainRatio,
+            $"{report.HillMountainRatio:0.000}",
+            $">= {thresholds.MinHillMountainRatio:0.000}",
+            ref passed);
+        AppendGate(
+            summary,
+            "snow coverage",
+            report.SnowRatio >= thresholds.MinSnowRatio,
+            $"{report.SnowRatio:0.000}",
+            $">= {thresholds.MinSnowRatio:0.000}",
             ref passed);
 
         return new TerrainQualityGateResult(passed, report, summary.ToString());

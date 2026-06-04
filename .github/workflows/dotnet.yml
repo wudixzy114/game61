@@ -72,3 +72,20 @@ jobs:
 
       - name: Validate terrain generation
         run: dotnet run --project tools/TerrainValidation/TerrainValidation.csproj --configuration ${{ env.CONFIGURATION }} --no-build -- --seed-count 3
+
+      - name: Benchmark managed terrain tiles
+        run: >
+          dotnet run --project tools/TerrainValidation/TerrainValidation.csproj
+          --configuration ${{ env.CONFIGURATION }}
+          --no-build
+          --
+          --seed 1337
+          --skip-corridor-smoke
+          --skip-route-scatter-smoke
+          --skip-poi-tile-smoke
+          --skip-gameplay-scatter-smoke
+          --skip-biome-scatter-smoke
+          --skip-scenic-landmark-smoke
+          --skip-artifact-smoke
+          --benchmark-tiles
+          --benchmark-tile-count 24

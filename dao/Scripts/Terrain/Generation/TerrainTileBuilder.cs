@@ -3,6 +3,7 @@ using System.Buffers;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Threading;
+using System.Threading.Tasks;
 using Godot;
 
 namespace Dao.Terrain.Generation;
@@ -11,6 +12,9 @@ namespace Dao.Terrain.Generation;
 public static partial class TerrainTileBuilder
 {
     private const float SkirtEnabledThreshold = 0.001f;
+    private const int ManagedSamplingParallelVertexThreshold = 2048;
+    private static readonly int ManagedSamplingMaxDegreeOfParallelism = ComputeManagedSamplingMaxDegreeOfParallelism();
+    private static readonly SemaphoreSlim ManagedSamplingParallelBuildSlots = new(ComputeManagedSamplingParallelBuildSlotCount());
     private static readonly ConcurrentDictionary<int, int[]> SurfaceIndexCache = new();
     private static readonly ConcurrentDictionary<int, int[]> SkirtedIndexCache = new();
 
@@ -82,6 +86,9 @@ public static partial class TerrainTileBuilder
         bool useNativeHeights = !useNativeFields &&
             profile.UseNativeSamplerWhenAvailable &&
             NativeTerrainBridge.TrySampleHeightGrid(coord, resolution, profile, out nativeHeights);
+        float managedLandBalanceOffset = !useNativeFields && !useNativeHeights
+            ? TerrainWorldFieldSampler.LandBalanceOffsetFor(profile)
+            : 0.0f;
         bool useSkirtedRenderMesh = Mathf.Max(0.0f, profile.SkirtDepth) > SkirtEnabledThreshold;
         Vector3[] surfaceVertices = [];
         Vector3[] surfaceNormals = [];
@@ -92,6 +99,7 @@ public static partial class TerrainTileBuilder
         TerrainRouteCorridorSample[] corridorSamples = [];
         TerrainPointFootprintSample[] footprintSamples = [];
         TerrainSettlementLayoutSample[] settlementLayoutSamples = [];
+        bool releaseManagedParallelSamplingSlot = false;
 
         try
         {
@@ -112,121 +120,176 @@ public static partial class TerrainTileBuilder
                 : [];
             bool hasSettlementLayouts = settlementLayouts.Length > 0;
             settlementLayoutSamples = hasSettlementLayouts ? ArrayPool<TerrainSettlementLayoutSample>.Shared.Rent(vertexCount) : [];
-
-            float minHeight = float.PositiveInfinity;
-            float maxHeight = float.NegativeInfinity;
-
-            for (int z = 0; z <= resolution; z++)
+            bool useManagedParallelSampling = ShouldUseManagedParallelSampling(useNativeFields, useNativeHeights, vertexCount);
+            if (useManagedParallelSampling)
             {
-                cancellationToken.ThrowIfCancellationRequested();
+                releaseManagedParallelSamplingSlot = ManagedSamplingParallelBuildSlots.Wait(0);
+                useManagedParallelSampling = releaseManagedParallelSamplingSlot;
+            }
 
-                for (int x = 0; x <= resolution; x++)
+            void SampleSurfaceVertex(int z, int x)
+            {
+                int index = Index(x, z, vertexCountPerSide);
+                float localX = x * step;
+                float localZ = z * step;
+                Vector2 world = new(origin.X + localX, origin.Y + localZ);
+                TerrainWorldField field = useNativeFields
+                    ? TerrainWorldFieldSampler.SampleNativeFieldGrid(world, profile, nativeFieldSamples, index, nativeFieldsContainDerivedData)
+                    : useNativeHeights
+                    ? TerrainWorldFieldSampler.SampleKnownHeight(world, profile, nativeHeights[index])
+                    : TerrainWorldFieldSampler.Sample(world, profile, managedLandBalanceOffset);
+                float height = field.Height;
+                TerrainRouteCorridorSample corridor = TerrainRouteCorridorSample.None;
+                if (hasCorridors)
                 {
-                    int index = Index(x, z, vertexCountPerSide);
-                    float localX = x * step;
-                    float localZ = z * step;
-                    Vector2 world = new(origin.X + localX, origin.Y + localZ);
-                    TerrainWorldField field = useNativeFields
-                        ? TerrainWorldFieldSampler.SampleNativeFieldGrid(world, profile, nativeFieldSamples, index, nativeFieldsContainDerivedData)
-                        : useNativeHeights
-                        ? TerrainWorldFieldSampler.SampleKnownHeight(world, profile, nativeHeights[index])
-                        : TerrainWorldFieldSampler.Sample(world, profile);
-                    float height = field.Height;
-                    TerrainRouteCorridorSample corridor = TerrainRouteCorridorSample.None;
-                    if (hasCorridors)
+                    corridor = routeCorridors.Sample(world, corridorSegments);
+                    corridorSamples[index] = corridor;
+                }
+
+                if (corridor.HasInfluence)
+                {
+                    height = ApplyRouteCorridorHeight(height, corridor);
+                    field = field with
                     {
-                        corridor = routeCorridors.Sample(world, corridorSegments);
-                        corridorSamples[index] = corridor;
-                    }
+                        Height = height,
+                        Traversability = Mathf.Max(field.Traversability, Mathf.Lerp(field.Traversability, 0.86f, corridor.CoreStrength))
+                    };
+                }
 
-                    if (corridor.HasInfluence)
+                TerrainPointFootprintSample footprint = TerrainPointFootprintSample.None;
+                if (hasPointInfluences)
+                {
+                    footprint = SamplePointFootprint(world, pointInfluences, profile);
+                    footprintSamples[index] = footprint;
+                }
+
+                if (footprint.HasInfluence)
+                {
+                    height = ApplyPointFootprintHeight(height, footprint);
+                    field = field with
                     {
-                        height = ApplyRouteCorridorHeight(height, corridor);
-                        field = field with
-                        {
-                            Height = height,
-                            Traversability = Mathf.Max(field.Traversability, Mathf.Lerp(field.Traversability, 0.86f, corridor.CoreStrength))
-                        };
-                    }
+                        Height = height,
+                        Traversability = Mathf.Max(field.Traversability, Mathf.Lerp(field.Traversability, 0.92f, footprint.CoreStrength)),
+                        EncounterPotential = Mathf.Max(field.EncounterPotential, Mathf.Lerp(field.EncounterPotential, 0.62f, footprint.CoreStrength * 0.60f))
+                    };
+                }
 
-                    TerrainPointFootprintSample footprint = TerrainPointFootprintSample.None;
-                    if (hasPointInfluences)
+                TerrainSettlementLayoutSample settlementLayout = TerrainSettlementLayoutSample.None;
+                if (hasSettlementLayouts)
+                {
+                    settlementLayout = SampleSettlementLayout(world, settlementLayouts);
+                    settlementLayoutSamples[index] = settlementLayout;
+                }
+
+                if (settlementLayout.HasInfluence)
+                {
+                    height = ApplySettlementLayoutHeight(height, settlementLayout);
+                    field = field with
                     {
-                        footprint = SamplePointFootprint(world, pointInfluences, profile);
-                        footprintSamples[index] = footprint;
-                    }
+                        Height = height,
+                        Traversability = Mathf.Max(field.Traversability, Mathf.Lerp(field.Traversability, 0.95f, settlementLayout.CoreStrength)),
+                        EncounterPotential = Mathf.Max(field.EncounterPotential, Mathf.Lerp(field.EncounterPotential, 0.66f, settlementLayout.Influence * 0.45f))
+                    };
+                }
 
-                    if (footprint.HasInfluence)
+                surfaceVertices[index] = new Vector3(localX, height, localZ);
+                surfaceUvs[index] = new Vector2(
+                    world.X / profile.ChunkSize,
+                    world.Y / profile.ChunkSize);
+                heights[index] = height;
+                fields[index] = field;
+            }
+
+            if (useManagedParallelSampling)
+            {
+                var parallelOptions = new ParallelOptions
+                {
+                    CancellationToken = cancellationToken,
+                    MaxDegreeOfParallelism = ManagedSamplingMaxDegreeOfParallelism
+                };
+                Parallel.For(0, resolution + 1, parallelOptions, z =>
+                {
+                    for (int x = 0; x <= resolution; x++)
                     {
-                        height = ApplyPointFootprintHeight(height, footprint);
-                        field = field with
-                        {
-                            Height = height,
-                            Traversability = Mathf.Max(field.Traversability, Mathf.Lerp(field.Traversability, 0.92f, footprint.CoreStrength)),
-                            EncounterPotential = Mathf.Max(field.EncounterPotential, Mathf.Lerp(field.EncounterPotential, 0.62f, footprint.CoreStrength * 0.60f))
-                        };
+                        SampleSurfaceVertex(z, x);
                     }
+                });
+            }
+            else
+            {
+                for (int z = 0; z <= resolution; z++)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
 
-                    TerrainSettlementLayoutSample settlementLayout = TerrainSettlementLayoutSample.None;
-                    if (hasSettlementLayouts)
+                    for (int x = 0; x <= resolution; x++)
                     {
-                        settlementLayout = SampleSettlementLayout(world, settlementLayouts);
-                        settlementLayoutSamples[index] = settlementLayout;
+                        SampleSurfaceVertex(z, x);
                     }
-
-                    if (settlementLayout.HasInfluence)
-                    {
-                        height = ApplySettlementLayoutHeight(height, settlementLayout);
-                        field = field with
-                        {
-                            Height = height,
-                            Traversability = Mathf.Max(field.Traversability, Mathf.Lerp(field.Traversability, 0.95f, settlementLayout.CoreStrength)),
-                            EncounterPotential = Mathf.Max(field.EncounterPotential, Mathf.Lerp(field.EncounterPotential, 0.66f, settlementLayout.Influence * 0.45f))
-                        };
-                    }
-
-                    surfaceVertices[index] = new Vector3(localX, height, localZ);
-                    surfaceUvs[index] = new Vector2(
-                        world.X / profile.ChunkSize,
-                        world.Y / profile.ChunkSize);
-                    heights[index] = height;
-                    fields[index] = field;
-
-                    minHeight = Mathf.Min(minHeight, height);
-                    maxHeight = Mathf.Max(maxHeight, height);
                 }
             }
 
-            for (int z = 0; z <= resolution; z++)
+            float minHeight = float.PositiveInfinity;
+            float maxHeight = float.NegativeInfinity;
+            for (int i = 0; i < vertexCount; i++)
             {
-                cancellationToken.ThrowIfCancellationRequested();
+                float height = heights[i];
+                minHeight = Mathf.Min(minHeight, height);
+                maxHeight = Mathf.Max(maxHeight, height);
+            }
 
-                for (int x = 0; x <= resolution; x++)
+            void ColorSurfaceVertex(int z, int x)
+            {
+                int index = Index(x, z, vertexCountPerSide);
+                Vector3 normal = CalculateGridNormal(x, z, resolution, vertexCountPerSide, heights, step);
+                float slope = 1.0f - Mathf.Clamp(normal.Y, 0.0f, 1.0f);
+                surfaceNormals[index] = normal;
+                surfaceColors[index] = TerrainSampler.ColorForSurface(fields[index], profile, slope);
+
+                if (heights[index] < profile.SeaLevel + 3.0f)
                 {
-                    int index = Index(x, z, vertexCountPerSide);
-                    Vector3 normal = CalculateGridNormal(x, z, resolution, vertexCountPerSide, heights, step);
-                    float slope = 1.0f - Mathf.Clamp(normal.Y, 0.0f, 1.0f);
-                    surfaceNormals[index] = normal;
-                    surfaceColors[index] = TerrainSampler.ColorForSurface(fields[index], profile, slope);
+                    surfaceColors[index] = surfaceColors[index].Lerp(new Color(0.10f, 0.24f, 0.31f), 0.35f);
+                }
 
-                    if (heights[index] < profile.SeaLevel + 3.0f)
+                if (hasCorridors && corridorSamples[index].HasInfluence)
+                {
+                    surfaceColors[index] = BlendRouteSurfaceColor(surfaceColors[index], corridorSamples[index]);
+                }
+
+                if (hasPointInfluences && footprintSamples[index].HasInfluence)
+                {
+                    surfaceColors[index] = BlendPointFootprintColor(surfaceColors[index], footprintSamples[index]);
+                }
+
+                if (hasSettlementLayouts && settlementLayoutSamples[index].HasInfluence)
+                {
+                    surfaceColors[index] = BlendSettlementLayoutColor(surfaceColors[index], settlementLayoutSamples[index]);
+                }
+            }
+
+            if (useManagedParallelSampling)
+            {
+                var parallelOptions = new ParallelOptions
+                {
+                    CancellationToken = cancellationToken,
+                    MaxDegreeOfParallelism = ManagedSamplingMaxDegreeOfParallelism
+                };
+                Parallel.For(0, resolution + 1, parallelOptions, z =>
+                {
+                    for (int x = 0; x <= resolution; x++)
                     {
-                        surfaceColors[index] = surfaceColors[index].Lerp(new Color(0.10f, 0.24f, 0.31f), 0.35f);
+                        ColorSurfaceVertex(z, x);
                     }
+                });
+            }
+            else
+            {
+                for (int z = 0; z <= resolution; z++)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
 
-                    if (hasCorridors && corridorSamples[index].HasInfluence)
+                    for (int x = 0; x <= resolution; x++)
                     {
-                        surfaceColors[index] = BlendRouteSurfaceColor(surfaceColors[index], corridorSamples[index]);
-                    }
-
-                    if (hasPointInfluences && footprintSamples[index].HasInfluence)
-                    {
-                        surfaceColors[index] = BlendPointFootprintColor(surfaceColors[index], footprintSamples[index]);
-                    }
-
-                    if (hasSettlementLayouts && settlementLayoutSamples[index].HasInfluence)
-                    {
-                        surfaceColors[index] = BlendSettlementLayoutColor(surfaceColors[index], settlementLayoutSamples[index]);
+                        ColorSurfaceVertex(z, x);
                     }
                 }
             }
@@ -304,7 +367,41 @@ public static partial class TerrainTileBuilder
             {
                 ReturnPooled(nativeFieldSamples);
             }
+
+            if (releaseManagedParallelSamplingSlot)
+            {
+                ManagedSamplingParallelBuildSlots.Release();
+            }
         }
+    }
+
+    private static int ComputeManagedSamplingMaxDegreeOfParallelism()
+    {
+        int processors = System.Environment.ProcessorCount;
+        if (processors <= 1)
+        {
+            return 1;
+        }
+
+        return Math.Min(4, Math.Max(2, processors / 2));
+    }
+
+    private static int ComputeManagedSamplingParallelBuildSlotCount()
+    {
+        int processors = System.Environment.ProcessorCount;
+        int workersPerBuild = Math.Max(1, ManagedSamplingMaxDegreeOfParallelism);
+        return Math.Max(1, processors / workersPerBuild);
+    }
+
+    private static bool ShouldUseManagedParallelSampling(
+        bool useNativeFields,
+        bool useNativeHeights,
+        int vertexCount)
+    {
+        return !useNativeFields &&
+            !useNativeHeights &&
+            vertexCount >= ManagedSamplingParallelVertexThreshold &&
+            ManagedSamplingMaxDegreeOfParallelism > 1;
     }
 
     private static void ReturnPooled<T>(T[] array)
@@ -592,14 +689,17 @@ public static partial class TerrainTileBuilder
                         ? routeCorridors.Sample(world, corridorSegments)
                         : TerrainRouteCorridorSample.None;
 
-                    if (height < profile.SeaLevel + 6.0f && (!corridor.HasInfluence || corridor.CoreStrength < 0.32f))
+                    Vector3 normal = SampleNearestNormal(localX, localZ, resolution, step, normals, vertexCountPerSide);
+                    float slope = 1.0f - Mathf.Clamp(normal.Y, 0.0f, 1.0f);
+                    TerrainWorldField field = SampleFieldBilinear(localX, localZ, resolution, step, fields, vertexCountPerSide);
+                    bool isTidalMangroveFlat = IsMangroveTidalFlat(height, slope, field, profile);
+                    if (height < profile.SeaLevel + 6.0f &&
+                        !isTidalMangroveFlat &&
+                        (!corridor.HasInfluence || corridor.CoreStrength < 0.32f))
                     {
                         continue;
                     }
 
-                    Vector3 normal = SampleNearestNormal(localX, localZ, resolution, step, normals, vertexCountPerSide);
-                    float slope = 1.0f - Mathf.Clamp(normal.Y, 0.0f, 1.0f);
-                    TerrainWorldField field = SampleFieldBilinear(localX, localZ, resolution, step, fields, vertexCountPerSide);
                     float roll = Hash01(coord.X, coord.Z, x * 881 + z * 977, profile.Seed + 31);
 
                     if (IsInsidePointFootprint(world, plannedPoints, profile, minimumInfluence: 0.08f))

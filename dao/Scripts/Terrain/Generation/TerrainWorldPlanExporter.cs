@@ -84,9 +84,8 @@ public static class TerrainWorldPlanExporter
         TerrainMapLayer baseLayer,
         string outputPath)
     {
-        Image image = CreatePlanMap(plan, profile, imageSize, baseLayer);
         EnsureDirectoryForPath(outputPath);
-        return image.SavePng(outputPath);
+        return TerrainMapExporter.SaveRasterPng(CreatePlanRaster(plan, profile, imageSize, baseLayer), outputPath);
     }
 
     /// <summary>Creates a plan map image with base layer terrain, route lines, and POI markers.</summary>
@@ -96,19 +95,29 @@ public static class TerrainWorldPlanExporter
         int imageSize,
         TerrainMapLayer baseLayer = TerrainMapLayer.Biome)
     {
-        Image image = TerrainMapExporter.CreateMap(profile, plan.Center, plan.WorldSize, imageSize, baseLayer);
+        return TerrainMapExporter.CreateImage(CreatePlanRaster(plan, profile, imageSize, baseLayer));
+    }
+
+    /// <summary>Creates a managed plan map raster with base terrain, route lines, and POI markers.</summary>
+    public static TerrainMapRaster CreatePlanRaster(
+        TerrainWorldPlan plan,
+        TerrainGenerationProfile profile,
+        int imageSize,
+        TerrainMapLayer baseLayer = TerrainMapLayer.Biome)
+    {
+        TerrainMapRaster raster = TerrainMapExporter.CreateRaster(profile, plan.Center, plan.WorldSize, imageSize, baseLayer);
 
         foreach (TerrainWorldRoute route in plan.Routes)
         {
-            DrawRoute(image, plan, route);
+            DrawRoute(raster, plan, route);
         }
 
         foreach (TerrainWorldPointOfInterest point in plan.PointsOfInterest)
         {
-            DrawPointOfInterest(image, plan, point);
+            DrawPointOfInterest(raster, plan, point);
         }
 
-        return image;
+        return raster;
     }
 
     /// <summary>Creates a detailed text report describing a world plan's quality, planning, and experience metrics.</summary>
@@ -232,19 +241,20 @@ public static class TerrainWorldPlanExporter
         string? mapPath,
         string outputPath)
     {
-        EnsureDirectoryForPath(outputPath);
-        FileAccess? file = FileAccess.Open(outputPath, FileAccess.ModeFlags.Write);
-        if (file is null)
+        try
         {
-            return FileAccess.GetOpenError();
+            EnsureDirectoryForPath(outputPath);
+            string path = FileSystemPath(outputPath);
+            System.IO.File.WriteAllText(
+                path,
+                CreateTextReport(plan, planningGate, qualityGate, experienceGate, mapPath));
+            return Error.Ok;
         }
-
-        using (file)
+        catch (Exception exception)
         {
-            file.StoreString(CreateTextReport(plan, planningGate, qualityGate, experienceGate, mapPath));
+            GD.PushError($"Failed to save terrain text report '{outputPath}': {exception.Message}");
+            return Error.FileCantWrite;
         }
-
-        return Error.Ok;
     }
 
     private static IEnumerable<TerrainWorldPointOfInterest> TopPoints(
@@ -262,7 +272,7 @@ public static class TerrainWorldPlanExporter
         }
     }
 
-    private static void DrawRoute(Image image, TerrainWorldPlan plan, TerrainWorldRoute route)
+    private static void DrawRoute(TerrainMapRaster raster, TerrainWorldPlan plan, TerrainWorldRoute route)
     {
         if (route.Waypoints.Length < 2)
         {
@@ -270,12 +280,12 @@ public static class TerrainWorldPlanExporter
         }
 
         Color routeColor = ColorForRoute(route.Kind);
-        DrawPolyline(image, plan, route.Waypoints, RouteShadow, radius: 4);
-        DrawPolyline(image, plan, route.Waypoints, routeColor, radius: 2);
+        DrawPolyline(raster, plan, route.Waypoints, RouteShadow, radius: 4);
+        DrawPolyline(raster, plan, route.Waypoints, routeColor, radius: 2);
     }
 
     private static void DrawPolyline(
-        Image image,
+        TerrainMapRaster raster,
         TerrainWorldPlan plan,
         Vector2[] waypoints,
         Color color,
@@ -283,41 +293,41 @@ public static class TerrainWorldPlanExporter
     {
         for (int i = 1; i < waypoints.Length; i++)
         {
-            if (!TryWorldToPixel(image, plan, waypoints[i - 1], out Vector2I from) ||
-                !TryWorldToPixel(image, plan, waypoints[i], out Vector2I to))
+            if (!TryWorldToPixel(raster, plan, waypoints[i - 1], out Vector2I from) ||
+                !TryWorldToPixel(raster, plan, waypoints[i], out Vector2I to))
             {
                 continue;
             }
 
-            DrawLine(image, from, to, color, radius);
+            DrawLine(raster, from, to, color, radius);
         }
     }
 
     private static void DrawPointOfInterest(
-        Image image,
+        TerrainMapRaster raster,
         TerrainWorldPlan plan,
         TerrainWorldPointOfInterest point)
     {
-        if (!TryWorldToPixel(image, plan, point.WorldPosition, out Vector2I pixel))
+        if (!TryWorldToPixel(raster, plan, point.WorldPosition, out Vector2I pixel))
         {
             return;
         }
 
         int radius = Mathf.Clamp(Mathf.RoundToInt(5.0f + point.Score * 5.0f), 5, 10);
         Color color = ColorForPoint(point);
-        DrawDisc(image, pixel.X, pixel.Y, radius + 2, MarkerOutline);
-        DrawDisc(image, pixel.X, pixel.Y, radius, color);
-        DrawDisc(image, pixel.X, pixel.Y, Mathf.Max(2, radius / 3), MarkerCore);
+        DrawDisc(raster, pixel.X, pixel.Y, radius + 2, MarkerOutline);
+        DrawDisc(raster, pixel.X, pixel.Y, radius, color);
+        DrawDisc(raster, pixel.X, pixel.Y, Mathf.Max(2, radius / 3), MarkerCore);
     }
 
-    private static void DrawLine(Image image, Vector2I from, Vector2I to, Color color, int radius)
+    private static void DrawLine(TerrainMapRaster raster, Vector2I from, Vector2I to, Color color, int radius)
     {
         int dx = to.X - from.X;
         int dy = to.Y - from.Y;
         int steps = Mathf.Max(Mathf.Abs(dx), Mathf.Abs(dy));
         if (steps == 0)
         {
-            DrawDisc(image, from.X, from.Y, radius, color);
+            DrawDisc(raster, from.X, from.Y, radius, color);
             return;
         }
 
@@ -326,11 +336,11 @@ public static class TerrainWorldPlanExporter
             float t = i / (float)steps;
             int x = Mathf.RoundToInt(Mathf.Lerp(from.X, to.X, t));
             int y = Mathf.RoundToInt(Mathf.Lerp(from.Y, to.Y, t));
-            DrawDisc(image, x, y, radius, color);
+            DrawDisc(raster, x, y, radius, color);
         }
     }
 
-    private static void DrawDisc(Image image, int centerX, int centerY, int radius, Color color)
+    private static void DrawDisc(TerrainMapRaster raster, int centerX, int centerY, int radius, Color color)
     {
         int radiusSquared = radius * radius;
         for (int y = -radius; y <= radius; y++)
@@ -342,28 +352,28 @@ public static class TerrainWorldPlanExporter
                     continue;
                 }
 
-                BlendPixel(image, centerX + x, centerY + y, color);
+                BlendPixel(raster, centerX + x, centerY + y, color);
             }
         }
     }
 
-    private static void BlendPixel(Image image, int x, int y, Color color)
+    private static void BlendPixel(TerrainMapRaster raster, int x, int y, Color color)
     {
-        if (x < 0 || y < 0 || x >= image.GetWidth() || y >= image.GetHeight())
+        if (x < 0 || y < 0 || x >= raster.Width || y >= raster.Height)
         {
             return;
         }
 
-        Color existing = image.GetPixel(x, y);
+        Color existing = raster.GetPixel(x, y);
         float alpha = Mathf.Clamp(color.A, 0.0f, 1.0f);
         Color target = new(color.R, color.G, color.B, 1.0f);
         Color blended = existing.Lerp(target, alpha);
         blended.A = 1.0f;
-        image.SetPixel(x, y, blended);
+        raster.SetPixel(x, y, blended);
     }
 
     private static bool TryWorldToPixel(
-        Image image,
+        TerrainMapRaster raster,
         TerrainWorldPlan plan,
         Vector2 world,
         out Vector2I pixel)
@@ -377,8 +387,8 @@ public static class TerrainWorldPlanExporter
         }
 
         pixel = new Vector2I(
-            Mathf.Clamp(Mathf.RoundToInt(tx * (image.GetWidth() - 1)), 0, image.GetWidth() - 1),
-            Mathf.Clamp(Mathf.RoundToInt(ty * (image.GetHeight() - 1)), 0, image.GetHeight() - 1));
+            Mathf.Clamp(Mathf.RoundToInt(tx * (raster.Width - 1)), 0, raster.Width - 1),
+            Mathf.Clamp(Mathf.RoundToInt(ty * (raster.Height - 1)), 0, raster.Height - 1));
         return true;
     }
 
@@ -453,6 +463,13 @@ public static class TerrainWorldPlanExporter
         }
 
         return $"{outputDirectory.Replace('\\', '/').TrimEnd('/')}/{fileName}";
+    }
+
+    private static string FileSystemPath(string path)
+    {
+        return path.Contains("://", StringComparison.Ordinal)
+            ? ProjectSettings.GlobalizePath(path)
+            : System.IO.Path.GetFullPath(path);
     }
 
     private static void EnsureDirectoryForPath(string path)

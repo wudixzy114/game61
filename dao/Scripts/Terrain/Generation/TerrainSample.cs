@@ -8,6 +8,7 @@ public readonly record struct TerrainSample(
     float Continental,
     float Mountain,
     float River,
+    float Lake,
     float Moisture,
     float Temperature,
     float ScenicPotential,

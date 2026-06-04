@@ -315,9 +315,20 @@ double sample_height_unbalanced(
 			p_profile.seed + 317,
 			4);
 	const double base_temperature = clamp_value(1.0 - latitude + temperature_noise * 0.16 - 0.04, 0.0, 1.0);
-	const double aridity = (1.0 - smooth_step(0.30, 0.58, base_moisture)) *
+	const double rain_shadow_noise = ridged(
+			(climate_warp_x + 2281.0) / (p_profile.continent_scale * 0.64),
+			(climate_warp_z - 3167.0) / (p_profile.continent_scale * 0.64),
+			p_profile.seed + 389,
+			4);
+	const double rain_shadow_aridity =
+			smooth_step(0.50, 0.82, rain_shadow_noise) *
+			smooth_step(0.38, 0.78, base_temperature) *
+			smooth_step(0.34, 0.82, continent + island * 0.18) *
+			(1.0 - smooth_step(0.74, 0.94, base_moisture));
+	double aridity = (1.0 - smooth_step(0.30, 0.58, base_moisture)) *
 			smooth_step(0.52, 0.84, base_temperature) *
 			smooth_step(0.33, 0.78, continent + island * 0.22);
+	aridity = clamp_value(std::max(aridity, rain_shadow_aridity * 0.82), 0.0, 1.0);
 	const double lowland_mask = smooth_step(0.36, 0.72, continent + island * 0.25) *
 			(1.0 - smooth_step(0.22, 0.50, mountains));
 	const double plains = lowland_mask *
@@ -611,6 +622,45 @@ double compute_encounter_potential(
 			1.0);
 }
 
+bool is_snowfield(
+		double p_height,
+		const NativeTerrainProfile &p_profile,
+		const NativeTerrainTerms &p_terms,
+		double p_temperature) {
+	const double normalized_temperature = clamp_value(p_temperature / 0.46, 0.0, 1.0);
+	const double climate_snow_line = p_profile.sea_level + p_profile.height_scale * lerp_value(0.30, 0.55, normalized_temperature);
+	const double alpine_lowering = p_profile.height_scale * clamp_value(p_terms.alpine * 0.16 + p_terms.mountains * 0.10 + p_terms.hills * 0.045, 0.0, 0.19);
+	const double snow_line = climate_snow_line - alpine_lowering;
+	const double minimum_elevation = p_profile.sea_level + p_profile.height_scale * 0.22;
+
+	return p_height > snow_line &&
+			p_height > minimum_elevation &&
+			(p_temperature < 0.45 || p_terms.alpine > 0.34 || p_terms.mountains > 0.28);
+}
+
+bool is_desert_lowland(
+		double p_height,
+		const NativeTerrainProfile &p_profile,
+		const NativeTerrainTerms &p_terms,
+		double p_moisture,
+		double p_temperature) {
+	if (p_height < p_profile.sea_level + 12.0 ||
+			p_height > p_profile.sea_level + 460.0 ||
+			p_terms.mountains > 0.44 ||
+			p_terms.wetland > 0.42) {
+		return false;
+	}
+
+	const double warm_dryness =
+			(1.0 - smooth_step(0.44, 0.68, p_moisture)) *
+			smooth_step(0.38, 0.72, p_temperature);
+	const double arid_lowland = p_terms.aridity * 0.74 + warm_dryness * 0.26;
+	const bool core_desert = p_terms.aridity > 0.44 && p_moisture < 0.62;
+	const bool dry_plain = arid_lowland > 0.36 && p_moisture < 0.58 && p_temperature > 0.34 && p_terms.forest < 0.62;
+
+	return core_desert || dry_plain;
+}
+
 int classify_biome(
 		double p_height,
 		const NativeTerrainProfile &p_profile,
@@ -625,7 +675,7 @@ int classify_biome(
 		return BIOME_COAST;
 	}
 
-	if (p_height > p_profile.sea_level + 680.0 || (p_temperature < 0.20 && p_height > p_profile.sea_level + 360.0)) {
+	if (is_snowfield(p_height, p_profile, p_terms, p_temperature)) {
 		return BIOME_SNOWFIELD;
 	}
 
@@ -640,9 +690,7 @@ int classify_biome(
 		return BIOME_OASIS;
 	}
 
-	if (p_terms.aridity > 0.48 &&
-			p_moisture < 0.56 &&
-			p_height < p_profile.sea_level + 460.0) {
+	if (is_desert_lowland(p_height, p_profile, p_terms, p_moisture, p_temperature)) {
 		return BIOME_DESERT;
 	}
 
@@ -687,7 +735,7 @@ int classify_landscape(
 		return LANDSCAPE_COAST;
 	}
 
-	if (p_height > p_profile.sea_level + 680.0 || (p_temperature < 0.20 && p_height > p_profile.sea_level + 360.0)) {
+	if (is_snowfield(p_height, p_profile, p_terms, p_temperature)) {
 		return LANDSCAPE_SNOWFIELD;
 	}
 
