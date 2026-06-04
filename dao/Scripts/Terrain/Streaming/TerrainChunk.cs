@@ -520,6 +520,37 @@ public partial class TerrainChunk : Node3D
                 CapTop = true,
                 CapBottom = true
             },
+            TerrainLandmarkKind.VillageWell => new CylinderMesh
+            {
+                TopRadius = 0.48f,
+                BottomRadius = 0.54f,
+                Height = 0.46f,
+                RadialSegments = 12,
+                Rings = 1,
+                CapTop = true,
+                CapBottom = true
+            },
+            TerrainLandmarkKind.MarketStall => new BoxMesh { Size = new Vector3(1.20f, 0.54f, 0.84f) },
+            TerrainLandmarkKind.WatchTower => new CylinderMesh
+            {
+                TopRadius = 0.24f,
+                BottomRadius = 0.46f,
+                Height = 2.35f,
+                RadialSegments = 6,
+                Rings = 1,
+                CapTop = true,
+                CapBottom = true
+            },
+            TerrainLandmarkKind.OasisGarden => new CylinderMesh
+            {
+                TopRadius = 0.74f,
+                BottomRadius = 0.82f,
+                Height = 0.32f,
+                RadialSegments = 10,
+                Rings = 1,
+                CapTop = true,
+                CapBottom = true
+            },
             TerrainLandmarkKind.Waterfall => new BoxMesh { Size = new Vector3(0.72f, 2.65f, 0.34f) },
             TerrainLandmarkKind.RoadMarker => new CylinderMesh
             {
@@ -604,6 +635,10 @@ public partial class TerrainChunk : Node3D
             TerrainLandmarkKind.OasisCanopy => new Vector3(scale * 1.10f, scale * 0.74f, scale * 1.10f),
             TerrainLandmarkKind.SettlementPlaza => new Vector3(scale * 1.45f, scale * 0.16f, scale * 1.45f),
             TerrainLandmarkKind.OasisPool => new Vector3(scale * 1.62f, scale * 0.08f, scale * 1.62f),
+            TerrainLandmarkKind.VillageWell => new Vector3(scale * 0.92f, scale * 0.42f, scale * 0.92f),
+            TerrainLandmarkKind.MarketStall => new Vector3(scale * 1.18f, scale * 0.58f, scale * 0.82f),
+            TerrainLandmarkKind.WatchTower => new Vector3(scale * 0.58f, scale * 2.05f, scale * 0.58f),
+            TerrainLandmarkKind.OasisGarden => new Vector3(scale * 1.32f, scale * 0.22f, scale * 1.32f),
             TerrainLandmarkKind.Waterfall => new Vector3(scale * 0.58f, scale * 2.10f, scale * 0.38f),
             TerrainLandmarkKind.RoadMarker => new Vector3(scale * 0.38f, scale * 1.18f, scale * 0.38f),
             TerrainLandmarkKind.BridgeSpan => new Vector3(scale * 1.94f, scale * 0.20f, scale * 0.78f),
@@ -639,6 +674,10 @@ public partial class TerrainChunk : Node3D
             TerrainLandmarkKind.OasisCanopy => 0.34f,
             TerrainLandmarkKind.SettlementPlaza => 0.08f,
             TerrainLandmarkKind.OasisPool => 0.03f,
+            TerrainLandmarkKind.VillageWell => 0.20f,
+            TerrainLandmarkKind.MarketStall => 0.30f,
+            TerrainLandmarkKind.WatchTower => 0.98f,
+            TerrainLandmarkKind.OasisGarden => 0.12f,
             TerrainLandmarkKind.Waterfall => 0.84f,
             TerrainLandmarkKind.RoadMarker => 0.58f,
             TerrainLandmarkKind.BridgeSpan => 0.10f,

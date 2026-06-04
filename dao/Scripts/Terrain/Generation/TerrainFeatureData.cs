@@ -53,7 +53,11 @@ public enum TerrainLandmarkKind
     IceSpire,
     NaturalArch,
     GeothermalSpring,
-    GlacialRidge
+    GlacialRidge,
+    VillageWell,
+    MarketStall,
+    WatchTower,
+    OasisGarden
 }
 
 /// <summary>A single placed scatter object (tree, rock, landmark, etc.) with transform and tint.</summary>

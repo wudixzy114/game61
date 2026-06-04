@@ -486,11 +486,20 @@ static TerrainPoiTileSmokeReport ValidatePoiTileMaterialization(
     int oasisCanopyScatterCount = scatterKindCounts[(int)TerrainLandmarkKind.OasisCanopy];
     int settlementPlazaScatterCount = scatterKindCounts[(int)TerrainLandmarkKind.SettlementPlaza];
     int oasisPoolScatterCount = scatterKindCounts[(int)TerrainLandmarkKind.OasisPool];
+    int villageWellScatterCount = scatterKindCounts[(int)TerrainLandmarkKind.VillageWell];
+    int marketStallScatterCount = scatterKindCounts[(int)TerrainLandmarkKind.MarketStall];
+    int watchTowerScatterCount = scatterKindCounts[(int)TerrainLandmarkKind.WatchTower];
+    int oasisGardenScatterCount = scatterKindCounts[(int)TerrainLandmarkKind.OasisGarden];
+    int settlementServiceScatterCount =
+        villageWellScatterCount +
+        marketStallScatterCount +
+        watchTowerScatterCount +
+        oasisGardenScatterCount;
 
     bool passed =
         materialized.Count == expected.Count &&
         distinctKinds >= 5 &&
-        distinctScatterKinds >= 5 &&
+        distinctScatterKinds >= 9 &&
         kindCounts[(int)TerrainLandmarkKind.Village] > 0 &&
         kindCounts[(int)TerrainLandmarkKind.Town] > 0 &&
         scatterKindCounts[(int)TerrainLandmarkKind.Village] >= kindCounts[(int)TerrainLandmarkKind.Village] &&
@@ -499,12 +508,16 @@ static TerrainPoiTileSmokeReport ValidatePoiTileMaterialization(
         villageHouseScatterCount > 0 &&
         townBlockScatterCount > 0 &&
         settlementPlazaScatterCount > 0 &&
+        villageWellScatterCount > 0 &&
+        marketStallScatterCount > 0 &&
+        watchTowerScatterCount > 0 &&
+        settlementServiceScatterCount >= settlementLandmarkCount &&
         (kindCounts[(int)TerrainLandmarkKind.OasisHub] == 0 ||
-            (oasisCanopyScatterCount > 0 && oasisPoolScatterCount > 0)) &&
+            (oasisCanopyScatterCount > 0 && oasisPoolScatterCount > 0 && oasisGardenScatterCount > 0)) &&
         landmarkScatterCount >= expected.Count &&
         footprintReport.Passed;
     string reason = passed
-        ? "planned POIs materialized as tile landmarks"
+        ? "planned POIs materialized as tile landmarks with settlement service anchors"
         : "planned POIs missing from tile landmark data";
 
     return new TerrainPoiTileSmokeReport(
@@ -527,6 +540,11 @@ static TerrainPoiTileSmokeReport ValidatePoiTileMaterialization(
         oasisCanopyScatterCount,
         settlementPlazaScatterCount,
         oasisPoolScatterCount,
+        villageWellScatterCount,
+        marketStallScatterCount,
+        watchTowerScatterCount,
+        oasisGardenScatterCount,
+        settlementServiceScatterCount,
         footprintReport.InfluencedVertexCount,
         footprintReport.MaxHeightDelta,
         footprintReport.MaxColorDelta,
@@ -618,6 +636,7 @@ static void PrintPoiTileSmoke(TerrainPoiTileSmokeReport report)
         $"scatter {report.VillageScatterCount}/{report.TownScatterCount}/{report.OasisHubScatterCount}, " +
         $"interior scatter {report.SettlementInteriorScatterCount}/{report.SettlementLandmarkCount}, " +
         $"interior kinds H/B/C/P/W {report.VillageHouseScatterCount}/{report.TownBlockScatterCount}/{report.OasisCanopyScatterCount}/{report.SettlementPlazaScatterCount}/{report.OasisPoolScatterCount}, " +
+        $"services well/market/tower/garden {report.VillageWellScatterCount}/{report.MarketStallScatterCount}/{report.WatchTowerScatterCount}/{report.OasisGardenScatterCount}, " +
         $"footprint vertices {report.FootprintInfluencedVertexCount}, max footprint delta {report.FootprintMaxHeightDelta:0.000}/{report.FootprintMaxColorDelta:0.000}, " +
         $"layout color vertices {report.LayoutColorVertexCount}, max layout color {report.LayoutMaxColorDelta:0.000}, " +
         $"landmark scatter {report.LandmarkScatterCount} ({report.Reason})");
@@ -636,7 +655,11 @@ static int SettlementInteriorScatterCount(Span<int> scatterKindCounts)
         scatterKindCounts[(int)TerrainLandmarkKind.TownBlock] +
         scatterKindCounts[(int)TerrainLandmarkKind.OasisCanopy] +
         scatterKindCounts[(int)TerrainLandmarkKind.SettlementPlaza] +
-        scatterKindCounts[(int)TerrainLandmarkKind.OasisPool];
+        scatterKindCounts[(int)TerrainLandmarkKind.OasisPool] +
+        scatterKindCounts[(int)TerrainLandmarkKind.VillageWell] +
+        scatterKindCounts[(int)TerrainLandmarkKind.MarketStall] +
+        scatterKindCounts[(int)TerrainLandmarkKind.WatchTower] +
+        scatterKindCounts[(int)TerrainLandmarkKind.OasisGarden];
 }
 
 static TerrainGameplayScatterSmokeReport ValidateGameplayScatterMaterialization(
@@ -2275,6 +2298,11 @@ internal readonly record struct TerrainPoiTileSmokeReport(
     int OasisCanopyScatterCount,
     int SettlementPlazaScatterCount,
     int OasisPoolScatterCount,
+    int VillageWellScatterCount,
+    int MarketStallScatterCount,
+    int WatchTowerScatterCount,
+    int OasisGardenScatterCount,
+    int SettlementServiceScatterCount,
     int FootprintInfluencedVertexCount,
     float FootprintMaxHeightDelta,
     float FootprintMaxColorDelta,

@@ -147,6 +147,8 @@ public readonly record struct TerrainWorldPlanningThresholds(
     int MinRoutes,
     int MinRouteKinds,
     float MinConnectedPointRatio,
+    float MinConnectedSettlementRatio,
+    int MinSettlementRoutes,
     float MinPointOfInterestWorldCoverage,
     float MinRouteWorldCoverage,
     float MinAverageRouteTraversability,
@@ -161,6 +163,8 @@ public readonly record struct TerrainWorldPlanningThresholds(
         MinRoutes: 48,
         MinRouteKinds: 3,
         MinConnectedPointRatio: 0.95f,
+        MinConnectedSettlementRatio: 0.95f,
+        MinSettlementRoutes: 8,
         MinPointOfInterestWorldCoverage: 0.70f,
         MinRouteWorldCoverage: 0.70f,
         MinAverageRouteTraversability: 0.34f,
@@ -177,6 +181,8 @@ public readonly record struct TerrainWorldPlanningReport(
     int RouteCount,
     int DistinctRouteKinds,
     float ConnectedPointRatio,
+    float ConnectedSettlementRatio,
+    int SettlementRouteCount,
     float PointOfInterestWorldCoverage,
     float RouteWorldCoverage,
     float AveragePointScore,
@@ -341,6 +347,20 @@ public static class TerrainWorldPlanner
             report.ConnectedPointRatio >= thresholds.MinConnectedPointRatio,
             $"{report.ConnectedPointRatio:0.000}",
             $">= {thresholds.MinConnectedPointRatio:0.000}",
+            ref passed);
+        AppendGate(
+            summary,
+            "connected settlement ratio",
+            report.ConnectedSettlementRatio >= thresholds.MinConnectedSettlementRatio,
+            $"{report.ConnectedSettlementRatio:0.000}",
+            $">= {thresholds.MinConnectedSettlementRatio:0.000}",
+            ref passed);
+        AppendGate(
+            summary,
+            "settlement route count",
+            report.SettlementRouteCount >= thresholds.MinSettlementRoutes,
+            report.SettlementRouteCount.ToString(),
+            $">= {thresholds.MinSettlementRoutes}",
             ref passed);
         AppendGate(
             summary,
@@ -912,6 +932,12 @@ public static class TerrainWorldPlanner
             }
         }
 
+        AddSettlementConnectorRoutes(points, fields, profile, resolution, maxRoutes, routes, existingEdges, routeDegree);
+        if (routes.Count >= maxRoutes)
+        {
+            return;
+        }
+
         var candidates = new List<SecondaryRouteCandidate>(points.Length * 4);
         float minDistance = profile.ChunkSize * 2.0f;
         float idealDistance = profile.ChunkSize * 18.0f;
@@ -973,6 +999,128 @@ public static class TerrainWorldPlanner
         }
     }
 
+    private static void AddSettlementConnectorRoutes(
+        TerrainWorldPointOfInterest[] points,
+        TerrainWorldField[] fields,
+        TerrainGenerationProfile profile,
+        int resolution,
+        int maxRoutes,
+        List<TerrainWorldRoute> routes,
+        HashSet<long> existingEdges,
+        int[] routeDegree)
+    {
+        int settlementCount = CountSettlementHubs(points);
+        if (routes.Count >= maxRoutes || settlementCount < 2)
+        {
+            return;
+        }
+
+        int settlementRouteCount = CountSettlementRoutes(points, routes);
+        int targetSettlementRoutes = Mathf.Min(maxRoutes, Mathf.Max(8, settlementCount - 1));
+        if (settlementRouteCount >= targetSettlementRoutes)
+        {
+            return;
+        }
+
+        var candidates = new List<SecondaryRouteCandidate>(settlementCount * settlementCount);
+        float minDistance = profile.ChunkSize * 1.5f;
+        float idealDistance = profile.ChunkSize * 14.0f;
+        float maxDistance = profile.ChunkSize * 38.0f;
+
+        for (int from = 0; from < points.Length - 1; from++)
+        {
+            if (!IsSettlementHub(points[from]))
+            {
+                continue;
+            }
+
+            for (int to = from + 1; to < points.Length; to++)
+            {
+                if (!IsSettlementHub(points[to]))
+                {
+                    continue;
+                }
+
+                long key = PointPairKey(points[from].Id, points[to].Id);
+                if (existingEdges.Contains(key))
+                {
+                    continue;
+                }
+
+                float distance = points[from].WorldPosition.DistanceTo(points[to].WorldPosition);
+                if (distance < minDistance || distance > maxDistance)
+                {
+                    continue;
+                }
+
+                candidates.Add(new SecondaryRouteCandidate(
+                    from,
+                    to,
+                    ScoreSettlementRouteCandidate(points[from], points[to], routeDegree, distance, idealDistance)));
+            }
+        }
+
+        candidates.Sort((a, b) => b.Score.CompareTo(a.Score));
+
+        int testedCandidates = 0;
+        int maxCandidateTests = Mathf.Max(32, (targetSettlementRoutes - settlementRouteCount) * 8);
+        foreach (SecondaryRouteCandidate candidate in candidates)
+        {
+            if (routes.Count >= maxRoutes ||
+                settlementRouteCount >= targetSettlementRoutes ||
+                testedCandidates >= maxCandidateTests)
+            {
+                return;
+            }
+
+            TerrainWorldPointOfInterest from = points[candidate.FromIndex];
+            TerrainWorldPointOfInterest to = points[candidate.ToIndex];
+            long key = PointPairKey(from.Id, to.Id);
+            if (existingEdges.Contains(key))
+            {
+                continue;
+            }
+
+            testedCandidates++;
+            TerrainWorldRoute? route = TryBuildRoute(from, to, fields, profile, resolution);
+            if (route is null)
+            {
+                continue;
+            }
+
+            routes.Add(route.Value);
+            existingEdges.Add(key);
+            routeDegree[from.Id]++;
+            routeDegree[to.Id]++;
+            settlementRouteCount++;
+        }
+    }
+
+    private static float ScoreSettlementRouteCandidate(
+        TerrainWorldPointOfInterest from,
+        TerrainWorldPointOfInterest to,
+        int[] routeDegree,
+        float distance,
+        float idealDistance)
+    {
+        float endpointScore = (from.Score + to.Score) * 0.5f;
+        float traversalScore = (from.Traversability + to.Traversability) * 0.5f;
+        int fromDegree = (uint)from.Id < (uint)routeDegree.Length ? routeDegree[from.Id] : 0;
+        int toDegree = (uint)to.Id < (uint)routeDegree.Length ? routeDegree[to.Id] : 0;
+        float underConnectedScore = 1.0f / (1.0f + Mathf.Min(fromDegree, toDegree));
+        float tierImportance = (SettlementTierRouteWeight(from.SettlementTier) + SettlementTierRouteWeight(to.SettlementTier)) * 0.5f;
+        float tierVariety = from.SettlementTier == to.SettlementTier ? 0.45f : 1.0f;
+        float distanceScore = 1.0f - Mathf.Clamp(Mathf.Abs(distance - idealDistance) / Mathf.Max(1.0f, idealDistance), 0.0f, 1.0f);
+
+        return
+            endpointScore * 0.22f +
+            traversalScore * 0.18f +
+            underConnectedScore * 0.24f +
+            tierImportance * 0.20f +
+            tierVariety * 0.08f +
+            distanceScore * 0.08f;
+    }
+
     private static float ScoreSecondaryRouteCandidate(
         TerrainWorldPointOfInterest from,
         TerrainWorldPointOfInterest to,
@@ -987,6 +1135,7 @@ public static class TerrainWorldPlanner
         int toDegree = (uint)to.Id < (uint)routeDegree.Length ? routeDegree[to.Id] : 0;
         float underConnectedScore = 1.0f / (1.0f + Mathf.Min(fromDegree, toDegree));
         float kindVariety = from.Kind == to.Kind ? 0.0f : 1.0f;
+        float settlementBonus = IsSettlementHub(from) || IsSettlementHub(to) ? 0.08f : 0.0f;
         float distanceScore = 1.0f - Mathf.Clamp(Mathf.Abs(distance - idealDistance) / Mathf.Max(1.0f, idealDistance), 0.0f, 1.0f);
 
         return
@@ -995,7 +1144,8 @@ public static class TerrainWorldPlanner
             traversalScore * 0.16f +
             underConnectedScore * 0.18f +
             kindVariety * 0.06f +
-            distanceScore * 0.06f;
+            distanceScore * 0.06f +
+            settlementBonus;
     }
 
     private static TerrainWorldPlanningReport AnalyzePlanning(
@@ -1019,6 +1169,17 @@ public static class TerrainWorldPlanner
         float routeScenicSum = 0.0f;
         float routeTraversabilitySum = 0.0f;
         var connected = new HashSet<int>();
+        var connectedSettlements = new HashSet<int>();
+        int settlementPointCount = 0;
+        int settlementRouteCount = 0;
+
+        foreach (TerrainWorldPointOfInterest point in points)
+        {
+            if (IsSettlementHub(point))
+            {
+                settlementPointCount++;
+            }
+        }
 
         foreach (TerrainWorldRoute route in routes)
         {
@@ -1028,6 +1189,23 @@ public static class TerrainWorldPlanner
             routeTraversabilitySum += route.AverageTraversability;
             connected.Add(route.FromPointId);
             connected.Add(route.ToPointId);
+
+            bool fromSettlement = IsSettlementHub(points, route.FromPointId);
+            bool toSettlement = IsSettlementHub(points, route.ToPointId);
+            if (fromSettlement)
+            {
+                connectedSettlements.Add(route.FromPointId);
+            }
+
+            if (toSettlement)
+            {
+                connectedSettlements.Add(route.ToPointId);
+            }
+
+            if (fromSettlement && toSettlement)
+            {
+                settlementRouteCount++;
+            }
         }
 
         int distinctPoiKinds = CountNonZero(poiCounts);
@@ -1041,6 +1219,8 @@ public static class TerrainWorldPlanner
             routes.Length,
             distinctRouteKinds,
             points.Length == 0 ? 0.0f : connected.Count / (float)points.Length,
+            settlementPointCount == 0 ? 0.0f : connectedSettlements.Count / (float)settlementPointCount,
+            settlementRouteCount,
             ComputePointCoverage(points, worldSize),
             ComputeRouteCoverage(routes, worldSize),
             scoreSum * invPoiCount,
@@ -1487,6 +1667,57 @@ public static class TerrainWorldPlanner
         int min = Math.Min(a, b);
         int max = Math.Max(a, b);
         return ((long)min << 32) | (uint)max;
+    }
+
+    private static bool IsSettlementHub(TerrainWorldPointOfInterest point)
+    {
+        return point.SettlementTier is TerrainSettlementTier.Village or TerrainSettlementTier.Town or TerrainSettlementTier.OasisHub;
+    }
+
+    private static bool IsSettlementHub(TerrainWorldPointOfInterest[] points, int pointId)
+    {
+        return (uint)pointId < (uint)points.Length && IsSettlementHub(points[pointId]);
+    }
+
+    private static int CountSettlementHubs(TerrainWorldPointOfInterest[] points)
+    {
+        int count = 0;
+        foreach (TerrainWorldPointOfInterest point in points)
+        {
+            if (IsSettlementHub(point))
+            {
+                count++;
+            }
+        }
+
+        return count;
+    }
+
+    private static int CountSettlementRoutes(
+        TerrainWorldPointOfInterest[] points,
+        List<TerrainWorldRoute> routes)
+    {
+        int count = 0;
+        foreach (TerrainWorldRoute route in routes)
+        {
+            if (IsSettlementHub(points, route.FromPointId) && IsSettlementHub(points, route.ToPointId))
+            {
+                count++;
+            }
+        }
+
+        return count;
+    }
+
+    private static float SettlementTierRouteWeight(TerrainSettlementTier tier)
+    {
+        return tier switch
+        {
+            TerrainSettlementTier.Town => 1.0f,
+            TerrainSettlementTier.OasisHub => 0.94f,
+            TerrainSettlementTier.Village => 0.76f,
+            _ => 0.0f
+        };
     }
 
     private static float Hash01(int x, int y, int seed)

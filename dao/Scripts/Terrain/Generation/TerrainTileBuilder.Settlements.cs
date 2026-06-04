@@ -101,9 +101,9 @@ public static partial class TerrainTileBuilder
 
         int count = point.SettlementTier switch
         {
-            TerrainSettlementTier.Town => 14,
-            TerrainSettlementTier.OasisHub => 10,
-            _ => 7
+            TerrainSettlementTier.Town => 17,
+            TerrainSettlementTier.OasisHub => 13,
+            _ => 9
         };
         Vector2 axis = SettlementLayoutAxis(point, corridorSegments, profile);
         Vector2 side = new(-axis.Y, axis.X);
@@ -111,7 +111,7 @@ public static partial class TerrainTileBuilder
         for (int i = 0; i < count; i++)
         {
             TerrainLandmarkKind kind = SettlementInteriorKind(point.SettlementTier, i);
-            Vector2 offset = SettlementInteriorOffset(point, radius, axis, side, i, count);
+            Vector2 offset = SettlementInteriorOffset(point, kind, radius, axis, side, i, count);
             Vector2 world = point.WorldPosition + offset;
             float localX = world.X - origin.X;
             float localZ = world.Y - origin.Y;
@@ -128,7 +128,7 @@ public static partial class TerrainTileBuilder
 
             TerrainWorldField field = SampleFieldBilinear(localX, localZ, resolution, step, fields, vertexCountPerSide);
             float rotation = SettlementInteriorRotation(point, axis, i, profile);
-            float scale = SettlementInteriorScale(point.SettlementTier, point.Score, coord, i, profile);
+            float scale = SettlementInteriorScale(point.SettlementTier, kind, point.Score, coord, i, profile);
             Color tint = SettlementInteriorColor(kind, field, coord, i, profile);
             scatter.Add(new TerrainScatterInstance(
                 TerrainScatterKind.Landmark,
@@ -144,16 +144,32 @@ public static partial class TerrainTileBuilder
     {
         return tier switch
         {
-            TerrainSettlementTier.Town => index % 7 == 0
+            TerrainSettlementTier.Town => index == 0
+                ? TerrainLandmarkKind.SettlementPlaza
+                : index is 1 or 6 or 11
+                ? TerrainLandmarkKind.MarketStall
+                : index == 2
+                ? TerrainLandmarkKind.WatchTower
+                : index % 8 == 0
                 ? TerrainLandmarkKind.SettlementPlaza
                 : TerrainLandmarkKind.TownBlock,
             TerrainSettlementTier.OasisHub => index == 0
                 ? TerrainLandmarkKind.OasisPool
-                : index % 5 == 0
+                : index is 1 or 6
+                ? TerrainLandmarkKind.OasisGarden
+                : index == 2
+                ? TerrainLandmarkKind.MarketStall
+                : index == 3
+                ? TerrainLandmarkKind.WatchTower
+                : index % 7 == 0
                 ? TerrainLandmarkKind.SettlementPlaza
                 : TerrainLandmarkKind.OasisCanopy,
             TerrainSettlementTier.Village => index == 0
                 ? TerrainLandmarkKind.SettlementPlaza
+                : index == 1
+                ? TerrainLandmarkKind.VillageWell
+                : index == 2
+                ? TerrainLandmarkKind.WatchTower
                 : TerrainLandmarkKind.VillageHouse,
             _ => TerrainLandmarkKind.Settlement
         };
@@ -161,15 +177,58 @@ public static partial class TerrainTileBuilder
 
     private static Vector2 SettlementInteriorOffset(
         TerrainWorldPointOfInterest point,
+        TerrainLandmarkKind kind,
         float radius,
         Vector2 axis,
         Vector2 side,
         int index,
         int count)
     {
-        if (point.SettlementTier == TerrainSettlementTier.OasisHub && index == 0)
+        if (kind == TerrainLandmarkKind.OasisPool)
         {
             return Vector2.Zero;
+        }
+
+        if (kind == TerrainLandmarkKind.SettlementPlaza)
+        {
+            return point.SettlementTier switch
+            {
+                TerrainSettlementTier.Town => index == 0
+                    ? Vector2.Zero
+                    : axis * radius * 0.24f + side * radius * -0.20f,
+                TerrainSettlementTier.OasisHub => axis * radius * 0.24f,
+                _ => Vector2.Zero
+            };
+        }
+
+        if (kind == TerrainLandmarkKind.VillageWell)
+        {
+            return axis * radius * 0.10f + side * radius * -0.10f;
+        }
+
+        if (kind == TerrainLandmarkKind.MarketStall)
+        {
+            float marketAlong = radius * Mathf.Lerp(-0.18f, 0.26f, Hash01(point.Id, index, 1305, 21));
+            float acrossSign = Hash01(point.Id, index, 1307, 25) < 0.5f ? -1.0f : 1.0f;
+            float marketAcross = acrossSign * radius * Mathf.Lerp(0.13f, 0.23f, Hash01(point.Id, index, 1309, 27));
+            return axis * marketAlong + side * marketAcross;
+        }
+
+        if (kind == TerrainLandmarkKind.WatchTower)
+        {
+            float alongSign = Hash01(point.Id, index, 1311, 29) < 0.5f ? -1.0f : 1.0f;
+            float acrossSign = Hash01(point.Id, index, 1313, 31) < 0.5f ? -1.0f : 1.0f;
+            float towerAlong = alongSign * radius * Mathf.Lerp(0.38f, 0.52f, Hash01(point.Id, index, 1315, 33));
+            float towerAcross = acrossSign * radius * Mathf.Lerp(0.22f, 0.40f, Hash01(point.Id, index, 1317, 35));
+            return axis * towerAlong + side * towerAcross;
+        }
+
+        if (kind == TerrainLandmarkKind.OasisGarden)
+        {
+            float gardenAngle = (index / (float)Mathf.Max(1, count)) * Mathf.Tau +
+                Hash01(point.Id, index, 1318, 36) * 0.54f;
+            float gardenRing = radius * Mathf.Lerp(0.20f, 0.34f, Hash01(point.Id, index, 1320, 38));
+            return axis * (Mathf.Cos(gardenAngle) * gardenRing) + side * (Mathf.Sin(gardenAngle) * gardenRing);
         }
 
         if (point.SettlementTier == TerrainSettlementTier.Town)
@@ -274,6 +333,7 @@ public static partial class TerrainTileBuilder
 
     private static float SettlementInteriorScale(
         TerrainSettlementTier tier,
+        TerrainLandmarkKind kind,
         float score,
         TerrainTileCoord coord,
         int index,
@@ -281,11 +341,18 @@ public static partial class TerrainTileBuilder
     {
         float quality = Mathf.Lerp(0.90f, 1.18f, Mathf.Clamp(score, 0.0f, 1.0f));
         float jitter = Mathf.Lerp(0.84f, 1.20f, Hash01(coord.X, coord.Z, index * 1399, profile.Seed + 229));
-        float baseScale = tier switch
+        float baseScale = kind switch
         {
-            TerrainSettlementTier.Town => 2.95f,
-            TerrainSettlementTier.OasisHub => 2.55f,
-            _ => 2.30f
+            TerrainLandmarkKind.VillageWell => 1.95f,
+            TerrainLandmarkKind.MarketStall => 2.18f,
+            TerrainLandmarkKind.WatchTower => 3.25f,
+            TerrainLandmarkKind.OasisGarden => 2.45f,
+            _ => tier switch
+            {
+                TerrainSettlementTier.Town => 2.95f,
+                TerrainSettlementTier.OasisHub => 2.55f,
+                _ => 2.30f
+            }
         };
 
         return baseScale * quality * jitter;
@@ -305,6 +372,10 @@ public static partial class TerrainTileBuilder
             TerrainLandmarkKind.OasisCanopy => new Color(0.12f, 0.58f, 0.44f),
             TerrainLandmarkKind.SettlementPlaza => new Color(0.58f, 0.50f, 0.38f),
             TerrainLandmarkKind.OasisPool => new Color(0.10f, 0.36f, 0.46f),
+            TerrainLandmarkKind.VillageWell => new Color(0.38f, 0.46f, 0.42f),
+            TerrainLandmarkKind.MarketStall => new Color(0.74f, 0.48f, 0.24f),
+            TerrainLandmarkKind.WatchTower => new Color(0.54f, 0.42f, 0.28f),
+            TerrainLandmarkKind.OasisGarden => new Color(0.12f, 0.62f, 0.34f),
             _ => new Color(0.58f, 0.48f, 0.31f)
         };
         float blend = Mathf.Lerp(0.18f, 0.42f, Hash01(coord.X, coord.Z, index * 1423, profile.Seed + 233));
@@ -504,6 +575,10 @@ public static partial class TerrainTileBuilder
             TerrainLandmarkKind.OasisCanopy => 3.0f,
             TerrainLandmarkKind.SettlementPlaza => 3.2f,
             TerrainLandmarkKind.OasisPool => 3.4f,
+            TerrainLandmarkKind.VillageWell => 2.4f,
+            TerrainLandmarkKind.MarketStall => 2.7f,
+            TerrainLandmarkKind.WatchTower => 4.2f,
+            TerrainLandmarkKind.OasisGarden => 3.0f,
             TerrainLandmarkKind.Waterfall => 7.2f,
             TerrainLandmarkKind.RoadMarker => 2.0f,
             TerrainLandmarkKind.BridgeSpan => 4.4f,
@@ -540,6 +615,10 @@ public static partial class TerrainTileBuilder
             TerrainLandmarkKind.OasisCanopy => new Color(0.14f, 0.58f, 0.42f),
             TerrainLandmarkKind.SettlementPlaza => new Color(0.62f, 0.54f, 0.40f),
             TerrainLandmarkKind.OasisPool => new Color(0.08f, 0.34f, 0.46f),
+            TerrainLandmarkKind.VillageWell => new Color(0.34f, 0.42f, 0.40f),
+            TerrainLandmarkKind.MarketStall => new Color(0.76f, 0.45f, 0.22f),
+            TerrainLandmarkKind.WatchTower => new Color(0.58f, 0.44f, 0.28f),
+            TerrainLandmarkKind.OasisGarden => new Color(0.12f, 0.58f, 0.32f),
             TerrainLandmarkKind.Waterfall => new Color(0.30f, 0.62f, 0.82f),
             TerrainLandmarkKind.RoadMarker => new Color(0.56f, 0.44f, 0.28f),
             TerrainLandmarkKind.BridgeSpan => new Color(0.44f, 0.34f, 0.25f),
