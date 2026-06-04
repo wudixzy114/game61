@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Dao.Terrain;
@@ -22,6 +24,7 @@ bool skipGameplayScatterSmoke = HasFlag(args, "--skip-gameplay-scatter-smoke");
 bool skipBiomeScatterSmoke = HasFlag(args, "--skip-biome-scatter-smoke");
 bool skipScenicLandmarkSmoke = HasFlag(args, "--skip-scenic-landmark-smoke");
 bool skipArtifactSmoke = HasFlag(args, "--skip-artifact-smoke");
+bool skipRuntimeApiSmoke = HasFlag(args, "--skip-runtime-api-smoke");
 bool skipRuntimeWorldSmoke = HasFlag(args, "--skip-runtime-world-smoke");
 bool smokeAllSeeds = HasFlag(args, "--smoke-all-seeds");
 bool nativeSmoke = HasFlag(args, "--native-smoke");
@@ -46,6 +49,7 @@ TerrainGameplayScatterSmokeReport? gameplayScatterSmokeReport = null;
 TerrainBiomeScatterSmokeReport? biomeScatterSmokeReport = null;
 TerrainScenicLandmarkSmokeReport? scenicLandmarkSmokeReport = null;
 TerrainArtifactSmokeReport? artifactSmokeReport = null;
+TerrainRuntimeApiSmokeReport? runtimeApiSmokeReport = null;
 TerrainRuntimeWorldSmokeReport? runtimeWorldSmokeReport = null;
 TerrainNativeSamplerSmokeReport? nativeSmokeReport = null;
 TerrainTileBenchmarkReport? tileBenchmarkReport = null;
@@ -127,6 +131,13 @@ for (int i = 0; i < seedCount; i++)
         RecordAuxiliaryCheck(artifactSmokeReport.Value.Passed, ref totalFailures, ref auxiliaryCheckCount, ref auxiliaryFailureCount);
     }
 
+    if (runSeedSmokes && !skipRuntimeApiSmoke)
+    {
+        runtimeApiSmokeReport = ValidateTerrainWorldRuntimeApiFacade(seedProfile, result.Plan);
+        PrintRuntimeApiSmoke(runtimeApiSmokeReport.Value);
+        RecordAuxiliaryCheck(runtimeApiSmokeReport.Value.Passed, ref totalFailures, ref auxiliaryCheckCount, ref auxiliaryFailureCount);
+    }
+
     if (runSeedSmokes && !skipRuntimeWorldSmoke)
     {
         runtimeWorldSmokeReport = ValidateRuntimeWorldPlanMaterialization(seedProfile, worldSize);
@@ -163,6 +174,7 @@ PrintAggregate(
     biomeScatterSmokeReport,
     scenicLandmarkSmokeReport,
     artifactSmokeReport,
+    runtimeApiSmokeReport,
     runtimeWorldSmokeReport,
     nativeSmokeReport,
     tileBenchmarkReport);
@@ -1440,6 +1452,8 @@ static int QuantizedColorKey(Color color)
 static bool ReportContainsRequiredArtifactSections(string reportText)
 {
     return reportText.Contains("Open World Terrain Plan", StringComparison.Ordinal) &&
+        reportText.Contains($"Terrain API Contract: {TerrainApiVersion.Contract}", StringComparison.Ordinal) &&
+        reportText.Contains($"Terrain API Version: {TerrainApiVersion.Version}", StringComparison.Ordinal) &&
         reportText.Contains("Terrain Quality Gate", StringComparison.Ordinal) &&
         reportText.Contains("Open World Planning Gate", StringComparison.Ordinal) &&
         reportText.Contains("Open World Experience Gate", StringComparison.Ordinal) &&
@@ -1488,6 +1502,301 @@ static void PrintArtifactSmoke(TerrainArtifactSmokeReport report)
         $"colors {report.DistinctColorBuckets}, overlay pixels {report.OverlayChangedPixels}, " +
         $"max overlay delta {report.MaxOverlayColorDelta:0.000}, sections {(report.ReportContainsRequiredSections ? "yes" : "no")} ({report.Reason})");
     Console.WriteLine($"Artifact paths: {report.MapPath}, {report.ReportPath}");
+}
+
+static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
+    TerrainGenerationProfile profile,
+    TerrainWorldPlan plan)
+{
+    try
+    {
+        TerrainWorld noPlanWorld = CreateTerrainWorldFacadeProbe(profile, worldPlan: null);
+        Vector2 query = plan.PointsOfInterest.Length > 0
+            ? plan.PointsOfInterest[0].WorldPosition
+            : new Vector2(profile.ChunkSize * 0.75f, profile.ChunkSize * -0.5f);
+
+        bool noPlanTryGetPassed = !noPlanWorld.TryGetWorldPlan(out TerrainWorldPlan? noPlan) && noPlan is null;
+        bool emptyPlanCollectionsPassed =
+            noPlanWorld.GetPointsOfInterest().Length == 0 &&
+            noPlanWorld.GetRoutes().Length == 0;
+
+        TerrainWorldField expectedField = TerrainWorldFieldSampler.Sample(query, profile);
+        TerrainWorldField facadeField = noPlanWorld.SampleField(query);
+        bool sampleFieldMatchesSampler = TerrainFieldsMatch(expectedField, facadeField);
+
+        TerrainSample expectedSurface = TerrainSampler.SampleWithSlope(query, profile, spacing: 4.0f);
+        TerrainSample facadeSurface = noPlanWorld.SampleSurface(query, spacing: 4.0f);
+        bool sampleSurfaceMatchesSampler = TerrainSamplesMatch(expectedSurface, facadeSurface);
+
+        const float heightOffset = 2.75f;
+        Vector3 surfacePosition = noPlanWorld.SurfacePositionAt(query, heightOffset);
+        bool surfacePositionAxesPassed =
+            Math.Abs(surfacePosition.X - query.X) <= 0.0001f &&
+            Math.Abs(surfacePosition.Y - expectedField.Height - heightOffset) <= 0.0001f &&
+            Math.Abs(surfacePosition.Z - query.Y) <= 0.0001f;
+
+        bool traversabilityQueryPassed =
+            noPlanWorld.IsTraversable(query, 0.45f) == (expectedField.Traversability >= 0.45f);
+        bool aboveWaterQueryPassed =
+            noPlanWorld.IsAboveWater(query) == (expectedField.Height >= profile.SeaLevel);
+        bool apiVersionPassed =
+            TerrainApiVersion.Major == 1 &&
+            TerrainApiVersion.Minor == 0 &&
+            TerrainApiVersion.Patch == 0 &&
+            string.Equals(TerrainApiVersion.Contract, "terrain-api-v1", StringComparison.Ordinal) &&
+            string.Equals(TerrainApiVersion.Version, "1.0.0", StringComparison.Ordinal);
+
+        TerrainWorld planWorld = CreateTerrainWorldFacadeProbe(profile, plan);
+        bool planTryGetPassed = planWorld.TryGetWorldPlan(out TerrainWorldPlan? returnedPlan) &&
+            ReferenceEquals(returnedPlan, plan);
+
+        TerrainWorldPointOfInterest[] points = planWorld.GetPointsOfInterest();
+        bool pointSnapshotIsolated = points.Length == plan.PointsOfInterest.Length;
+        if (pointSnapshotIsolated && points.Length > 0)
+        {
+            points[0] = default;
+            TerrainWorldPointOfInterest[] secondRead = planWorld.GetPointsOfInterest();
+            pointSnapshotIsolated =
+                secondRead.Length == plan.PointsOfInterest.Length &&
+                secondRead[0].Id == plan.PointsOfInterest[0].Id &&
+                secondRead[0].Kind == plan.PointsOfInterest[0].Kind;
+        }
+
+        TerrainWorldRoute[] routes = planWorld.GetRoutes();
+        bool routeSnapshotIsolated = routes.Length == plan.Routes.Length;
+        if (routeSnapshotIsolated && routes.Length > 0)
+        {
+            bool waypointSnapshotIsolated = routes[0].Waypoints.Length == plan.Routes[0].Waypoints.Length;
+            if (waypointSnapshotIsolated && routes[0].Waypoints.Length > 0)
+            {
+                Vector2 originalWaypoint = plan.Routes[0].Waypoints[0];
+                routes[0].Waypoints[0] = originalWaypoint + new Vector2(9999.0f, -9999.0f);
+                TerrainWorldRoute[] secondRead = planWorld.GetRoutes();
+                waypointSnapshotIsolated =
+                    secondRead.Length == plan.Routes.Length &&
+                    secondRead[0].Waypoints.Length == plan.Routes[0].Waypoints.Length &&
+                    secondRead[0].Waypoints[0].DistanceSquaredTo(originalWaypoint) <= 0.0001f;
+            }
+
+            routes[0] = default;
+            TerrainWorldRoute[] routeSecondRead = planWorld.GetRoutes();
+            routeSnapshotIsolated =
+                routeSecondRead.Length == plan.Routes.Length &&
+                routeSecondRead[0].FromPointId == plan.Routes[0].FromPointId &&
+                routeSecondRead[0].ToPointId == plan.Routes[0].ToPointId &&
+                waypointSnapshotIsolated;
+        }
+
+        bool passed =
+            noPlanTryGetPassed &&
+            emptyPlanCollectionsPassed &&
+            sampleFieldMatchesSampler &&
+            sampleSurfaceMatchesSampler &&
+            surfacePositionAxesPassed &&
+            traversabilityQueryPassed &&
+            aboveWaterQueryPassed &&
+            apiVersionPassed &&
+            planTryGetPassed &&
+            points.Length == plan.PointsOfInterest.Length &&
+            routes.Length == plan.Routes.Length &&
+            pointSnapshotIsolated &&
+            routeSnapshotIsolated;
+
+        string reason = passed
+            ? "TerrainWorld runtime facade exposes stable pure queries and isolated plan snapshots"
+            : RuntimeApiFailureReason(
+                noPlanTryGetPassed,
+                emptyPlanCollectionsPassed,
+                sampleFieldMatchesSampler,
+                sampleSurfaceMatchesSampler,
+                surfacePositionAxesPassed,
+                traversabilityQueryPassed,
+                aboveWaterQueryPassed,
+                apiVersionPassed,
+                planTryGetPassed,
+                points.Length,
+                plan.PointsOfInterest.Length,
+                routes.Length,
+                plan.Routes.Length,
+                pointSnapshotIsolated,
+                routeSnapshotIsolated);
+
+        return new TerrainRuntimeApiSmokeReport(
+            passed,
+            sampleFieldMatchesSampler,
+            sampleSurfaceMatchesSampler,
+            surfacePositionAxesPassed,
+            noPlanTryGetPassed,
+            emptyPlanCollectionsPassed,
+            planTryGetPassed,
+            points.Length,
+            routes.Length,
+            traversabilityQueryPassed,
+            aboveWaterQueryPassed,
+            apiVersionPassed,
+            pointSnapshotIsolated,
+            routeSnapshotIsolated,
+            reason);
+    }
+    catch (Exception ex)
+    {
+        return new TerrainRuntimeApiSmokeReport(
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            0,
+            0,
+            false,
+            false,
+            false,
+            false,
+            false,
+            $"TerrainWorld runtime facade threw {ex.GetType().Name}: {ex.Message}");
+    }
+}
+
+static TerrainWorld CreateTerrainWorldFacadeProbe(
+    TerrainGenerationProfile profile,
+    TerrainWorldPlan? worldPlan)
+{
+    var world = (TerrainWorld)RuntimeHelpers.GetUninitializedObject(typeof(TerrainWorld));
+    SetPrivateField(world, "_profile", profile);
+    SetPrivateField(world, "_hasProfileSnapshot", true);
+    SetPrivateField(world, "_worldPlan", worldPlan);
+    SetPrivateField(world, "_routeCorridors", TerrainRouteCorridorIndex.Empty);
+    SetPrivateField(world, "_pointOfInterestIndex", TerrainPointOfInterestIndex.Empty);
+    return world;
+}
+
+static void SetPrivateField<T>(object instance, string fieldName, T value)
+{
+    FieldInfo? field = instance.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
+    if (field is null)
+    {
+        throw new MissingFieldException(instance.GetType().FullName, fieldName);
+    }
+
+    field.SetValue(instance, value);
+}
+
+static bool TerrainFieldsMatch(TerrainWorldField expected, TerrainWorldField actual)
+{
+    return expected.WorldPosition.DistanceSquaredTo(actual.WorldPosition) <= 0.0001f &&
+        Math.Abs(expected.Height - actual.Height) <= 0.0001f &&
+        Math.Abs(expected.River - actual.River) <= 0.0001f &&
+        Math.Abs(expected.Lake - actual.Lake) <= 0.0001f &&
+        Math.Abs(expected.Traversability - actual.Traversability) <= 0.0001f &&
+        Math.Abs(expected.ScenicPotential - actual.ScenicPotential) <= 0.0001f &&
+        expected.BiomeKind == actual.BiomeKind &&
+        expected.LandscapeKind == actual.LandscapeKind;
+}
+
+static bool TerrainSamplesMatch(TerrainSample expected, TerrainSample actual)
+{
+    return Math.Abs(expected.Height - actual.Height) <= 0.0001f &&
+        Math.Abs(expected.Slope - actual.Slope) <= 0.0001f &&
+        Math.Abs(expected.Traversability - actual.Traversability) <= 0.0001f &&
+        expected.BiomeKind == actual.BiomeKind &&
+        expected.LandscapeKind == actual.LandscapeKind &&
+        ColorDistance(expected.Color, actual.Color) <= 0.0001f;
+}
+
+static string RuntimeApiFailureReason(
+    bool noPlanTryGetPassed,
+    bool emptyPlanCollectionsPassed,
+    bool sampleFieldMatchesSampler,
+    bool sampleSurfaceMatchesSampler,
+    bool surfacePositionAxesPassed,
+    bool traversabilityQueryPassed,
+    bool aboveWaterQueryPassed,
+    bool apiVersionPassed,
+    bool planTryGetPassed,
+    int pointCount,
+    int expectedPointCount,
+    int routeCount,
+    int expectedRouteCount,
+    bool pointSnapshotIsolated,
+    bool routeSnapshotIsolated)
+{
+    if (!noPlanTryGetPassed)
+    {
+        return "TryGetWorldPlan did not return false for an unset runtime plan";
+    }
+
+    if (!emptyPlanCollectionsPassed)
+    {
+        return "POI/routes facade collections were not empty before a plan was assigned";
+    }
+
+    if (!sampleFieldMatchesSampler)
+    {
+        return "SampleField did not match TerrainWorldFieldSampler.Sample";
+    }
+
+    if (!sampleSurfaceMatchesSampler)
+    {
+        return "SampleSurface did not match TerrainSampler.SampleWithSlope";
+    }
+
+    if (!surfacePositionAxesPassed)
+    {
+        return "SurfacePositionAt did not map world X/Y into Godot X/Z with sampled height on Y";
+    }
+
+    if (!traversabilityQueryPassed)
+    {
+        return "IsTraversable did not match sampled terrain traversability";
+    }
+
+    if (!aboveWaterQueryPassed)
+    {
+        return "IsAboveWater did not match sampled height versus sea level";
+    }
+
+    if (!apiVersionPassed)
+    {
+        return "TerrainApiVersion constants did not match terrain-api-v1 version 1.0.0";
+    }
+
+    if (!planTryGetPassed)
+    {
+        return "TryGetWorldPlan did not return the assigned runtime plan";
+    }
+
+    if (pointCount != expectedPointCount || routeCount != expectedRouteCount)
+    {
+        return $"plan facade counts did not match plan data (POIs {pointCount}/{expectedPointCount}, routes {routeCount}/{expectedRouteCount})";
+    }
+
+    if (!pointSnapshotIsolated)
+    {
+        return "GetPointsOfInterest exposed mutable plan array state";
+    }
+
+    if (!routeSnapshotIsolated)
+    {
+        return "GetRoutes exposed mutable route or waypoint array state";
+    }
+
+    return "TerrainWorld runtime facade failed";
+}
+
+static void PrintRuntimeApiSmoke(TerrainRuntimeApiSmokeReport report)
+{
+    Console.WriteLine(
+        $"Runtime TerrainWorld API smoke: {(report.Passed ? "PASS" : "FAIL")} " +
+        $"sample field/surface {(report.SampleFieldMatchesSampler ? "pass" : "fail")}/{(report.SampleSurfaceMatchesSampler ? "pass" : "fail")}, " +
+        $"surface axes {(report.SurfacePositionAxesPassed ? "pass" : "fail")}, " +
+        $"api {TerrainApiVersion.Contract}/{TerrainApiVersion.Version}/{(report.ApiVersionPassed ? "pass" : "fail")}, " +
+        $"plan empty/ready {(report.NoPlanTryGetPassed && report.EmptyPlanCollectionsPassed ? "pass" : "fail")}/{(report.PlanTryGetPassed ? "pass" : "fail")}, " +
+        $"POIs/routes {report.PointOfInterestCount}/{report.RouteCount}, " +
+        $"traversable/water {(report.TraversabilityQueryPassed ? "pass" : "fail")}/{(report.AboveWaterQueryPassed ? "pass" : "fail")}, " +
+        $"snapshots POI/routes {(report.PointSnapshotIsolated ? "pass" : "fail")}/{(report.RouteSnapshotIsolated ? "pass" : "fail")} " +
+        $"({report.Reason})");
 }
 
 static TerrainRuntimeWorldSmokeReport ValidateRuntimeWorldPlanMaterialization(
@@ -2669,6 +2978,7 @@ static void PrintAggregate(
     TerrainBiomeScatterSmokeReport? biomeScatterSmokeReport,
     TerrainScenicLandmarkSmokeReport? scenicLandmarkSmokeReport,
     TerrainArtifactSmokeReport? artifactSmokeReport,
+    TerrainRuntimeApiSmokeReport? runtimeApiSmokeReport,
     TerrainRuntimeWorldSmokeReport? runtimeWorldSmokeReport,
     TerrainNativeSamplerSmokeReport? nativeSmokeReport,
     TerrainTileBenchmarkReport? tileBenchmarkReport)
@@ -2728,6 +3038,10 @@ static void PrintAggregate(
     if (artifactSmokeReport is not null)
     {
         Console.WriteLine($"Open world artifact smoke: {(artifactSmokeReport.Value.Passed ? "PASS" : "FAIL")}");
+    }
+    if (runtimeApiSmokeReport is not null)
+    {
+        Console.WriteLine($"Runtime TerrainWorld API smoke: {(runtimeApiSmokeReport.Value.Passed ? "PASS" : "FAIL")}");
     }
     if (runtimeWorldSmokeReport is not null)
     {
@@ -2992,6 +3306,24 @@ internal readonly record struct TerrainArtifactSmokeReport(
     int OverlayChangedPixels,
     float MaxOverlayColorDelta,
     bool ReportContainsRequiredSections,
+    string Reason);
+
+/// <summary>Reports whether TerrainWorld's public runtime query facade matches the underlying samplers and exposes isolated plan snapshots.</summary>
+internal readonly record struct TerrainRuntimeApiSmokeReport(
+    bool Passed,
+    bool SampleFieldMatchesSampler,
+    bool SampleSurfaceMatchesSampler,
+    bool SurfacePositionAxesPassed,
+    bool NoPlanTryGetPassed,
+    bool EmptyPlanCollectionsPassed,
+    bool PlanTryGetPassed,
+    int PointOfInterestCount,
+    int RouteCount,
+    bool TraversabilityQueryPassed,
+    bool AboveWaterQueryPassed,
+    bool ApiVersionPassed,
+    bool PointSnapshotIsolated,
+    bool RouteSnapshotIsolated,
     string Reason);
 
 /// <summary>Reports whether TerrainWorld's runtime plan entry creates indexed open-world content that materializes on tiles.</summary>

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Text;
+using Dao.Terrain;
 using Godot;
 
 namespace Dao.Terrain.Generation;
@@ -134,6 +135,8 @@ public static class TerrainWorldPlanExporter
         var builder = new StringBuilder(4096);
 
         builder.AppendLine("Open World Terrain Plan");
+        builder.AppendLine($"Terrain API Contract: {TerrainApiVersion.Contract}");
+        builder.AppendLine($"Terrain API Version: {TerrainApiVersion.Version}");
         builder.AppendLine(FormattableString.Invariant($"Center: {plan.Center.X:0.##}, {plan.Center.Y:0.##}"));
         builder.AppendLine(FormattableString.Invariant($"World size: {plan.WorldSize:0.##} meters"));
         builder.AppendLine(FormattableString.Invariant($"Planning grid: {plan.GridResolution} x {plan.GridResolution}"));

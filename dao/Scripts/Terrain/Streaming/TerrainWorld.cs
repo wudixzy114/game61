@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -44,20 +45,31 @@ public partial class TerrainWorld : Node3D
     private MeshInstance3D? _waterPlane;
     private double _streamTimer;
     private int _worldPlanGenerationVersion;
+    private bool _hasProfileSnapshot;
     private bool _isReady;
 
     /// <summary>Current immutable terrain generation profile used by streaming jobs.</summary>
-    public TerrainGenerationProfile Profile => _profile;
+    public TerrainGenerationProfile Profile => CurrentProfile;
 
     /// <summary>Current open-world plan driving route corridors, POI footprints, settlements, and gameplay landmarks.</summary>
     public TerrainWorldPlan? WorldPlan => _worldPlan;
     /// <summary>True while the runtime open-world plan is being generated on a worker thread.</summary>
     public bool IsOpenWorldPlanGenerationPending => _worldPlanJob is not null;
 
+    private TerrainGenerationProfile CurrentProfile
+    {
+        get
+        {
+            EnsureProfileSnapshot();
+            return _profile;
+        }
+    }
+
     public override void _Ready()
     {
         Settings ??= new TerrainSettings();
         _profile = Settings.Snapshot();
+        _hasProfileSnapshot = true;
         EnsureGeneratedWorldPlan();
         RebuildPlanIndices();
         if (_profile.UseNativeSamplerWhenAvailable)
@@ -118,6 +130,7 @@ public partial class TerrainWorld : Node3D
     /// <summary>Sets or clears the world plan, rebuilding corridor and POI indices and invalidating the tile cache.</summary>
     public void SetWorldPlan(TerrainWorldPlan? worldPlan)
     {
+        EnsureProfileSnapshot();
         _worldPlanGenerationVersion++;
         CancelWorldPlanJob();
         _worldPlan = worldPlan;
@@ -129,6 +142,7 @@ public partial class TerrainWorld : Node3D
     {
         Settings ??= new TerrainSettings();
         _profile = Settings.Snapshot();
+        _hasProfileSnapshot = true;
         if (GenerateOpenWorldPlanOnReady)
         {
             _worldPlan = null;
@@ -155,6 +169,7 @@ public partial class TerrainWorld : Node3D
         if (!_isReady)
         {
             _profile = Settings.Snapshot();
+            _hasProfileSnapshot = true;
         }
 
         _worldPlanGenerationVersion++;
@@ -173,6 +188,72 @@ public partial class TerrainWorld : Node3D
         }
 
         return plan;
+    }
+
+    /// <summary>Samples the complete terrain semantic field at a world XZ position using this world's current profile.</summary>
+    public TerrainWorldField SampleField(Vector2 world)
+    {
+        return TerrainWorldFieldSampler.Sample(world, CurrentProfile);
+    }
+
+    /// <summary>Samples height, slope, biome, landscape, traversability, and surface color at a world XZ position.</summary>
+    public TerrainSample SampleSurface(Vector2 world, float spacing = 4.0f)
+    {
+        return TerrainSampler.SampleWithSlope(world, CurrentProfile, spacing);
+    }
+
+    /// <summary>Returns a Godot 3D surface position for a world XZ query, using X/Z as horizontal axes and Y as height.</summary>
+    public Vector3 SurfacePositionAt(Vector2 world, float heightOffset = 0.0f)
+    {
+        TerrainWorldField field = SampleField(world);
+        return new Vector3(world.X, field.Height + heightOffset, world.Y);
+    }
+
+    /// <summary>Returns the current open-world plan if one has been generated or assigned, without generating one synchronously.</summary>
+    public bool TryGetWorldPlan([NotNullWhen(true)] out TerrainWorldPlan? plan)
+    {
+        plan = _worldPlan;
+        return plan is not null;
+    }
+
+    /// <summary>Returns a snapshot copy of the current plan's points of interest, or an empty array when no plan is ready.</summary>
+    public TerrainWorldPointOfInterest[] GetPointsOfInterest()
+    {
+        return _worldPlan is null
+            ? Array.Empty<TerrainWorldPointOfInterest>()
+            : _worldPlan.PointsOfInterest.ToArray();
+    }
+
+    /// <summary>Returns a snapshot copy of the current plan's routes and waypoint arrays, or an empty array when no plan is ready.</summary>
+    public TerrainWorldRoute[] GetRoutes()
+    {
+        if (_worldPlan is null)
+        {
+            return Array.Empty<TerrainWorldRoute>();
+        }
+
+        TerrainWorldRoute[] routes = _worldPlan.Routes;
+        var copy = new TerrainWorldRoute[routes.Length];
+        for (int i = 0; i < routes.Length; i++)
+        {
+            copy[i] = routes[i] with { Waypoints = routes[i].Waypoints.ToArray() };
+        }
+
+        return copy;
+    }
+
+    /// <summary>Returns whether the sampled terrain field meets the requested traversability threshold.</summary>
+    public bool IsTraversable(Vector2 world, float minTraversability = 0.45f)
+    {
+        float threshold = Mathf.Clamp(minTraversability, 0.0f, 1.0f);
+        return SampleField(world).Traversability >= threshold;
+    }
+
+    /// <summary>Returns whether sampled terrain height is above this world's sea level plus an optional margin.</summary>
+    public bool IsAboveWater(Vector2 world, float margin = 0.0f)
+    {
+        TerrainGenerationProfile profile = CurrentProfile;
+        return TerrainWorldFieldSampler.Sample(world, profile).Height >= profile.SeaLevel + margin;
     }
 
     /// <summary>Creates the open-world plan used by TerrainWorld runtime streaming for a profile and world size.</summary>
@@ -232,6 +313,18 @@ public partial class TerrainWorld : Node3D
         }
 
         PrepareGeneratedWorldPlan();
+    }
+
+    private void EnsureProfileSnapshot()
+    {
+        if (_hasProfileSnapshot)
+        {
+            return;
+        }
+
+        Settings ??= new TerrainSettings();
+        _profile = Settings.Snapshot();
+        _hasProfileSnapshot = true;
     }
 
     private void PrepareGeneratedWorldPlan()
