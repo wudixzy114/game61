@@ -408,9 +408,9 @@ double sample_height_unbalanced(
 }
 
 double compute_land_balance_offset(const NativeTerrainProfile &p_profile) {
-	constexpr int resolution = 17;
+	constexpr int resolution = 33;
 	constexpr double target_land_ratio = 0.58;
-	constexpr double correction_strength = 0.36;
+	constexpr double correction_strength = 0.48;
 	const double extent = std::max(p_profile.chunk_size * 48.0, p_profile.continent_scale * 2.2);
 	int land_count = 0;
 
@@ -431,7 +431,7 @@ double compute_land_balance_offset(const NativeTerrainProfile &p_profile) {
 
 	const double land_ratio = static_cast<double>(land_count) / static_cast<double>(resolution * resolution);
 	const double offset = (land_ratio - target_land_ratio) * p_profile.height_scale * correction_strength;
-	return clamp_value(offset, p_profile.height_scale * -0.075, p_profile.height_scale * 0.075);
+	return clamp_value(offset, p_profile.height_scale * -0.16, p_profile.height_scale * 0.16);
 }
 
 double sample_height_native(double p_x, double p_z, const NativeTerrainProfile &p_profile, NativeTerrainTerms *r_terms = nullptr) {
@@ -567,13 +567,18 @@ double compute_hazard_potential(
 			smooth_step(p_profile.sea_level + 8.0, p_profile.sea_level + 220.0, p_height);
 	const double coastal_storm = clamp_value(1.0 - std::abs(p_height - p_profile.sea_level - 16.0) / 150.0, 0.0, 1.0) *
 			smooth_step(0.26, 0.68, p_terms.continent + p_terms.island * 0.28);
+	const double frontier_wildland =
+			smooth_step(0.42, 0.78, p_terms.plains + p_terms.forest * 0.70 + p_terms.wetland * 0.85 + p_terms.river * 0.22) *
+			smooth_step(0.34, 0.72, p_terms.base_moisture + p_terms.river * 0.30) *
+			smooth_step(p_profile.sea_level + 12.0, p_profile.sea_level + 380.0, p_height) *
+			(1.0 - smooth_step(0.46, 0.76, p_terms.mountains));
 
 	return clamp_value(
 			std::max(
 					std::max(std::max(rugged * 0.74, canyon * 0.82), river_risk * 0.50),
 					std::max(
 							std::max(desert_exposure * 0.64, flood_risk * 0.62),
-							coastal_storm * 0.46)) +
+							std::max(coastal_storm * 0.46, frontier_wildland * 0.48))) +
 					water_depth * 0.12 +
 					high_elevation * 0.16 +
 					exposed_ridge * 0.24 +
@@ -582,7 +587,8 @@ double compute_hazard_potential(
 					heat_risk * 0.28 +
 					flood_risk * 0.18 +
 					island_isolation * 0.20 +
-					coastal_storm * 0.10,
+					coastal_storm * 0.10 +
+					frontier_wildland * 0.12,
 			0.0,
 			1.0);
 }

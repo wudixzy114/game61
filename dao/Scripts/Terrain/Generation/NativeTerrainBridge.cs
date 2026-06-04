@@ -36,15 +36,16 @@ public static class NativeTerrainBridge
         out float[] heights)
     {
         EnsureInitialized();
-
-        int width = resolution + 1;
-        int expectedCount = width * width;
-        heights = new float[expectedCount];
+        heights = [];
 
         if (!_initialized || !_available || (_sampleHeightGridV2 is null && _sampleHeightGrid is null))
         {
             return false;
         }
+
+        int width = resolution + 1;
+        int expectedCount = width * width;
+        heights = new float[expectedCount];
 
         Vector2 origin = coord.Origin(profile.ChunkSize);
         GCHandle handle = GCHandle.Alloc(heights, GCHandleType.Pinned);
@@ -91,7 +92,13 @@ public static class NativeTerrainBridge
                     handle.AddrOfPinnedObject(),
                     expectedCount);
 
-            return written == expectedCount;
+            bool passed = written == expectedCount;
+            if (!passed)
+            {
+                heights = [];
+            }
+
+            return passed;
         }
         finally
         {
@@ -107,12 +114,24 @@ public static class NativeTerrainBridge
         out float[] samples)
     {
         EnsureInitialized();
+        samples = [];
+
+        if (!_initialized || !_available || (_sampleFieldGridV2 is null && _sampleFieldGridV1 is null))
+        {
+            return false;
+        }
 
         int width = resolution + 1;
         int expectedCount = width * width * TerrainWorldFieldSampler.NativeFieldGridStride;
         samples = new float[expectedCount];
 
-        return TrySampleFieldGrid(coord, resolution, profile, samples, expectedCount, out _);
+        bool passed = TrySampleFieldGrid(coord, resolution, profile, samples, expectedCount, out _);
+        if (!passed)
+        {
+            samples = [];
+        }
+
+        return passed;
     }
 
     /// <summary>Attempts to write native field samples into a caller-provided buffer.</summary>

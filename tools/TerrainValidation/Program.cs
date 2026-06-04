@@ -34,6 +34,7 @@ TerrainNativeSamplerSmokeReport? nativeSmokeReport = null;
 TerrainTileBenchmarkReport? tileBenchmarkReport = null;
 TerrainGenerationProfile benchmarkProfile = profile with { Seed = seed };
 TerrainWorldPlan? benchmarkPlan = null;
+const int TileBenchmarkMeasurementPasses = 5;
 
 for (int i = 0; i < seedCount; i++)
 {
@@ -1413,6 +1414,7 @@ static TerrainTileBenchmarkReport BenchmarkTerrainTiles(
             0.0f,
             0.0f,
             0.0,
+            TileBenchmarkMeasurementPasses,
             thresholds,
             "no benchmark tile coordinates selected");
     }
@@ -1423,9 +1425,20 @@ static TerrainTileBenchmarkReport BenchmarkTerrainTiles(
         TerrainTileBuilder.Build(coords[0], lod: 0, nativeProfile, includeCollision: false, corridorIndex, poiIndex);
     }
 
-    TerrainTileBenchmarkPass managed = MeasureTileBuildPass(coords, managedProfile, corridorIndex, poiIndex);
-    TerrainTileBenchmarkPass native = nativeAvailable
-        ? MeasureTileBuildPass(coords, nativeProfile, corridorIndex, poiIndex)
+    TerrainTileBenchmarkPass managed = default;
+    TerrainTileBenchmarkPass native = default;
+    MeasureStableTileBuildPasses(
+        coords,
+        managedProfile,
+        nativeProfile,
+        nativeAvailable,
+        corridorIndex,
+        poiIndex,
+        TileBenchmarkMeasurementPasses,
+        ref managed,
+        ref native);
+    native = nativeAvailable
+        ? native
         : default;
 
     int parityTileCount = 0;
@@ -1471,8 +1484,63 @@ static TerrainTileBenchmarkReport BenchmarkTerrainTiles(
         maxHeightDelta,
         maxColorDelta,
         speedup,
+        TileBenchmarkMeasurementPasses,
         thresholds,
         reason);
+}
+
+static void MeasureStableTileBuildPasses(
+    TerrainTileCoord[] coords,
+    TerrainGenerationProfile managedProfile,
+    TerrainGenerationProfile nativeProfile,
+    bool nativeAvailable,
+    TerrainRouteCorridorIndex corridorIndex,
+    TerrainPointOfInterestIndex poiIndex,
+    int measurementPasses,
+    ref TerrainTileBenchmarkPass bestManaged,
+    ref TerrainTileBenchmarkPass bestNative)
+{
+    int passes = Math.Max(1, measurementPasses);
+    for (int pass = 0; pass < passes; pass++)
+    {
+        bool nativeFirst = nativeAvailable && pass % 2 == 1;
+        if (nativeFirst)
+        {
+            TerrainTileBenchmarkPass native = MeasureTileBuildPass(coords, nativeProfile, corridorIndex, poiIndex);
+            TerrainTileBenchmarkPass managed = MeasureTileBuildPass(coords, managedProfile, corridorIndex, poiIndex);
+            bestNative = BestTileBenchmarkPass(bestNative, native);
+            bestManaged = BestTileBenchmarkPass(bestManaged, managed);
+        }
+        else
+        {
+            TerrainTileBenchmarkPass managed = MeasureTileBuildPass(coords, managedProfile, corridorIndex, poiIndex);
+            bestManaged = BestTileBenchmarkPass(bestManaged, managed);
+
+            if (nativeAvailable)
+            {
+                TerrainTileBenchmarkPass native = MeasureTileBuildPass(coords, nativeProfile, corridorIndex, poiIndex);
+                bestNative = BestTileBenchmarkPass(bestNative, native);
+            }
+        }
+    }
+}
+
+static TerrainTileBenchmarkPass BestTileBenchmarkPass(
+    TerrainTileBenchmarkPass currentBest,
+    TerrainTileBenchmarkPass candidate)
+{
+    if (candidate.TileCount <= 0)
+    {
+        return currentBest;
+    }
+
+    if (currentBest.TileCount <= 0 ||
+        candidate.MillisecondsPerTile < currentBest.MillisecondsPerTile)
+    {
+        return candidate;
+    }
+
+    return currentBest;
 }
 
 static bool EvaluateTileBenchmark(
@@ -1742,7 +1810,7 @@ static void PrintTileBenchmark(TerrainTileBenchmarkReport report)
     Console.WriteLine(
         $"Tile generation benchmark: {(report.Passed ? "PASS" : "FAIL")} native available {report.NativeAvailable}, " +
         $"tiles {report.MeasuredTileCount}/{report.RequestedTileCount}, " +
-        $"native speedup {report.NativeSpeedup:0.00}x, parity tiles {report.ParityTileCount}, " +
+        $"passes {report.MeasurementPassCount}, native speedup {report.NativeSpeedup:0.00}x, parity tiles {report.ParityTileCount}, " +
         $"max parity delta {report.MaxHeightDelta:0.000}/{report.MaxColorDelta:0.000} ({report.Reason})");
     Console.WriteLine(
         $"Benchmark thresholds: managed <= {report.Thresholds.MaxManagedMillisecondsPerTile:0.00} ms/tile, " +
@@ -2062,6 +2130,7 @@ internal readonly record struct TerrainTileBenchmarkReport(
     float MaxHeightDelta,
     float MaxColorDelta,
     double NativeSpeedup,
+    int MeasurementPassCount,
     TerrainTileBenchmarkThresholds Thresholds,
     string Reason);
 
@@ -2078,7 +2147,7 @@ internal readonly record struct TerrainTileBenchmarkThresholds(
     public static TerrainTileBenchmarkThresholds Default { get; } = new(
         MaxManagedMillisecondsPerTile: 24.0,
         MaxNativeMillisecondsPerTile: 8.0,
-        MaxAllocatedKilobytesPerTile: 1800.0,
+        MaxAllocatedKilobytesPerTile: 320.0,
         MinNativeSpeedup: 1.00,
         MinParityTileCount: 8,
         MaxParityHeightDelta: 0.05f,

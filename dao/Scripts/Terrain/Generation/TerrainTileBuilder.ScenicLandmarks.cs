@@ -280,20 +280,27 @@ public static partial class TerrainTileBuilder
         bool springTerrain =
             field.LandscapeKind is TerrainLandscapeKind.Highlands or TerrainLandscapeKind.MountainMassif or TerrainLandscapeKind.RiverValley or TerrainLandscapeKind.Snowfield ||
             field.BiomeKind == TerrainBiomeKind.Snowfield;
-        if (!springTerrain || slope > 0.22f || field.Moisture < 0.34f || field.River > 0.62f)
+        if (!springTerrain || slope > 0.30f || field.Moisture < 0.28f || field.River > 0.78f)
         {
             return 0.0f;
         }
 
-        float flatness = 1.0f - Mathf.Clamp(slope * 3.2f, 0.0f, 1.0f);
-        float thermalContrast = Mathf.Clamp(1.0f - field.Temperature, 0.0f, 1.0f) * 0.06f +
+        float flatness = 1.0f - Mathf.Clamp(slope * 2.6f, 0.0f, 1.0f);
+        float waterAccess = Mathf.Max(field.Moisture, Mathf.SmoothStep(0.18f, 0.58f, field.River));
+        float terrainBonus = field.BiomeKind == TerrainBiomeKind.Snowfield || field.LandscapeKind == TerrainLandscapeKind.Snowfield
+            ? 0.08f
+            : field.LandscapeKind == TerrainLandscapeKind.RiverValley
+            ? 0.07f
+            : 0.05f;
+        float thermalContrast =
+            Mathf.Clamp(1.0f - field.Temperature, 0.0f, 1.0f) * 0.08f +
             Mathf.Clamp(field.Temperature, 0.0f, 1.0f) * 0.04f;
-        return 0.32f +
-            field.ScenicPotential * 0.20f +
-            field.Moisture * 0.16f +
-            field.River * 0.10f +
+        return 0.40f +
+            field.ScenicPotential * 0.18f +
+            waterAccess * 0.18f +
             elevation * 0.12f +
-            flatness * 0.10f +
+            flatness * 0.12f +
+            terrainBonus +
             thermalContrast;
     }
 

@@ -149,7 +149,10 @@ public readonly record struct TerrainWorldPlanningThresholds(
     float MinPointOfInterestWorldCoverage,
     float MinRouteWorldCoverage,
     float MinAverageRouteTraversability,
-    float MinAverageRouteScenicPotential)
+    float MinAverageRouteScenicPotential,
+    int MinVillages,
+    int MinTowns,
+    int MinOasisHubs)
 {
     public static TerrainWorldPlanningThresholds OpenWorldDefault { get; } = new(
         MinPointsOfInterest: 18,
@@ -160,7 +163,10 @@ public readonly record struct TerrainWorldPlanningThresholds(
         MinPointOfInterestWorldCoverage: 0.70f,
         MinRouteWorldCoverage: 0.70f,
         MinAverageRouteTraversability: 0.34f,
-        MinAverageRouteScenicPotential: 0.20f);
+        MinAverageRouteScenicPotential: 0.20f,
+        MinVillages: 2,
+        MinTowns: 2,
+        MinOasisHubs: 1);
 }
 
 /// <summary>Detailed statistics from analyzing a world plan's points of interest and routes.</summary>
@@ -363,6 +369,27 @@ public static class TerrainWorldPlanner
             $"{report.AverageRouteScenicPotential:0.000}",
             $">= {thresholds.MinAverageRouteScenicPotential:0.000}",
             ref passed);
+        AppendGate(
+            summary,
+            "villages",
+            report.VillageCount >= thresholds.MinVillages,
+            report.VillageCount.ToString(),
+            $">= {thresholds.MinVillages}",
+            ref passed);
+        AppendGate(
+            summary,
+            "towns",
+            report.TownCount >= thresholds.MinTowns,
+            report.TownCount.ToString(),
+            $">= {thresholds.MinTowns}",
+            ref passed);
+        AppendGate(
+            summary,
+            "oasis hubs",
+            report.OasisHubCount >= thresholds.MinOasisHubs,
+            report.OasisHubCount.ToString(),
+            $">= {thresholds.MinOasisHubs}",
+            ref passed);
 
         return new TerrainWorldPlanningGateResult(passed, report, summary.ToString());
     }
@@ -454,8 +481,23 @@ public static class TerrainWorldPlanner
             : 0.0f;
         AddCandidateIfStrong(candidates, TerrainPointOfInterestKind.CanyonOverlook, canyonScore, 0.58f, field, gridX, gridY, rarity);
 
-        float oasisScore = field.BiomeKind == TerrainBiomeKind.Oasis
+        bool naturalOasis = field.BiomeKind == TerrainBiomeKind.Oasis;
+        float warmDryWaterAccess =
+            Mathf.SmoothStep(0.46f, 0.76f, field.Temperature) *
+            (1.0f - Mathf.SmoothStep(0.50f, 0.76f, field.Moisture)) *
+            Mathf.Max(
+                Mathf.SmoothStep(0.22f, 0.62f, field.River),
+                Mathf.SmoothStep(0.44f, 0.72f, field.ResourcePotential));
+        bool strategicOasisSite =
+            !naturalOasis &&
+            field.Height > profile.SeaLevel + 8.0f &&
+            field.Traversability > 0.28f &&
+            field.BiomeKind is TerrainBiomeKind.Desert or TerrainBiomeKind.Plains or TerrainBiomeKind.Grassland or TerrainBiomeKind.Hills &&
+            warmDryWaterAccess > 0.18f;
+        float oasisScore = naturalOasis
             ? field.ResourcePotential * 0.38f + field.Traversability * 0.20f + field.River * 0.18f + field.ScenicPotential * 0.14f + rarity * 0.10f
+            : strategicOasisSite
+            ? warmDryWaterAccess * 0.30f + field.ResourcePotential * 0.26f + field.Traversability * 0.18f + field.ScenicPotential * 0.12f + rarity * 0.14f
             : 0.0f;
         AddCandidateIfStrong(candidates, TerrainPointOfInterestKind.Oasis, oasisScore, 0.54f, field, gridX, gridY, rarity);
     }
@@ -503,6 +545,15 @@ public static class TerrainWorldPlanner
         int perKindLimit = Mathf.Max(3, Mathf.CeilToInt(maxPoints * 0.28f));
         float minDistanceSquared = Mathf.Pow(Mathf.Max(cellSize * 2.2f, profile.ChunkSize * 0.70f), 2.0f);
 
+        SelectRequiredPointKind(
+            candidates,
+            selected,
+            kindCounts,
+            TerrainPointOfInterestKind.Oasis,
+            maxPoints,
+            perKindLimit,
+            minDistanceSquared * 0.36f);
+
         foreach (TerrainPointOfInterestKind kind in Enum.GetValues<TerrainPointOfInterestKind>())
         {
             foreach (PoiCandidate candidate in candidates)
@@ -548,6 +599,42 @@ public static class TerrainWorldPlanner
         }
 
         return selected.ToArray();
+    }
+
+    private static void SelectRequiredPointKind(
+        List<PoiCandidate> candidates,
+        List<TerrainWorldPointOfInterest> selected,
+        Dictionary<TerrainPointOfInterestKind, int> kindCounts,
+        TerrainPointOfInterestKind requiredKind,
+        int maxPoints,
+        int perKindLimit,
+        float minDistanceSquared)
+    {
+        kindCounts.TryGetValue(requiredKind, out int existingCount);
+        if (existingCount > 0)
+        {
+            return;
+        }
+
+        foreach (PoiCandidate candidate in candidates)
+        {
+            if (candidate.Kind != requiredKind)
+            {
+                continue;
+            }
+
+            if (TrySelectPoint(
+                selected,
+                kindCounts,
+                candidate,
+                maxPoints,
+                perKindLimit,
+                minDistanceSquared,
+                enforcePerKindLimit: false))
+            {
+                return;
+            }
+        }
     }
 
     private static void SelectCoverageAnchors(
@@ -703,14 +790,7 @@ public static class TerrainWorldPlanner
     {
         if (candidate.Kind == TerrainPointOfInterestKind.Oasis)
         {
-            float oasisHubScore =
-                candidate.Score * 0.38f +
-                candidate.ResourcePotential * 0.30f +
-                candidate.Traversability * 0.16f +
-                candidate.River * 0.16f;
-            return oasisHubScore >= 0.72f
-                ? TerrainSettlementTier.OasisHub
-                : TerrainSettlementTier.None;
+            return TerrainSettlementTier.OasisHub;
         }
 
         if (candidate.Kind != TerrainPointOfInterestKind.SettlementCandidate)
@@ -734,7 +814,7 @@ public static class TerrainWorldPlanner
             candidate.ScenicPotential * 0.08f +
             biomeScore * 0.10f;
 
-        return townScore >= 0.80f
+        return townScore >= 0.84f
             ? TerrainSettlementTier.Town
             : TerrainSettlementTier.Village;
     }

@@ -344,9 +344,9 @@ public static class TerrainWorldFieldSampler
 
     private static float ComputeLandBalanceOffset(TerrainGenerationProfile profile)
     {
-        const int resolution = 17;
+        const int resolution = 33;
         const float targetLandRatio = 0.58f;
-        const float correctionStrength = 0.36f;
+        const float correctionStrength = 0.48f;
         float extent = Mathf.Max(profile.ChunkSize * 48.0f, profile.ContinentScale * 2.2f);
         int landCount = 0;
 
@@ -368,7 +368,7 @@ public static class TerrainWorldFieldSampler
 
         float landRatio = landCount / (float)(resolution * resolution);
         float offset = (landRatio - targetLandRatio) * profile.HeightScale * correctionStrength;
-        return Mathf.Clamp(offset, profile.HeightScale * -0.075f, profile.HeightScale * 0.075f);
+        return Mathf.Clamp(offset, profile.HeightScale * -0.16f, profile.HeightScale * 0.16f);
     }
 
     private static TerrainWorldField BuildField(
@@ -548,13 +548,18 @@ public static class TerrainWorldFieldSampler
             Mathf.SmoothStep(profile.SeaLevel + 8.0f, profile.SeaLevel + 220.0f, height);
         float coastalStorm = Mathf.Clamp(1.0f - Mathf.Abs(height - profile.SeaLevel - 16.0f) / 150.0f, 0.0f, 1.0f) *
             Mathf.SmoothStep(0.26f, 0.68f, terms.Continent + terms.Island * 0.28f);
+        float frontierWildland =
+            Mathf.SmoothStep(0.42f, 0.78f, terms.Plains + terms.Forest * 0.70f + terms.Wetland * 0.85f + terms.River * 0.22f) *
+            Mathf.SmoothStep(0.34f, 0.72f, terms.BaseMoisture + terms.River * 0.30f) *
+            Mathf.SmoothStep(profile.SeaLevel + 12.0f, profile.SeaLevel + 380.0f, height) *
+            (1.0f - Mathf.SmoothStep(0.46f, 0.76f, terms.Mountains));
 
         return Mathf.Clamp(
             Mathf.Max(
                 Mathf.Max(Mathf.Max(rugged * 0.74f, canyon * 0.82f), riverRisk * 0.50f),
                 Mathf.Max(
                     Mathf.Max(desertExposure * 0.64f, floodRisk * 0.62f),
-                    coastalStorm * 0.46f)) +
+                    Mathf.Max(coastalStorm * 0.46f, frontierWildland * 0.48f))) +
             waterDepth * 0.12f +
             highElevation * 0.16f +
             exposedRidge * 0.24f +
@@ -563,7 +568,8 @@ public static class TerrainWorldFieldSampler
             heatRisk * 0.28f +
             floodRisk * 0.18f +
             islandIsolation * 0.20f +
-            coastalStorm * 0.10f,
+            coastalStorm * 0.10f +
+            frontierWildland * 0.12f,
             0.0f,
             1.0f);
     }

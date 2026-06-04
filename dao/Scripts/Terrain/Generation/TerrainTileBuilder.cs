@@ -1,5 +1,6 @@
 using System;
 using System.Buffers;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Threading;
 using Godot;
@@ -9,6 +10,10 @@ namespace Dao.Terrain.Generation;
 /// <summary>Builds terrain tile meshes, heights, scatter, and landmarks from field data, route corridors, and POI footprints.</summary>
 public static partial class TerrainTileBuilder
 {
+    private const float SkirtEnabledThreshold = 0.001f;
+    private static readonly ConcurrentDictionary<int, int[]> SurfaceIndexCache = new();
+    private static readonly ConcurrentDictionary<int, int[]> SkirtedIndexCache = new();
+
     /// <summary>Builds a terrain tile without route or POI data.</summary>
     public static TerrainTileData Build(
         TerrainTileCoord coord,
@@ -77,204 +82,252 @@ public static partial class TerrainTileBuilder
         bool useNativeHeights = !useNativeFields &&
             profile.UseNativeSamplerWhenAvailable &&
             NativeTerrainBridge.TrySampleHeightGrid(coord, resolution, profile, out nativeHeights);
+        bool useSkirtedRenderMesh = Mathf.Max(0.0f, profile.SkirtDepth) > SkirtEnabledThreshold;
+        Vector3[] surfaceVertices = [];
+        Vector3[] surfaceNormals = [];
+        Vector2[] surfaceUvs = [];
+        Color[] surfaceColors = [];
+        float[] heights = [];
+        TerrainWorldField[] fields = [];
+        TerrainRouteCorridorSample[] corridorSamples = [];
+        TerrainPointFootprintSample[] footprintSamples = [];
+        TerrainSettlementLayoutSample[] settlementLayoutSamples = [];
 
         try
         {
+            surfaceVertices = useSkirtedRenderMesh ? ArrayPool<Vector3>.Shared.Rent(vertexCount) : new Vector3[vertexCount];
+            surfaceNormals = useSkirtedRenderMesh ? ArrayPool<Vector3>.Shared.Rent(vertexCount) : new Vector3[vertexCount];
+            surfaceUvs = useSkirtedRenderMesh ? ArrayPool<Vector2>.Shared.Rent(vertexCount) : new Vector2[vertexCount];
+            surfaceColors = useSkirtedRenderMesh ? ArrayPool<Color>.Shared.Rent(vertexCount) : new Color[vertexCount];
+            heights = ArrayPool<float>.Shared.Rent(vertexCount);
+            fields = ArrayPool<TerrainWorldField>.Shared.Rent(vertexCount);
+            TerrainRouteCorridorSegment[] corridorSegments = routeCorridors.GetSegments(coord);
+            bool hasCorridors = corridorSegments.Length > 0;
+            corridorSamples = hasCorridors ? ArrayPool<TerrainRouteCorridorSample>.Shared.Rent(vertexCount) : [];
+            TerrainWorldPointOfInterest[] pointInfluences = pointOfInterestIndex.GetPoints(coord);
+            bool hasPointInfluences = pointInfluences.Length > 0;
+            footprintSamples = hasPointInfluences ? ArrayPool<TerrainPointFootprintSample>.Shared.Rent(vertexCount) : [];
+            TerrainSettlementLayoutDescriptor[] settlementLayouts = hasPointInfluences
+                ? BuildSettlementLayoutDescriptors(pointInfluences, corridorSegments, profile)
+                : [];
+            bool hasSettlementLayouts = settlementLayouts.Length > 0;
+            settlementLayoutSamples = hasSettlementLayouts ? ArrayPool<TerrainSettlementLayoutSample>.Shared.Rent(vertexCount) : [];
 
-        var surfaceVertices = new Vector3[vertexCount];
-        var surfaceNormals = new Vector3[vertexCount];
-        var surfaceUvs = new Vector2[vertexCount];
-        var surfaceColors = new Color[vertexCount];
-        var heights = new float[vertexCount];
-        var fields = new TerrainWorldField[vertexCount];
-        TerrainRouteCorridorSegment[] corridorSegments = routeCorridors.GetSegments(coord);
-        bool hasCorridors = corridorSegments.Length > 0;
-        TerrainRouteCorridorSample[] corridorSamples = hasCorridors ? new TerrainRouteCorridorSample[vertexCount] : [];
-        TerrainWorldPointOfInterest[] pointInfluences = pointOfInterestIndex.GetPoints(coord);
-        bool hasPointInfluences = pointInfluences.Length > 0;
-        TerrainPointFootprintSample[] footprintSamples = hasPointInfluences ? new TerrainPointFootprintSample[vertexCount] : [];
-        TerrainSettlementLayoutDescriptor[] settlementLayouts = hasPointInfluences
-            ? BuildSettlementLayoutDescriptors(pointInfluences, corridorSegments, profile)
-            : [];
-        bool hasSettlementLayouts = settlementLayouts.Length > 0;
-        TerrainSettlementLayoutSample[] settlementLayoutSamples = hasSettlementLayouts ? new TerrainSettlementLayoutSample[vertexCount] : [];
+            float minHeight = float.PositiveInfinity;
+            float maxHeight = float.NegativeInfinity;
 
-        float minHeight = float.PositiveInfinity;
-        float maxHeight = float.NegativeInfinity;
-
-        for (int z = 0; z <= resolution; z++)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            for (int x = 0; x <= resolution; x++)
+            for (int z = 0; z <= resolution; z++)
             {
-                int index = Index(x, z, vertexCountPerSide);
-                float localX = x * step;
-                float localZ = z * step;
-                Vector2 world = new(origin.X + localX, origin.Y + localZ);
-                TerrainWorldField field = useNativeFields
-                    ? TerrainWorldFieldSampler.SampleNativeFieldGrid(world, profile, nativeFieldSamples, index, nativeFieldsContainDerivedData)
-                    : useNativeHeights
-                    ? TerrainWorldFieldSampler.SampleKnownHeight(world, profile, nativeHeights[index])
-                    : TerrainWorldFieldSampler.Sample(world, profile);
-                float height = field.Height;
-                TerrainRouteCorridorSample corridor = hasCorridors
-                    ? routeCorridors.Sample(world, corridorSegments)
-                    : TerrainRouteCorridorSample.None;
+                cancellationToken.ThrowIfCancellationRequested();
 
-                if (corridor.HasInfluence)
+                for (int x = 0; x <= resolution; x++)
                 {
-                    height = ApplyRouteCorridorHeight(height, corridor);
-                    field = field with
+                    int index = Index(x, z, vertexCountPerSide);
+                    float localX = x * step;
+                    float localZ = z * step;
+                    Vector2 world = new(origin.X + localX, origin.Y + localZ);
+                    TerrainWorldField field = useNativeFields
+                        ? TerrainWorldFieldSampler.SampleNativeFieldGrid(world, profile, nativeFieldSamples, index, nativeFieldsContainDerivedData)
+                        : useNativeHeights
+                        ? TerrainWorldFieldSampler.SampleKnownHeight(world, profile, nativeHeights[index])
+                        : TerrainWorldFieldSampler.Sample(world, profile);
+                    float height = field.Height;
+                    TerrainRouteCorridorSample corridor = TerrainRouteCorridorSample.None;
+                    if (hasCorridors)
                     {
-                        Height = height,
-                        Traversability = Mathf.Max(field.Traversability, Mathf.Lerp(field.Traversability, 0.86f, corridor.CoreStrength))
-                    };
-                    corridorSamples[index] = corridor;
-                }
+                        corridor = routeCorridors.Sample(world, corridorSegments);
+                        corridorSamples[index] = corridor;
+                    }
 
-                TerrainPointFootprintSample footprint = hasPointInfluences
-                    ? SamplePointFootprint(world, pointInfluences, profile)
-                    : TerrainPointFootprintSample.None;
-
-                if (footprint.HasInfluence)
-                {
-                    height = ApplyPointFootprintHeight(height, footprint);
-                    field = field with
+                    if (corridor.HasInfluence)
                     {
-                        Height = height,
-                        Traversability = Mathf.Max(field.Traversability, Mathf.Lerp(field.Traversability, 0.92f, footprint.CoreStrength)),
-                        EncounterPotential = Mathf.Max(field.EncounterPotential, Mathf.Lerp(field.EncounterPotential, 0.62f, footprint.CoreStrength * 0.60f))
-                    };
-                    footprintSamples[index] = footprint;
-                }
+                        height = ApplyRouteCorridorHeight(height, corridor);
+                        field = field with
+                        {
+                            Height = height,
+                            Traversability = Mathf.Max(field.Traversability, Mathf.Lerp(field.Traversability, 0.86f, corridor.CoreStrength))
+                        };
+                    }
 
-                TerrainSettlementLayoutSample settlementLayout = hasSettlementLayouts
-                    ? SampleSettlementLayout(world, settlementLayouts)
-                    : TerrainSettlementLayoutSample.None;
-
-                if (settlementLayout.HasInfluence)
-                {
-                    height = ApplySettlementLayoutHeight(height, settlementLayout);
-                    field = field with
+                    TerrainPointFootprintSample footprint = TerrainPointFootprintSample.None;
+                    if (hasPointInfluences)
                     {
-                        Height = height,
-                        Traversability = Mathf.Max(field.Traversability, Mathf.Lerp(field.Traversability, 0.95f, settlementLayout.CoreStrength)),
-                        EncounterPotential = Mathf.Max(field.EncounterPotential, Mathf.Lerp(field.EncounterPotential, 0.66f, settlementLayout.Influence * 0.45f))
-                    };
-                    settlementLayoutSamples[index] = settlementLayout;
-                }
+                        footprint = SamplePointFootprint(world, pointInfluences, profile);
+                        footprintSamples[index] = footprint;
+                    }
 
-                surfaceVertices[index] = new Vector3(localX, height, localZ);
-                surfaceUvs[index] = new Vector2(
-                    world.X / profile.ChunkSize,
-                    world.Y / profile.ChunkSize);
-                heights[index] = height;
-                fields[index] = field;
+                    if (footprint.HasInfluence)
+                    {
+                        height = ApplyPointFootprintHeight(height, footprint);
+                        field = field with
+                        {
+                            Height = height,
+                            Traversability = Mathf.Max(field.Traversability, Mathf.Lerp(field.Traversability, 0.92f, footprint.CoreStrength)),
+                            EncounterPotential = Mathf.Max(field.EncounterPotential, Mathf.Lerp(field.EncounterPotential, 0.62f, footprint.CoreStrength * 0.60f))
+                        };
+                    }
 
-                minHeight = Mathf.Min(minHeight, height);
-                maxHeight = Mathf.Max(maxHeight, height);
-            }
-        }
+                    TerrainSettlementLayoutSample settlementLayout = TerrainSettlementLayoutSample.None;
+                    if (hasSettlementLayouts)
+                    {
+                        settlementLayout = SampleSettlementLayout(world, settlementLayouts);
+                        settlementLayoutSamples[index] = settlementLayout;
+                    }
 
-        for (int z = 0; z <= resolution; z++)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
+                    if (settlementLayout.HasInfluence)
+                    {
+                        height = ApplySettlementLayoutHeight(height, settlementLayout);
+                        field = field with
+                        {
+                            Height = height,
+                            Traversability = Mathf.Max(field.Traversability, Mathf.Lerp(field.Traversability, 0.95f, settlementLayout.CoreStrength)),
+                            EncounterPotential = Mathf.Max(field.EncounterPotential, Mathf.Lerp(field.EncounterPotential, 0.66f, settlementLayout.Influence * 0.45f))
+                        };
+                    }
 
-            for (int x = 0; x <= resolution; x++)
-            {
-                int index = Index(x, z, vertexCountPerSide);
-                Vector3 normal = CalculateGridNormal(x, z, resolution, vertexCountPerSide, heights, step);
-                float slope = 1.0f - Mathf.Clamp(normal.Y, 0.0f, 1.0f);
-                surfaceNormals[index] = normal;
-                surfaceColors[index] = TerrainSampler.ColorForSurface(fields[index], profile, slope);
+                    surfaceVertices[index] = new Vector3(localX, height, localZ);
+                    surfaceUvs[index] = new Vector2(
+                        world.X / profile.ChunkSize,
+                        world.Y / profile.ChunkSize);
+                    heights[index] = height;
+                    fields[index] = field;
 
-                if (heights[index] < profile.SeaLevel + 3.0f)
-                {
-                    surfaceColors[index] = surfaceColors[index].Lerp(new Color(0.10f, 0.24f, 0.31f), 0.35f);
-                }
-
-                if (hasCorridors && corridorSamples[index].HasInfluence)
-                {
-                    surfaceColors[index] = BlendRouteSurfaceColor(surfaceColors[index], corridorSamples[index]);
-                }
-
-                if (hasPointInfluences && footprintSamples[index].HasInfluence)
-                {
-                    surfaceColors[index] = BlendPointFootprintColor(surfaceColors[index], footprintSamples[index]);
-                }
-
-                if (hasSettlementLayouts && settlementLayoutSamples[index].HasInfluence)
-                {
-                    surfaceColors[index] = BlendSettlementLayoutColor(surfaceColors[index], settlementLayoutSamples[index]);
+                    minHeight = Mathf.Min(minHeight, height);
+                    maxHeight = Mathf.Max(maxHeight, height);
                 }
             }
-        }
 
-        int[] surfaceIndices = BuildIndices(resolution, vertexCountPerSide);
-        Vector3[] collisionFaces = includeCollision ? BuildCollisionFaces(surfaceVertices, surfaceIndices) : [];
-        cancellationToken.ThrowIfCancellationRequested();
-        BuildSkirtedRenderMesh(
-            resolution,
-            vertexCountPerSide,
-            profile.SkirtDepth,
-            surfaceVertices,
-            surfaceNormals,
-            surfaceUvs,
-            surfaceColors,
-            surfaceIndices,
-            out Vector3[] renderVertices,
-            out Vector3[] renderNormals,
-            out Vector2[] renderUvs,
-            out Color[] renderColors,
-            out int[] renderIndices);
-        BuildTerrainFeatures(
-            coord,
-            lod,
-            profile,
-            resolution,
-            vertexCountPerSide,
-            step,
-            heights,
-            fields,
-            surfaceNormals,
-            routeCorridors,
-            corridorSegments,
-            pointOfInterestIndex,
-            cancellationToken,
-            out TerrainScatterInstance[] scatterInstances,
-            out TerrainLandmarkData[] landmarks);
+            for (int z = 0; z <= resolution; z++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
 
-        float renderMinHeight = minHeight - Mathf.Max(0.0f, profile.SkirtDepth);
+                for (int x = 0; x <= resolution; x++)
+                {
+                    int index = Index(x, z, vertexCountPerSide);
+                    Vector3 normal = CalculateGridNormal(x, z, resolution, vertexCountPerSide, heights, step);
+                    float slope = 1.0f - Mathf.Clamp(normal.Y, 0.0f, 1.0f);
+                    surfaceNormals[index] = normal;
+                    surfaceColors[index] = TerrainSampler.ColorForSurface(fields[index], profile, slope);
 
-        return new TerrainTileData(
-            coord,
-            lod,
-            resolution,
-            profile.ChunkSize,
-            origin,
-            renderVertices,
-            renderNormals,
-            renderUvs,
-            renderColors,
-            renderIndices,
-            collisionFaces,
-            scatterInstances,
-            landmarks,
-            renderMinHeight,
-            maxHeight);
+                    if (heights[index] < profile.SeaLevel + 3.0f)
+                    {
+                        surfaceColors[index] = surfaceColors[index].Lerp(new Color(0.10f, 0.24f, 0.31f), 0.35f);
+                    }
+
+                    if (hasCorridors && corridorSamples[index].HasInfluence)
+                    {
+                        surfaceColors[index] = BlendRouteSurfaceColor(surfaceColors[index], corridorSamples[index]);
+                    }
+
+                    if (hasPointInfluences && footprintSamples[index].HasInfluence)
+                    {
+                        surfaceColors[index] = BlendPointFootprintColor(surfaceColors[index], footprintSamples[index]);
+                    }
+
+                    if (hasSettlementLayouts && settlementLayoutSamples[index].HasInfluence)
+                    {
+                        surfaceColors[index] = BlendSettlementLayoutColor(surfaceColors[index], settlementLayoutSamples[index]);
+                    }
+                }
+            }
+
+            int[] surfaceIndices = GetSurfaceIndices(resolution);
+            Vector3[] collisionFaces = includeCollision ? BuildCollisionFaces(surfaceVertices, surfaceIndices) : [];
+            cancellationToken.ThrowIfCancellationRequested();
+            BuildSkirtedRenderMesh(
+                resolution,
+                vertexCountPerSide,
+                vertexCount,
+                profile.SkirtDepth,
+                surfaceVertices,
+                surfaceNormals,
+                surfaceUvs,
+                surfaceColors,
+                out Vector3[] renderVertices,
+                out Vector3[] renderNormals,
+                out Vector2[] renderUvs,
+                out Color[] renderColors,
+                out int[] renderIndices);
+            BuildTerrainFeatures(
+                coord,
+                lod,
+                profile,
+                resolution,
+                vertexCountPerSide,
+                step,
+                heights,
+                fields,
+                surfaceNormals,
+                routeCorridors,
+                corridorSegments,
+                pointOfInterestIndex,
+                cancellationToken,
+                out TerrainScatterInstance[] scatterInstances,
+                out TerrainLandmarkData[] landmarks);
+
+            float renderMinHeight = minHeight - Mathf.Max(0.0f, profile.SkirtDepth);
+
+            return new TerrainTileData(
+                coord,
+                lod,
+                resolution,
+                profile.ChunkSize,
+                origin,
+                renderVertices,
+                renderNormals,
+                renderUvs,
+                renderColors,
+                renderIndices,
+                collisionFaces,
+                scatterInstances,
+                landmarks,
+                renderMinHeight,
+                maxHeight);
         }
         finally
         {
+            if (useSkirtedRenderMesh)
+            {
+                ReturnPooled(surfaceVertices);
+                ReturnPooled(surfaceNormals);
+                ReturnPooled(surfaceUvs);
+                ReturnPooled(surfaceColors);
+            }
+
+            ReturnPooled(heights);
+            ReturnPooled(fields);
+            ReturnPooled(corridorSamples);
+            ReturnPooled(footprintSamples);
+            ReturnPooled(settlementLayoutSamples);
+
             if (returnNativeFieldSamples)
             {
-                ArrayPool<float>.Shared.Return(nativeFieldSamples);
+                ReturnPooled(nativeFieldSamples);
             }
         }
     }
 
-    private static int[] BuildIndices(int resolution, int vertexCountPerSide)
+    private static void ReturnPooled<T>(T[] array)
     {
+        if (array.Length > 0)
+        {
+            ArrayPool<T>.Shared.Return(array);
+        }
+    }
+
+    private static int[] GetSurfaceIndices(int resolution)
+    {
+        return SurfaceIndexCache.GetOrAdd(resolution, BuildSurfaceIndices);
+    }
+
+    private static int[] GetSkirtedIndices(int resolution)
+    {
+        return SkirtedIndexCache.GetOrAdd(resolution, BuildSkirtedIndices);
+    }
+
+    private static int[] BuildSurfaceIndices(int resolution)
+    {
+        int vertexCountPerSide = resolution + 1;
         int[] indices = new int[resolution * resolution * 6];
         int cursor = 0;
 
@@ -299,6 +352,48 @@ public static partial class TerrainTileBuilder
         return indices;
     }
 
+    private static int[] BuildSkirtedIndices(int resolution)
+    {
+        int vertexCountPerSide = resolution + 1;
+        int surfaceVertexCount = vertexCountPerSide * vertexCountPerSide;
+        int[] surfaceIndices = GetSurfaceIndices(resolution);
+        var indices = new int[surfaceIndices.Length + resolution * 4 * 6];
+        surfaceIndices.CopyTo(indices, 0);
+
+        int vertexCursor = surfaceVertexCount;
+        int indexCursor = surfaceIndices.Length;
+        AddSkirtEdgeIndices(
+            edge: 0,
+            resolution,
+            vertexCountPerSide,
+            ref vertexCursor,
+            ref indexCursor,
+            indices);
+        AddSkirtEdgeIndices(
+            edge: 1,
+            resolution,
+            vertexCountPerSide,
+            ref vertexCursor,
+            ref indexCursor,
+            indices);
+        AddSkirtEdgeIndices(
+            edge: 2,
+            resolution,
+            vertexCountPerSide,
+            ref vertexCursor,
+            ref indexCursor,
+            indices);
+        AddSkirtEdgeIndices(
+            edge: 3,
+            resolution,
+            vertexCountPerSide,
+            ref vertexCursor,
+            ref indexCursor,
+            indices);
+
+        return indices;
+    }
+
     private static Vector3[] BuildCollisionFaces(Vector3[] vertices, int[] indices)
     {
         var faces = new Vector3[indices.Length];
@@ -313,12 +408,12 @@ public static partial class TerrainTileBuilder
     private static void BuildSkirtedRenderMesh(
         int resolution,
         int vertexCountPerSide,
+        int surfaceVertexCount,
         float skirtDepth,
         Vector3[] surfaceVertices,
         Vector3[] surfaceNormals,
         Vector2[] surfaceUvs,
         Color[] surfaceColors,
-        int[] surfaceIndices,
         out Vector3[] vertices,
         out Vector3[] normals,
         out Vector2[] uvs,
@@ -326,114 +421,109 @@ public static partial class TerrainTileBuilder
         out int[] indices)
     {
         float safeSkirtDepth = Mathf.Max(0.0f, skirtDepth);
-        if (safeSkirtDepth <= 0.001f)
+        if (safeSkirtDepth <= SkirtEnabledThreshold)
         {
             vertices = surfaceVertices;
             normals = surfaceNormals;
             uvs = surfaceUvs;
             colors = surfaceColors;
-            indices = surfaceIndices;
+            indices = GetSurfaceIndices(resolution);
             return;
         }
 
         int edgeVertexCount = vertexCountPerSide * 4;
-        vertices = new Vector3[surfaceVertices.Length + edgeVertexCount];
-        normals = new Vector3[surfaceNormals.Length + edgeVertexCount];
-        uvs = new Vector2[surfaceUvs.Length + edgeVertexCount];
-        colors = new Color[surfaceColors.Length + edgeVertexCount];
+        vertices = new Vector3[surfaceVertexCount + edgeVertexCount];
+        normals = new Vector3[surfaceVertexCount + edgeVertexCount];
+        uvs = new Vector2[surfaceVertexCount + edgeVertexCount];
+        colors = new Color[surfaceVertexCount + edgeVertexCount];
 
-        surfaceVertices.CopyTo(vertices, 0);
-        surfaceNormals.CopyTo(normals, 0);
-        surfaceUvs.CopyTo(uvs, 0);
-        surfaceColors.CopyTo(colors, 0);
+        Array.Copy(surfaceVertices, vertices, surfaceVertexCount);
+        Array.Copy(surfaceNormals, normals, surfaceVertexCount);
+        Array.Copy(surfaceUvs, uvs, surfaceVertexCount);
+        Array.Copy(surfaceColors, colors, surfaceVertexCount);
 
-        var skirtIndices = new int[surfaceIndices.Length + resolution * 4 * 6];
-        surfaceIndices.CopyTo(skirtIndices, 0);
+        int vertexCursor = surfaceVertexCount;
 
-        int vertexCursor = surfaceVertices.Length;
-        int indexCursor = surfaceIndices.Length;
-
-        AddSkirtEdge(
+        AddSkirtEdgeVertices(
+            edge: 0,
             resolution,
             vertexCountPerSide,
             safeSkirtDepth,
-            x => Index(x, 0, vertexCountPerSide),
             ref vertexCursor,
-            ref indexCursor,
             vertices,
             normals,
             uvs,
-            colors,
-            skirtIndices);
-        AddSkirtEdge(
+            colors);
+        AddSkirtEdgeVertices(
+            edge: 1,
             resolution,
             vertexCountPerSide,
             safeSkirtDepth,
-            x => Index(resolution, x, vertexCountPerSide),
             ref vertexCursor,
-            ref indexCursor,
             vertices,
             normals,
             uvs,
-            colors,
-            skirtIndices);
-        AddSkirtEdge(
+            colors);
+        AddSkirtEdgeVertices(
+            edge: 2,
             resolution,
             vertexCountPerSide,
             safeSkirtDepth,
-            x => Index(resolution - x, resolution, vertexCountPerSide),
             ref vertexCursor,
-            ref indexCursor,
             vertices,
             normals,
             uvs,
-            colors,
-            skirtIndices);
-        AddSkirtEdge(
+            colors);
+        AddSkirtEdgeVertices(
+            edge: 3,
             resolution,
             vertexCountPerSide,
             safeSkirtDepth,
-            x => Index(0, resolution - x, vertexCountPerSide),
             ref vertexCursor,
-            ref indexCursor,
             vertices,
             normals,
             uvs,
-            colors,
-            skirtIndices);
+            colors);
 
-        indices = skirtIndices;
+        indices = GetSkirtedIndices(resolution);
     }
 
-    private static void AddSkirtEdge(
+    private static void AddSkirtEdgeVertices(
+        int edge,
         int resolution,
         int vertexCountPerSide,
         float skirtDepth,
-        Func<int, int> surfaceIndexAt,
         ref int vertexCursor,
-        ref int indexCursor,
         Vector3[] vertices,
         Vector3[] normals,
         Vector2[] uvs,
-        Color[] colors,
-        int[] indices)
+        Color[] colors)
     {
-        int firstSkirtVertex = vertexCursor;
-
         for (int i = 0; i <= resolution; i++)
         {
-            int surfaceIndex = surfaceIndexAt(i);
+            int surfaceIndex = SurfaceIndexForEdge(edge, i, resolution, vertexCountPerSide);
             vertices[vertexCursor] = vertices[surfaceIndex] - new Vector3(0.0f, skirtDepth, 0.0f);
             normals[vertexCursor] = normals[surfaceIndex];
             uvs[vertexCursor] = uvs[surfaceIndex];
             colors[vertexCursor] = colors[surfaceIndex].Darkened(0.22f);
             vertexCursor++;
         }
+    }
+
+    private static void AddSkirtEdgeIndices(
+        int edge,
+        int resolution,
+        int vertexCountPerSide,
+        ref int vertexCursor,
+        ref int indexCursor,
+        int[] indices)
+    {
+        int firstSkirtVertex = vertexCursor;
 
         for (int i = 0; i < resolution; i++)
         {
-            int top0 = surfaceIndexAt(i);
-            int top1 = surfaceIndexAt(i + 1);
+            int top0 = SurfaceIndexForEdge(edge, i, resolution, vertexCountPerSide);
+            int top1 = SurfaceIndexForEdge(edge, i + 1, resolution, vertexCountPerSide);
             int bottom0 = firstSkirtVertex + i;
             int bottom1 = firstSkirtVertex + i + 1;
 
@@ -444,6 +534,20 @@ public static partial class TerrainTileBuilder
             indices[indexCursor++] = bottom0;
             indices[indexCursor++] = bottom1;
         }
+
+        vertexCursor += vertexCountPerSide;
+    }
+
+    private static int SurfaceIndexForEdge(int edge, int offset, int resolution, int vertexCountPerSide)
+    {
+        return edge switch
+        {
+            0 => Index(offset, 0, vertexCountPerSide),
+            1 => Index(resolution, offset, vertexCountPerSide),
+            2 => Index(resolution - offset, resolution, vertexCountPerSide),
+            3 => Index(0, resolution - offset, vertexCountPerSide),
+            _ => throw new ArgumentOutOfRangeException(nameof(edge), edge, "Terrain skirt edge must be between 0 and 3.")
+        };
     }
 
     private static void BuildTerrainFeatures(
