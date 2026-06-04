@@ -212,6 +212,7 @@ public static class TerrainWorldPlanExporter
         AppendBiomeCount(builder, TerrainBiomeKind.Hills, quality.HillsCount);
         AppendBiomeCount(builder, TerrainBiomeKind.Mountains, quality.MountainsCount);
         AppendBiomeCount(builder, TerrainBiomeKind.Snowfield, quality.BiomeSnowfieldCount);
+        AppendBiomeCount(builder, TerrainBiomeKind.Lake, quality.BiomeLakeCount);
 
         builder.AppendLine();
         builder.AppendLine("Route Counts");

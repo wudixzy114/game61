@@ -364,19 +364,19 @@ double sample_height_unbalanced(
 			4);
 	const double inland_water_mask = smooth_step(0.36, 0.74, continent + island * 0.16);
 	const double lowland_lake =
-			smooth_step(0.58, 0.79, lake_blob) *
-			smooth_step(0.42, 0.76, lake_pocket) *
+			smooth_step(0.52, 0.76, lake_blob) *
+			smooth_step(0.36, 0.68, lake_pocket) *
 			inland_water_mask *
 			(1.0 - smooth_step(0.32, 0.62, mountains)) *
 			lerp_value(0.62, 1.18, clamp_value(base_moisture + river * 0.18 - aridity * 0.20, 0.0, 1.0));
 	const double alpine_lake =
 			smooth_step(0.34, 0.58, mountains) *
 			(1.0 - smooth_step(0.64, 0.84, mountains)) *
-			smooth_step(0.60, 0.83, lake_blob) *
-			smooth_step(0.54, 0.82, lake_pocket) *
+			smooth_step(0.54, 0.78, lake_blob) *
+			smooth_step(0.48, 0.74, lake_pocket) *
 			inland_water_mask *
 			0.72;
-	const double lake = clamp_value(std::max(lowland_lake, alpine_lake), 0.0, 1.0);
+	const double lake = clamp_value(std::max(lowland_lake * 1.34, alpine_lake * 1.22), 0.0, 1.0);
 	const double dune_detail = ridged(
 			(p_x + 541.0) / 360.0,
 			(p_z - 877.0) / 360.0,
@@ -690,10 +690,13 @@ bool is_lake(
 		double p_height,
 		const NativeTerrainProfile &p_profile,
 		const NativeTerrainTerms &p_terms) {
-	return p_terms.lake > 0.46 &&
-			p_height > p_profile.sea_level + 8.0 &&
-			p_height < p_profile.sea_level + p_profile.height_scale * 0.68 &&
-			p_terms.continent + p_terms.island * 0.18 > 0.34;
+	const double inland = p_terms.continent + p_terms.island * 0.18;
+	const bool lowland_lake = p_terms.lake > 0.34 && p_terms.mountains < 0.58;
+	const bool alpine_tarn = p_terms.lake > 0.42 && p_terms.mountains > 0.22 && p_terms.mountains < 0.70;
+	return (lowland_lake || alpine_tarn) &&
+			p_height > p_profile.sea_level + 6.0 &&
+			p_height < p_profile.sea_level + p_profile.height_scale * 0.72 &&
+			inland > 0.34;
 }
 
 bool is_desert_lowland(

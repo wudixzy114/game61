@@ -24,7 +24,8 @@ public enum TerrainWorldRegionKind
     Highlands,
     Mountains,
     Snow,
-    ScenicPlateau
+    ScenicPlateau,
+    Lake
 }
 
 /// <summary>Gameplay-relevant point of interest types that the planner can place.</summary>
@@ -1426,6 +1427,11 @@ public static class TerrainWorldPlanner
 
     private static TerrainWorldRegionKind ClassifyRegion(TerrainWorldField field)
     {
+        if (field.BiomeKind == TerrainBiomeKind.Lake || field.LandscapeKind == TerrainLandscapeKind.Lake)
+        {
+            return TerrainWorldRegionKind.Lake;
+        }
+
         if (field.BiomeKind is TerrainBiomeKind.Island or TerrainBiomeKind.Plains or TerrainBiomeKind.Grassland or
             TerrainBiomeKind.Desert or TerrainBiomeKind.Oasis or TerrainBiomeKind.Hills)
         {

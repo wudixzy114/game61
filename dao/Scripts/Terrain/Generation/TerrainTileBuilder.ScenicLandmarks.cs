@@ -247,13 +247,18 @@ public static partial class TerrainTileBuilder
             return 0.0f;
         }
 
-        float slopeFit = 1.0f - Mathf.Clamp(Mathf.Abs(slope - 0.24f) * 3.0f, 0.0f, 1.0f);
-        return 0.38f +
-            field.ScenicPotential * 0.20f +
-            field.Exposure * 0.20f +
-            elevation * 0.18f +
-            slopeFit * 0.10f +
-            Mathf.Clamp(1.0f - field.Temperature, 0.0f, 1.0f) * 0.06f;
+        float slopeFit =
+            Mathf.SmoothStep(0.08f, 0.24f, slope) *
+            (1.0f - Mathf.SmoothStep(0.54f, 0.78f, slope));
+        float exposedIce = Mathf.SmoothStep(0.28f, 0.70f, field.Exposure);
+        float cold = Mathf.Clamp(1.0f - field.Temperature, 0.0f, 1.0f);
+        return 0.42f +
+            field.ScenicPotential * 0.18f +
+            field.Exposure * 0.24f +
+            elevation * 0.16f +
+            slopeFit * 0.18f +
+            exposedIce * 0.05f +
+            cold * 0.07f;
     }
 
     private static float ScoreNaturalArchLandmark(TerrainWorldField field, float slope, float elevation)
@@ -281,6 +286,12 @@ public static partial class TerrainTileBuilder
             field.LandscapeKind is TerrainLandscapeKind.Highlands or TerrainLandscapeKind.MountainMassif or TerrainLandscapeKind.RiverValley or TerrainLandscapeKind.Snowfield ||
             field.BiomeKind == TerrainBiomeKind.Snowfield;
         if (!springTerrain || slope > 0.30f || field.Moisture < 0.28f || field.River > 0.78f)
+        {
+            return 0.0f;
+        }
+
+        bool exposedSnow = field.BiomeKind == TerrainBiomeKind.Snowfield || field.LandscapeKind == TerrainLandscapeKind.Snowfield;
+        if (exposedSnow && field.Exposure > 0.46f && elevation > 0.42f && field.River < 0.42f)
         {
             return 0.0f;
         }

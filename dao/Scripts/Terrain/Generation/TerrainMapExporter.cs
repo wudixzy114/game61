@@ -212,6 +212,7 @@ public static class TerrainMapExporter
             TerrainBiomeKind.Hills => new Color(0.42f, 0.46f, 0.28f),
             TerrainBiomeKind.Mountains => new Color(0.36f, 0.36f, 0.34f),
             TerrainBiomeKind.Snowfield => new Color(0.88f, 0.90f, 0.86f),
+            TerrainBiomeKind.Lake => new Color(0.05f, 0.34f, 0.44f),
             _ => terrainColor
         };
 
@@ -277,6 +278,7 @@ public static class TerrainMapExporter
             TerrainLandscapeKind.MountainMassif => new Color(0.34f, 0.34f, 0.32f),
             TerrainLandscapeKind.Snowfield => new Color(0.88f, 0.90f, 0.86f),
             TerrainLandscapeKind.VistaPlateau => new Color(0.56f, 0.49f, 0.26f),
+            TerrainLandscapeKind.Lake => new Color(0.05f, 0.32f, 0.46f),
             _ => Colors.Magenta
         };
     }

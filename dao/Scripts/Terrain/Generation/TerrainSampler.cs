@@ -7,6 +7,7 @@ public static class TerrainSampler
 {
     private static readonly Color DeepWater = new(0.03f, 0.10f, 0.22f);
     private static readonly Color ShallowWater = new(0.09f, 0.26f, 0.36f);
+    private static readonly Color LakeWater = new(0.06f, 0.34f, 0.44f);
     private static readonly Color Sand = new(0.63f, 0.56f, 0.38f);
     private static readonly Color DesertSand = new(0.70f, 0.55f, 0.30f);
     private static readonly Color DryGrass = new(0.48f, 0.48f, 0.22f);
@@ -100,6 +101,12 @@ public static class TerrainSampler
         if (height < seaLevel + 8.0f)
         {
             return ShallowWater.Lerp(Sand, Mathf.Clamp((height - seaLevel + 18.0f) / 26.0f, 0.0f, 1.0f));
+        }
+
+        if (biome == TerrainBiomeKind.Lake)
+        {
+            Color clearWater = LakeWater.Lerp(DeepWater, Mathf.Clamp((height - seaLevel - 80.0f) / 420.0f, 0.0f, 1.0f) * 0.28f);
+            return clearWater.Lerp(Sand, Mathf.Clamp(slope * 0.18f, 0.0f, 0.18f));
         }
 
         if (biome == TerrainBiomeKind.Oasis)

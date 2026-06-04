@@ -287,19 +287,19 @@ public static class TerrainWorldFieldSampler
             4);
         float inlandWaterMask = Mathf.SmoothStep(0.36f, 0.74f, continent + island * 0.16f);
         float lowlandLake =
-            Mathf.SmoothStep(0.58f, 0.79f, lakeBlob) *
-            Mathf.SmoothStep(0.42f, 0.76f, lakePocket) *
+            Mathf.SmoothStep(0.52f, 0.76f, lakeBlob) *
+            Mathf.SmoothStep(0.36f, 0.68f, lakePocket) *
             inlandWaterMask *
             (1.0f - Mathf.SmoothStep(0.32f, 0.62f, mountains)) *
             Mathf.Lerp(0.62f, 1.18f, Mathf.Clamp(baseMoisture + river * 0.18f - aridity * 0.20f, 0.0f, 1.0f));
         float alpineLake =
             Mathf.SmoothStep(0.34f, 0.58f, mountains) *
             (1.0f - Mathf.SmoothStep(0.64f, 0.84f, mountains)) *
-            Mathf.SmoothStep(0.60f, 0.83f, lakeBlob) *
-            Mathf.SmoothStep(0.54f, 0.82f, lakePocket) *
+            Mathf.SmoothStep(0.54f, 0.78f, lakeBlob) *
+            Mathf.SmoothStep(0.48f, 0.74f, lakePocket) *
             inlandWaterMask *
             0.72f;
-        float lake = Mathf.Clamp(Mathf.Max(lowlandLake, alpineLake), 0.0f, 1.0f);
+        float lake = Mathf.Clamp(Mathf.Max(lowlandLake * 1.34f, alpineLake * 1.22f), 0.0f, 1.0f);
         float duneDetail = ProceduralNoise.Ridged(
             (world.X + 541.0f) / 360.0f,
             (world.Y - 877.0f) / 360.0f,
@@ -834,10 +834,13 @@ public static class TerrainWorldFieldSampler
         TerrainGenerationProfile profile,
         TerrainShapeTerms terms)
     {
-        return terms.Lake > 0.46f &&
-            height > profile.SeaLevel + 8.0f &&
-            height < profile.SeaLevel + profile.HeightScale * 0.68f &&
-            terms.Continent + terms.Island * 0.18f > 0.34f;
+        float inland = terms.Continent + terms.Island * 0.18f;
+        bool lowlandLake = terms.Lake > 0.34f && terms.Mountains < 0.58f;
+        bool alpineTarn = terms.Lake > 0.42f && terms.Mountains is > 0.22f and < 0.70f;
+        return (lowlandLake || alpineTarn) &&
+            height > profile.SeaLevel + 6.0f &&
+            height < profile.SeaLevel + profile.HeightScale * 0.72f &&
+            inland > 0.34f;
     }
 
     private static bool IsDesertLowland(

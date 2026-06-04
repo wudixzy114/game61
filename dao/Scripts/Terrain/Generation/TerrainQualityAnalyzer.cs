@@ -17,7 +17,8 @@ public readonly record struct TerrainQualityThresholds(
     float MinDesertOasisRatio,
     float MinIslandCoastRatio,
     float MinHillMountainRatio,
-    float MinSnowRatio)
+    float MinSnowRatio,
+    float MinLakeRatio)
 {
     public static TerrainQualityThresholds OpenWorldDefault { get; } = new(
         MinLandRatio: 0.38f,
@@ -31,7 +32,8 @@ public readonly record struct TerrainQualityThresholds(
         MinDesertOasisRatio: 0.005f,
         MinIslandCoastRatio: 0.015f,
         MinHillMountainRatio: 0.004f,
-        MinSnowRatio: 0.004f);
+        MinSnowRatio: 0.004f,
+        MinLakeRatio: 0.002f);
 }
 
 /// <summary>Detailed terrain quality metrics from sampling a world region.</summary>
@@ -60,6 +62,7 @@ public readonly record struct TerrainQualityReport(
     int MountainMassifCount,
     int SnowfieldCount,
     int VistaPlateauCount,
+    int LakeCount,
     int BiomeOceanCount,
     int BiomeCoastCount,
     int IslandCount,
@@ -71,13 +74,15 @@ public readonly record struct TerrainQualityReport(
     int BiomeWetlandCount,
     int HillsCount,
     int MountainsCount,
-    int BiomeSnowfieldCount)
+    int BiomeSnowfieldCount,
+    int BiomeLakeCount)
 {
     public float PlainsGrasslandRatio => Ratio(PlainsCount + GrasslandCount);
     public float DesertOasisRatio => Ratio(DesertCount + OasisCount);
     public float IslandCoastRatio => Ratio(IslandCount + Math.Max(CoastCount, BiomeCoastCount));
     public float HillMountainRatio => Ratio(Math.Max(HillsCount + MountainsCount, HighlandsCount + MountainMassifCount + VistaPlateauCount));
     public float SnowRatio => Ratio(Math.Max(SnowfieldCount, BiomeSnowfieldCount));
+    public float LakeRatio => Ratio(Math.Max(LakeCount, BiomeLakeCount));
 
     public int CountFor(TerrainLandscapeKind kind)
     {
@@ -94,6 +99,7 @@ public readonly record struct TerrainQualityReport(
             TerrainLandscapeKind.MountainMassif => MountainMassifCount,
             TerrainLandscapeKind.Snowfield => SnowfieldCount,
             TerrainLandscapeKind.VistaPlateau => VistaPlateauCount,
+            TerrainLandscapeKind.Lake => LakeCount,
             _ => 0
         };
     }
@@ -114,6 +120,7 @@ public readonly record struct TerrainQualityReport(
             TerrainBiomeKind.Hills => HillsCount,
             TerrainBiomeKind.Mountains => MountainsCount,
             TerrainBiomeKind.Snowfield => BiomeSnowfieldCount,
+            TerrainBiomeKind.Lake => BiomeLakeCount,
             _ => 0
         };
     }
@@ -245,6 +252,7 @@ public static class TerrainQualityAnalyzer
             landscapeCounts[(int)TerrainLandscapeKind.MountainMassif],
             landscapeCounts[(int)TerrainLandscapeKind.Snowfield],
             landscapeCounts[(int)TerrainLandscapeKind.VistaPlateau],
+            landscapeCounts[(int)TerrainLandscapeKind.Lake],
             biomeCounts[(int)TerrainBiomeKind.Ocean],
             biomeCounts[(int)TerrainBiomeKind.Coast],
             biomeCounts[(int)TerrainBiomeKind.Island],
@@ -256,7 +264,8 @@ public static class TerrainQualityAnalyzer
             biomeCounts[(int)TerrainBiomeKind.Wetland],
             biomeCounts[(int)TerrainBiomeKind.Hills],
             biomeCounts[(int)TerrainBiomeKind.Mountains],
-            biomeCounts[(int)TerrainBiomeKind.Snowfield]);
+            biomeCounts[(int)TerrainBiomeKind.Snowfield],
+            biomeCounts[(int)TerrainBiomeKind.Lake]);
     }
 
     /// <summary>Analyzes and validates terrain quality against the given thresholds.</summary>
@@ -355,6 +364,13 @@ public static class TerrainQualityAnalyzer
             report.SnowRatio >= thresholds.MinSnowRatio,
             $"{report.SnowRatio:0.000}",
             $">= {thresholds.MinSnowRatio:0.000}",
+            ref passed);
+        AppendGate(
+            summary,
+            "lake coverage",
+            report.LakeRatio >= thresholds.MinLakeRatio,
+            $"{report.LakeRatio:0.000}",
+            $">= {thresholds.MinLakeRatio:0.000}",
             ref passed);
 
         return new TerrainQualityGateResult(passed, report, summary.ToString());
