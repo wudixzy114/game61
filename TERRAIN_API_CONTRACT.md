@@ -2,7 +2,7 @@
 
 日期：2026-06-04  
 适用项目：`d:\game61`  
-当前契约范围：`TerrainWorld` 运行时查询 facade、开放世界 plan 只读访问、基础地形语义采样、runtime gameplay anchor group/meta 契约、`terrain-plan-v1` JSON 持久化契约。
+当前契约范围：`TerrainWorld` 运行时查询 facade、运行时流送诊断快照、开放世界 plan 只读访问、基础地形语义采样、确定性 epsilon 边界、runtime gameplay anchor group/meta 契约、`terrain-plan-v1` JSON 持久化契约。
 
 ## 1. 契约目标
 
@@ -14,7 +14,10 @@
 - 表面高度、坡度、颜色和 Godot 3D 坐标转换。
 - 当前开放世界 plan 的空态和就绪态访问。
 - 当前开放世界 plan 的隔离快照访问。
-- POI 和 route 快照读取。
+- 运行时流送状态的只读诊断快照。
+- POI 和 route 快照读取、范围查询和近邻查询。
+- 静态水体语义和 gameplay tag 采样。
+- deterministic、native parity 和快照/序列化比较 epsilon。
 - POI 和 route gameplay anchor group/meta descriptor。
 - `terrain-plan-v1` plan JSON 导出/读取、profile hash 校验和 roundtrip 验证。
 - 基础通行性和水面判断。
@@ -32,9 +35,12 @@
 一级运行时入口位于：
 
 - `dao/Scripts/Terrain/Streaming/TerrainWorld.cs`
+- `dao/Scripts/Terrain/Streaming/TerrainWorldStreamingSnapshot.cs`
 - `dao/Scripts/Terrain/TerrainApiVersion.cs`
+- `dao/Scripts/Terrain/TerrainDeterminismContract.cs`
 - `dao/Scripts/Terrain/Runtime/TerrainWorldAnchorContract.cs`
 - `dao/Scripts/Terrain/Runtime/TerrainWorldAnchorBuilder.cs`
+- `dao/Scripts/Terrain/Generation/TerrainSemanticQueryData.cs`
 - `dao/Scripts/Terrain/Generation/TerrainWorldPlanSerializer.cs`
 - `dao/Scripts/Terrain/TerrainProfileHash.cs`
 
@@ -48,12 +54,20 @@ Vector3 position = terrainWorld.SurfacePositionAt(world);
 bool hasPlan = terrainWorld.TryGetWorldPlan(out TerrainWorldPlan? plan);
 TerrainWorldPlanSnapshot snapshot = terrainWorld.GetWorldPlanSnapshot();
 bool hasSnapshot = terrainWorld.TryGetWorldPlanSnapshot(out TerrainWorldPlanSnapshot? planSnapshot);
+TerrainWorldStreamingSnapshot streaming = terrainWorld.GetStreamingSnapshot();
 TerrainWorldPointOfInterest[] points = terrainWorld.GetPointsOfInterest();
 TerrainWorldRoute[] routes = terrainWorld.GetRoutes();
+bool foundPoint = terrainWorld.TryFindNearestPointOfInterest(world, radius, kind: null, out TerrainWorldPointOfInterest point);
+TerrainWorldPointOfInterest[] nearbyPoints = terrainWorld.QueryPointsOfInterest(worldBounds);
+TerrainWorldRoute[] nearbyRoutes = terrainWorld.QueryRoutesNear(world, radius);
+TerrainWaterState water = terrainWorld.SampleWaterState(world);
+TerrainGameplayTags tags = terrainWorld.SampleGameplayTags(world);
 bool traversable = terrainWorld.IsTraversable(world);
 bool aboveWater = terrainWorld.IsAboveWater(world);
 string contract = TerrainApiVersion.Contract;
 string version = TerrainApiVersion.Version;
+string determinismContract = TerrainDeterminismContract.Contract;
+float planPositionEpsilon = TerrainDeterminismContract.PositionEpsilon;
 string profileHash = profile.StableHash();
 string planJson = TerrainWorldPlanSerializer.ToJson(plan, profile);
 bool loaded = TerrainWorldPlanSerializer.TryFromJson(planJson, profile, out TerrainWorldPlan? loadedPlan, out string error);
@@ -91,9 +105,24 @@ bool loaded = TerrainWorldPlanSerializer.TryFromJson(planJson, profile, out Terr
 ### `TryGetWorldPlan(out TerrainWorldPlan? plan)`
 
 - 当当前 plan 未生成或已清空时，返回 `false`，输出 `null`。
-- 当当前 plan 已生成或通过 `SetWorldPlan` 指定时，返回 `true`，输出当前 plan。
+- 当当前 plan 已生成或通过 `SetWorldPlan` 指定时，返回 `true`，输出当前 plan 的隔离副本。
 - 不隐式同步生成 plan。
-- 注意：该入口返回当前 plan 引用，主要用于地形内部、高级工具和现有兼容场景；普通玩法模块应优先使用 `GetWorldPlanSnapshot()` 或 `TryGetWorldPlanSnapshot(...)`。
+- `Regions`、`PointsOfInterest`、`Routes` 数组都会复制，route 的 `Waypoints` 数组会深拷贝。
+- 调用方修改返回 plan、数组、route 或 waypoint 不会改变 `TerrainWorld` 内部 plan。
+- 普通玩法模块仍应优先使用 `GetWorldPlanSnapshot()`、`TryGetWorldPlanSnapshot(...)`、POI/route 查询 facade 或 gameplay anchors，减少对 plan 具体结构的耦合。
+
+### `TerrainWorld.WorldPlan`
+
+- plan 未就绪时返回 `null`。
+- plan 就绪时返回当前 plan 的隔离副本。
+- 复制规则与 `TryGetWorldPlan(...)` 一致，不暴露内部 region、POI、route 或 waypoint 数组。
+
+### `SetWorldPlan(TerrainWorldPlan? worldPlan)`
+
+- 输入 `null` 时清空当前 plan。
+- 输入非空 plan 时，`TerrainWorld` 会先复制 plan，再重建 route corridor 和 POI footprint 索引。
+- 调用方在 `SetWorldPlan(...)` 之后继续修改传入 plan、数组、route 或 waypoint，不会改变 `TerrainWorld` 内部 plan。
+- 应用或清空 plan 会取消不再匹配的 plan/tile job，清空 tile cache，并在已 ready 时重建 streaming chunks。
 
 ### `GetWorldPlanSnapshot()`
 
@@ -122,6 +151,52 @@ bool loaded = TerrainWorldPlanSerializer.TryFromJson(planJson, profile, out Terr
 - plan 就绪时返回 route 数组快照。
 - route 的 `Waypoints` 数组也会复制；调用方修改返回 route 或 waypoint 不会改变 `TerrainWorld` 内部 plan。
 
+### `GetStreamingSnapshot()`
+
+- 返回当前 `TerrainWorld` 流送状态的只读诊断快照。
+- 包含当前 profile、focus 状态、focus tile、stream radius、desired chunks、loaded chunks、queued tile jobs、retired jobs、tile cache 数量/上限、tile job 队列上限、每帧完成上限、world plan 就绪/pending 状态和 `StreamTerrainBeforeOpenWorldPlanReady` 策略。
+- `DesiredChunks`、`LoadedChunks` 和 `QueuedTileJobs` 数组会复制并按 X/Z 稳定排序；调用方修改返回数组不会改变 `TerrainWorld` 内部状态。
+- 不触发 tile 生成，不触发同步 plan 生成，不取消/提交 job，不改变缓存 LRU。
+- 该入口用于调试、监控、CI smoke 和上层系统做非侵入式 readiness 判断；普通玩法逻辑不应依赖具体 queue 完成顺序。
+- `TileCacheWithinLimit` 和 `TileJobQueueWithinLimit` 可用于快速判断流送状态是否超出 profile 契约上限。
+
+### `TryFindNearestPointOfInterest(Vector2 world, float radius, TerrainPointOfInterestKind? kind, out TerrainWorldPointOfInterest point)`
+
+- plan 未就绪时返回 `false`。
+- 在指定半径内返回最近 POI，可选按 `TerrainPointOfInterestKind` 过滤。
+- 不触发 tile 生成，不触发同步 plan 生成。
+- 复杂度为当前 plan POI 数量的线性扫描；返回值是值类型快照，不暴露内部数组。
+
+### `QueryPointsOfInterest(Rect2 worldBounds, TerrainPointOfInterestKind? kind = null)`
+
+- plan 未就绪时返回空数组。
+- 返回位于世界 XZ bounds 内的 POI，可选按 kind 过滤。
+- 支持负 size 的 `Rect2` bounds，会按 min/max 包围盒处理。
+- 不触发 tile 生成，不触发同步 plan 生成。
+- 复杂度为当前 plan POI 数量的线性扫描；返回数组可由调用方自由修改。
+
+### `QueryRoutesNear(Vector2 world, float radius)`
+
+- plan 未就绪时返回空数组。
+- 返回 waypoint polyline 与查询点距离小于等于半径的 route。
+- 不触发 tile 生成，不触发同步 plan 生成。
+- 复杂度为 route 数量乘以 route waypoint 段数；返回 route 数组和每条 route 的 waypoint 数组都会复制。
+
+### `SampleWaterState(Vector2 world)`
+
+- 使用当前 `Profile` 和 `TerrainSemanticClassifier.ClassifyWater(...)`。
+- 返回静态地形水体语义：`None`、`Ocean`、`Coast`、`Lake`、`River`、`Oasis`。
+- 返回水面高度、深度、强度、生物群系和地貌来源。
+- 不要求 plan 已生成，不触发 tile 生成，不触发同步 plan 生成。
+- 不处理动态水体、玩法水体或运行时特殊水位。
+
+### `SampleGameplayTags(Vector2 world)`
+
+- 使用当前 `Profile` 和 `TerrainSemanticClassifier.ClassifyGameplayTags(...)`。
+- 返回 gameplay-facing bit flags，例如 `Traversable`、`Scenic`、`ResourceRich`、`Hazardous`、`EncounterRich`、`WaterAccess`、`Coastal`、`SettlementFriendly`、`HighElevation`、`Cold`、`Arid`。
+- 同时返回 tag 来源分数，便于上层模块做二次阈值判断。
+- 不要求 plan 已生成，不触发 tile 生成，不触发同步 plan 生成。
+
 ### `IsTraversable(Vector2 world, float minTraversability = 0.45f)`
 
 - 使用 `SampleField(world).Traversability`。
@@ -139,8 +214,17 @@ bool loaded = TerrainWorldPlanSerializer.TryFromJson(planJson, profile, out Terr
 - `TerrainApiVersion.Contract` 当前固定为 `terrain-api-v1`。
 - `TerrainApiVersion.Version` 当前固定为 `1.0.0`。
 - `Major/Minor/Patch` 当前为 `1/0/0`。
-- plan 文本报告必须输出 contract、version 和 profile hash。
+- plan 文本报告必须输出 API contract/version、plan contract、generator version、determinism contract 和 profile hash。
 - 破坏性 API 变更必须提升 major 版本，并同步更新本契约和验证工具。
+
+### `TerrainDeterminismContract`
+
+- `TerrainDeterminismContract.Contract` 当前固定为 `terrain-determinism-v1`。
+- `ExactFloatEpsilon` 和 `ExactPositionEpsilon` 用于同进程 facade、快照、anchor descriptor 和 JSON roundtrip 的严格一致性检查。
+- `HeightEpsilon`、`FieldEpsilon`、`PositionEpsilon` 用于地形 deterministic contract 的跨实现/跨运行比较边界。
+- `NativeHeightMaxEpsilon`、`NativeHeightAverageEpsilon`、`NativeFieldMaxEpsilon`、`NativeFieldAverageEpsilon`、`NativeTileHeightEpsilon` 和 `NativeTileColorEpsilon` 用于 native/managed parity smoke。
+- `TileParityHeightEpsilon` 和 `TileParityColorEpsilon` 用于 tile benchmark parity 检查。
+- 普通玩法模块可以依赖 deterministic contract 输出；视觉表现、scatter 精确位置、primitive 尺寸和 debug overlay 绘制顺序只按近似或平台相关处理。
 
 ### `TerrainGenerationProfile.StableHash()`
 
@@ -172,24 +256,39 @@ bool loaded = TerrainWorldPlanSerializer.TryFromJson(planJson, profile, out Terr
 - meta key 只追加，不重命名。
 - record 字段谨慎改名；破坏性调整必须写迁移说明。
 - facade 查询方法不得引入重型同步 plan 生成。
-- 普通模块不应通过 `WorldPlan` 或 `TryGetWorldPlan` 修改 plan 内部数组。
+- 普通模块无法通过 `WorldPlan`、`TryGetWorldPlan` 或 `SetWorldPlan` 输入对象修改 `TerrainWorld` 内部 plan 数组。
 - plan 级稳定读取应优先使用 `TerrainWorldPlanSnapshot`。
 - POI/routes facade 返回快照，不暴露内部可变数组。
+- `TerrainWorldPlan` 构造时必须复制 region、POI、route 数组，并深拷贝 route waypoint 数组。
 - `TerrainWorldPlanSnapshot` 必须复制 region、POI、route 数组，并深拷贝 route waypoint 数组。
+- `TerrainWorldStreamingSnapshot` 必须复制 chunk/job 坐标数组，不暴露内部 set、dictionary 或 LRU 状态。
 - anchor group/meta 名称以 `TerrainWorldAnchorContract` 为准。
 - `TerrainWorldPointOfInterestAnchor` 和 `TerrainWorldRouteAnchor` 的公开常量必须与 `TerrainWorldAnchorContract` 保持一致。
 - anchor descriptor 不得泄露 route waypoint 内部可变数组。
 - plan JSON 必须写入 `contract`、`apiContract`、`apiVersion`、`generatorVersion`、`seed`、`profileHash`。
-- plan JSON 当前只读取 `terrain-plan-v1` / `terrain-api-v1` / `1.0.0`；不兼容版本必须返回明确错误。
+- plan JSON 当前只读取 `terrain-plan-v1` / `terrain-api-v1` / API `1.0.0` / generator `1.0.0`；不兼容 contract 或 version 必须返回明确错误。
 - plan JSON enum name/value 不得漂移。
 
 ## 5. 验证命令
 
-默认验证会运行 runtime API smoke、plan JSON roundtrip smoke 和 anchor contract smoke：
+PR 默认门槛使用固定 validation tier，运行默认 seed 的 runtime API smoke、plan JSON roundtrip smoke、anchor contract smoke 和运行时世界 smoke：
 
 ```powershell
-dotnet run --project tools\TerrainValidation\TerrainValidation.csproj -- --seed 613061
+dotnet run --project tools\TerrainValidation\TerrainValidation.csproj -- --validation-tier pr
 ```
+
+分层验证入口：
+
+```powershell
+dotnet run --project tools\TerrainValidation\TerrainValidation.csproj -- --validation-tier pr
+dotnet run --project tools\TerrainValidation\TerrainValidation.csproj -- --validation-tier nightly
+dotnet run --project tools\TerrainValidation\TerrainValidation.csproj -- --validation-tier release
+```
+
+- `pr`：1 个固定默认 seed，默认 smoke 全部开启，不跑 native/benchmark。
+- `nightly`：10 个固定 seed，对每个 seed 运行全部 smoke。
+- `release`：25 个固定 seed，对每个 seed 运行全部 smoke，并启用 native parity 和 tile benchmark。
+- 显式 tier 不能与 `--skip-*`、`--seed*`、`--world-size`、`--smoke-all-seeds`、`--native-smoke`、`--benchmark-tiles` 等覆盖参数混用，避免 CI 门槛被意外削弱。
 
 本次契约对应的输出项：
 
@@ -205,12 +304,18 @@ Terrain anchor contract smoke: PASS
 - `SampleSurface` 与底层 sampler 一致。
 - `SurfacePositionAt` 坐标轴正确。
 - `TerrainApiVersion` 为 `terrain-api-v1` / `1.0.0`。
+- `TerrainDeterminismContract` 为 `terrain-determinism-v1`，关键 epsilon 未漂移。
 - plan 空态返回 false 和空集合。
 - plan 就绪态返回 POI/route 数量正确。
+- `WorldPlan`、`TryGetWorldPlan`、`SetWorldPlan` 输入和 plan facade 返回值不会泄露内部可变状态。
 - `IsTraversable` 和 `IsAboveWater` 与采样字段一致。
+- `TryFindNearestPointOfInterest`、`QueryPointsOfInterest` 和 `QueryRoutesNear` 返回正确结果且不泄露 route waypoint 内部数组。
+- `SampleWaterState` 与共享地形语义分类器一致。
+- `SampleGameplayTags` 与共享地形语义分类器一致。
+- `GetStreamingSnapshot` 返回稳定、隔离的流送诊断快照，且 cache/job 上限判断未漂移。
 - POI 数组、route 数组和 route waypoint 数组不会泄露内部可变状态。
 - `TerrainWorldPlanSnapshot` 的 region、POI、route 和 route waypoint 数组不会泄露内部可变状态。
-- 导出的 open world plan report 包含 API contract、version 和 profile hash。
+- 导出的 open world plan report 包含 API contract/version、plan contract、generator version、determinism contract 和 profile hash。
 
 plan JSON roundtrip smoke 覆盖：
 
@@ -218,6 +323,7 @@ plan JSON roundtrip smoke 覆盖：
 - plan string roundtrip 后 region、POI、route、waypoint 和 report 关键数据一致。
 - plan file save/load roundtrip 成功。
 - seed mismatch 和 profile hash mismatch 会被拒绝。
+- plan/API/generator contract 或 version drift 会被拒绝。
 - enum name/value drift 会被拒绝。
 - roundtrip plan 的数组和 route waypoint 不共享原 plan 内部可变状态。
 
@@ -253,6 +359,5 @@ dotnet run --project tools\TerrainValidation\TerrainValidation.csproj -- --skip-
 
 下一批应补：
 
-- 确定性等级、native/managed 差异边界和 enum 显式数值契约。
-- 多 seed CI 默认门槛。
-- Native parity 和 tile benchmark 常规门槛。
+- 将 `--validation-tier pr/nightly/release` 接入外部 CI runner。
+- Native parity 和 tile benchmark 的目标硬件基线。

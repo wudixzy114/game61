@@ -51,8 +51,8 @@ public partial class TerrainWorld : Node3D
     /// <summary>Current immutable terrain generation profile used by streaming jobs.</summary>
     public TerrainGenerationProfile Profile => CurrentProfile;
 
-    /// <summary>Current open-world plan driving route corridors, POI footprints, settlements, and gameplay landmarks.</summary>
-    public TerrainWorldPlan? WorldPlan => _worldPlan;
+    /// <summary>Snapshot copy of the current open-world plan driving route corridors, POI footprints, settlements, and gameplay landmarks.</summary>
+    public TerrainWorldPlan? WorldPlan => _worldPlan is null ? null : TerrainWorldPlan.CopyOf(_worldPlan);
     /// <summary>True while the runtime open-world plan is being generated on a worker thread.</summary>
     public bool IsOpenWorldPlanGenerationPending => _worldPlanJob is not null;
 
@@ -133,7 +133,7 @@ public partial class TerrainWorld : Node3D
         EnsureProfileSnapshot();
         _worldPlanGenerationVersion++;
         CancelWorldPlanJob();
-        _worldPlan = worldPlan;
+        _worldPlan = worldPlan is null ? null : TerrainWorldPlan.CopyOf(worldPlan);
         ApplyPlanIndexChanges();
     }
 
@@ -212,8 +212,14 @@ public partial class TerrainWorld : Node3D
     /// <summary>Returns the current open-world plan if one has been generated or assigned, without generating one synchronously.</summary>
     public bool TryGetWorldPlan([NotNullWhen(true)] out TerrainWorldPlan? plan)
     {
-        plan = _worldPlan;
-        return plan is not null;
+        if (_worldPlan is null)
+        {
+            plan = null;
+            return false;
+        }
+
+        plan = TerrainWorldPlan.CopyOf(_worldPlan);
+        return true;
     }
 
     /// <summary>Returns a snapshot copy of the current open-world plan, or an empty snapshot when no plan is ready.</summary>
@@ -261,6 +267,150 @@ public partial class TerrainWorld : Node3D
         }
 
         return copy;
+    }
+
+    /// <summary>Returns an isolated diagnostics snapshot of the current streaming queues, chunks, cache, and plan state.</summary>
+    public TerrainWorldStreamingSnapshot GetStreamingSnapshot()
+    {
+        TerrainGenerationProfile profile = CurrentProfile;
+        bool hasFocus = _focus is not null && IsInstanceValid(_focus);
+        Vector3 focusPosition = hasFocus ? _focus!.GlobalPosition : Vector3.Zero;
+        TerrainTileCoord focusCoord = hasFocus
+            ? TerrainTileCoord.FromWorldPosition(focusPosition, profile.ChunkSize)
+            : default;
+
+        TerrainTileCoord[] desiredChunks = _desiredCoords is null
+            ? Array.Empty<TerrainTileCoord>()
+            : CopySortedCoords(_desiredCoords);
+        TerrainTileCoord[] loadedChunks = _chunks is null
+            ? Array.Empty<TerrainTileCoord>()
+            : CopySortedCoords(_chunks.Keys);
+        TerrainTileCoord[] queuedJobs = _jobs is null
+            ? Array.Empty<TerrainTileCoord>()
+            : CopySortedCoords(_jobs.Keys);
+
+        return new TerrainWorldStreamingSnapshot(
+            profile,
+            hasFocus,
+            focusPosition,
+            focusCoord,
+            profile.StreamRadiusChunks,
+            desiredChunks.Length,
+            desiredChunks,
+            loadedChunks.Length,
+            loadedChunks,
+            queuedJobs.Length,
+            queuedJobs,
+            _retiredJobs?.Count ?? 0,
+            _tileCache?.Count ?? 0,
+            Mathf.Max(0, profile.MaxCachedTileData),
+            profile.MaxQueuedTileJobs,
+            profile.MaxCompletedTilesPerFrame,
+            _worldPlan is not null,
+            _worldPlanJob is not null,
+            StreamTerrainBeforeOpenWorldPlanReady);
+    }
+
+    /// <summary>Finds the nearest planned POI within a radius, optionally filtering by POI kind. Does not generate a plan.</summary>
+    public bool TryFindNearestPointOfInterest(
+        Vector2 world,
+        float radius,
+        TerrainPointOfInterestKind? kind,
+        out TerrainWorldPointOfInterest point)
+    {
+        point = default;
+        if (_worldPlan is null)
+        {
+            return false;
+        }
+
+        float safeRadius = Mathf.Max(0.0f, radius);
+        float radiusSquared = safeRadius * safeRadius;
+        float bestDistanceSquared = float.PositiveInfinity;
+        bool found = false;
+
+        foreach (TerrainWorldPointOfInterest candidate in _worldPlan.PointsOfInterest)
+        {
+            if (kind.HasValue && candidate.Kind != kind.Value)
+            {
+                continue;
+            }
+
+            float distanceSquared = candidate.WorldPosition.DistanceSquaredTo(world);
+            if (distanceSquared <= radiusSquared && distanceSquared < bestDistanceSquared)
+            {
+                point = candidate;
+                bestDistanceSquared = distanceSquared;
+                found = true;
+            }
+        }
+
+        return found;
+    }
+
+    /// <summary>Returns planned POIs inside world-space bounds, optionally filtering by POI kind. Does not generate a plan.</summary>
+    public TerrainWorldPointOfInterest[] QueryPointsOfInterest(
+        Rect2 worldBounds,
+        TerrainPointOfInterestKind? kind = null)
+    {
+        if (_worldPlan is null)
+        {
+            return Array.Empty<TerrainWorldPointOfInterest>();
+        }
+
+        var points = new List<TerrainWorldPointOfInterest>();
+        foreach (TerrainWorldPointOfInterest point in _worldPlan.PointsOfInterest)
+        {
+            if (kind.HasValue && point.Kind != kind.Value)
+            {
+                continue;
+            }
+
+            if (ContainsPoint(worldBounds, point.WorldPosition))
+            {
+                points.Add(point);
+            }
+        }
+
+        return points.Count == 0 ? Array.Empty<TerrainWorldPointOfInterest>() : points.ToArray();
+    }
+
+    /// <summary>Returns planned routes whose waypoint polyline comes within the requested radius. Route waypoint arrays are copied.</summary>
+    public TerrainWorldRoute[] QueryRoutesNear(Vector2 world, float radius)
+    {
+        if (_worldPlan is null)
+        {
+            return Array.Empty<TerrainWorldRoute>();
+        }
+
+        float safeRadius = Mathf.Max(0.0f, radius);
+        float radiusSquared = safeRadius * safeRadius;
+        var routes = new List<TerrainWorldRoute>();
+        foreach (TerrainWorldRoute route in _worldPlan.Routes)
+        {
+            if (DistanceSquaredToRoute(world, route) <= radiusSquared)
+            {
+                routes.Add(CopyRoute(route));
+            }
+        }
+
+        return routes.Count == 0 ? Array.Empty<TerrainWorldRoute>() : routes.ToArray();
+    }
+
+    /// <summary>Samples static terrain water semantics at a world XZ position without touching streaming tiles.</summary>
+    public TerrainWaterState SampleWaterState(Vector2 world)
+    {
+        TerrainGenerationProfile profile = CurrentProfile;
+        TerrainWorldField field = TerrainWorldFieldSampler.Sample(world, profile);
+        return TerrainSemanticClassifier.ClassifyWater(field, profile);
+    }
+
+    /// <summary>Samples gameplay-facing terrain tags at a world XZ position without touching streaming tiles.</summary>
+    public TerrainGameplayTags SampleGameplayTags(Vector2 world)
+    {
+        TerrainGenerationProfile profile = CurrentProfile;
+        TerrainWorldField field = TerrainWorldFieldSampler.Sample(world, profile);
+        return TerrainSemanticClassifier.ClassifyGameplayTags(field, profile);
     }
 
     /// <summary>Returns whether the sampled terrain field meets the requested traversability threshold.</summary>
@@ -346,6 +496,79 @@ public partial class TerrainWorld : Node3D
         Settings ??= new TerrainSettings();
         _profile = Settings.Snapshot();
         _hasProfileSnapshot = true;
+    }
+
+    private static TerrainWorldRoute CopyRoute(TerrainWorldRoute route)
+    {
+        Vector2[] waypoints = route.Waypoints.Length == 0
+            ? Array.Empty<Vector2>()
+            : (Vector2[])route.Waypoints.Clone();
+        return route with { Waypoints = waypoints };
+    }
+
+    private static TerrainTileCoord[] CopySortedCoords(IEnumerable<TerrainTileCoord> coords)
+    {
+        TerrainTileCoord[] copy = coords.ToArray();
+        Array.Sort(copy, CompareTileCoords);
+        return copy;
+    }
+
+    private static int CompareTileCoords(TerrainTileCoord a, TerrainTileCoord b)
+    {
+        int x = a.X.CompareTo(b.X);
+        return x != 0 ? x : a.Z.CompareTo(b.Z);
+    }
+
+    private static bool ContainsPoint(Rect2 bounds, Vector2 point)
+    {
+        float x0 = bounds.Position.X;
+        float y0 = bounds.Position.Y;
+        float x1 = bounds.Position.X + bounds.Size.X;
+        float y1 = bounds.Position.Y + bounds.Size.Y;
+        float minX = Mathf.Min(x0, x1);
+        float maxX = Mathf.Max(x0, x1);
+        float minY = Mathf.Min(y0, y1);
+        float maxY = Mathf.Max(y0, y1);
+        return point.X >= minX &&
+            point.X <= maxX &&
+            point.Y >= minY &&
+            point.Y <= maxY;
+    }
+
+    private static float DistanceSquaredToRoute(Vector2 world, TerrainWorldRoute route)
+    {
+        Vector2[] waypoints = route.Waypoints;
+        if (waypoints.Length == 0)
+        {
+            return float.PositiveInfinity;
+        }
+
+        if (waypoints.Length == 1)
+        {
+            return world.DistanceSquaredTo(waypoints[0]);
+        }
+
+        float best = float.PositiveInfinity;
+        for (int i = 0; i < waypoints.Length - 1; i++)
+        {
+            best = Mathf.Min(best, DistanceSquaredToSegment(world, waypoints[i], waypoints[i + 1]));
+        }
+
+        return best;
+    }
+
+    private static float DistanceSquaredToSegment(Vector2 point, Vector2 a, Vector2 b)
+    {
+        Vector2 segment = b - a;
+        float lengthSquared = segment.LengthSquared();
+        if (lengthSquared <= 0.0001f)
+        {
+            return point.DistanceSquaredTo(a);
+        }
+
+        float t = Mathf.Clamp((point - a).Dot(segment) / lengthSquared, 0.0f, 1.0f);
+        Vector2 closest = a + segment * t;
+        return point.DistanceSquaredTo(closest);
     }
 
     private void PrepareGeneratedWorldPlan()

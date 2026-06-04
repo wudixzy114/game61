@@ -122,9 +122,9 @@ public sealed class TerrainWorldPlan
         Center = center;
         WorldSize = worldSize;
         GridResolution = gridResolution;
-        Regions = regions;
-        PointsOfInterest = pointsOfInterest;
-        Routes = routes;
+        Regions = CopyArray(regions);
+        PointsOfInterest = CopyArray(pointsOfInterest);
+        Routes = CopyRoutes(routes);
         QualityReport = qualityReport;
         PlanningReport = planningReport;
         ExperienceReport = experienceReport;
@@ -139,6 +139,46 @@ public sealed class TerrainWorldPlan
     public TerrainQualityReport QualityReport { get; }
     public TerrainWorldPlanningReport PlanningReport { get; }
     public TerrainExperienceReport ExperienceReport { get; }
+
+    public static TerrainWorldPlan CopyOf(TerrainWorldPlan plan)
+    {
+        return new TerrainWorldPlan(
+            plan.Center,
+            plan.WorldSize,
+            plan.GridResolution,
+            plan.Regions,
+            plan.PointsOfInterest,
+            plan.Routes,
+            plan.QualityReport,
+            plan.PlanningReport,
+            plan.ExperienceReport);
+    }
+
+    private static T[] CopyArray<T>(T[] values)
+    {
+        return values.Length == 0
+            ? Array.Empty<T>()
+            : (T[])values.Clone();
+    }
+
+    private static TerrainWorldRoute[] CopyRoutes(TerrainWorldRoute[] routes)
+    {
+        if (routes.Length == 0)
+        {
+            return Array.Empty<TerrainWorldRoute>();
+        }
+
+        var copy = new TerrainWorldRoute[routes.Length];
+        for (int i = 0; i < routes.Length; i++)
+        {
+            Vector2[] waypoints = routes[i].Waypoints.Length == 0
+                ? Array.Empty<Vector2>()
+                : (Vector2[])routes[i].Waypoints.Clone();
+            copy[i] = routes[i] with { Waypoints = waypoints };
+        }
+
+        return copy;
+    }
 }
 
 /// <summary>Snapshot copy of an open-world terrain plan intended for stable runtime API consumers.</summary>

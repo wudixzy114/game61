@@ -160,6 +160,9 @@ public static class TerrainWorldPlanExporter
         builder.AppendLine("Open World Terrain Plan");
         builder.AppendLine($"Terrain API Contract: {TerrainApiVersion.Contract}");
         builder.AppendLine($"Terrain API Version: {TerrainApiVersion.Version}");
+        builder.AppendLine($"Terrain Plan Contract: {TerrainWorldPlanSerializer.Contract}");
+        builder.AppendLine($"Terrain Generator Version: {TerrainWorldPlanSerializer.GeneratorVersion}");
+        builder.AppendLine($"Terrain Determinism Contract: {TerrainDeterminismContract.Contract}");
         if (profile is TerrainGenerationProfile value)
         {
             builder.AppendLine($"Terrain Profile Hash: {value.StableHash()}");
