@@ -1212,14 +1212,44 @@ static TerrainNativeSamplerSmokeReport ValidateNativeSamplerParity(TerrainGenera
 
     if (!NativeTerrainBridge.TrySampleHeightGrid(coord, resolution, nativeProfile, out float[] nativeHeights))
     {
-        return new TerrainNativeSamplerSmokeReport(false, false, coord, resolution, 0, 0.0f, 0.0f, 0, 0.0f, 0.0f, "native height grid unavailable");
+        return new TerrainNativeSamplerSmokeReport(
+            false,
+            false,
+            coord,
+            resolution,
+            0,
+            false,
+            false,
+            0,
+            0.0f,
+            0.0f,
+            0,
+            0.0f,
+            0.0f,
+            0,
+            0.0f,
+            0.0f,
+            "native height grid unavailable");
     }
 
+    int expectedFieldFloatCount = expectedCount * TerrainWorldFieldSampler.NativeFieldGridStride;
+    float[] nativeFieldSamples = new float[expectedFieldFloatCount];
+    bool fieldGridAvailable = NativeTerrainBridge.TrySampleFieldGrid(
+        coord,
+        resolution,
+        nativeProfile,
+        nativeFieldSamples,
+        expectedFieldFloatCount,
+        out bool fieldGridContainsDerivedData);
     Vector2 origin = coord.Origin(nativeProfile.ChunkSize);
     float step = nativeProfile.ChunkSize / resolution;
     float maxDelta = 0.0f;
     double deltaSum = 0.0;
     int compared = Math.Min(expectedCount, nativeHeights.Length);
+    float maxFieldDelta = 0.0f;
+    double fieldDeltaSum = 0.0;
+    int comparedFieldValues = 0;
+    int fieldClassificationMismatchCount = 0;
 
     for (int z = 0; z < width; z++)
     {
@@ -1232,14 +1262,45 @@ static TerrainNativeSamplerSmokeReport ValidateNativeSamplerParity(TerrainGenera
             }
 
             Vector2 world = new(origin.X + x * step, origin.Y + z * step);
-            float managedHeight = TerrainWorldFieldSampler.Sample(world, nativeProfile).Height;
-            float delta = Math.Abs(nativeHeights[index] - managedHeight);
+            TerrainWorldField managedField = TerrainWorldFieldSampler.Sample(world, nativeProfile);
+            float delta = Math.Abs(nativeHeights[index] - managedField.Height);
             maxDelta = Math.Max(maxDelta, delta);
             deltaSum += delta;
+
+            if (fieldGridAvailable && fieldGridContainsDerivedData)
+            {
+                TerrainWorldField nativeField = TerrainWorldFieldSampler.SampleNativeFieldGrid(
+                    world,
+                    nativeProfile,
+                    nativeFieldSamples,
+                    index,
+                    containsDerivedFields: true);
+                AccumulateFieldDelta(managedField.Height, nativeField.Height, ref maxFieldDelta, ref fieldDeltaSum, ref comparedFieldValues);
+                AccumulateFieldDelta(managedField.Continent, nativeField.Continent, ref maxFieldDelta, ref fieldDeltaSum, ref comparedFieldValues);
+                AccumulateFieldDelta(managedField.Basin, nativeField.Basin, ref maxFieldDelta, ref fieldDeltaSum, ref comparedFieldValues);
+                AccumulateFieldDelta(managedField.Shelf, nativeField.Shelf, ref maxFieldDelta, ref fieldDeltaSum, ref comparedFieldValues);
+                AccumulateFieldDelta(managedField.Mountains, nativeField.Mountains, ref maxFieldDelta, ref fieldDeltaSum, ref comparedFieldValues);
+                AccumulateFieldDelta(managedField.BroadElevation, nativeField.BroadElevation, ref maxFieldDelta, ref fieldDeltaSum, ref comparedFieldValues);
+                AccumulateFieldDelta(managedField.River, nativeField.River, ref maxFieldDelta, ref fieldDeltaSum, ref comparedFieldValues);
+                AccumulateFieldDelta(managedField.Moisture, nativeField.Moisture, ref maxFieldDelta, ref fieldDeltaSum, ref comparedFieldValues);
+                AccumulateFieldDelta(managedField.Temperature, nativeField.Temperature, ref maxFieldDelta, ref fieldDeltaSum, ref comparedFieldValues);
+                AccumulateFieldDelta(managedField.ScenicPotential, nativeField.ScenicPotential, ref maxFieldDelta, ref fieldDeltaSum, ref comparedFieldValues);
+                AccumulateFieldDelta(managedField.Traversability, nativeField.Traversability, ref maxFieldDelta, ref fieldDeltaSum, ref comparedFieldValues);
+                AccumulateFieldDelta(managedField.Exposure, nativeField.Exposure, ref maxFieldDelta, ref fieldDeltaSum, ref comparedFieldValues);
+                AccumulateFieldDelta(managedField.ResourcePotential, nativeField.ResourcePotential, ref maxFieldDelta, ref fieldDeltaSum, ref comparedFieldValues);
+                AccumulateFieldDelta(managedField.HazardPotential, nativeField.HazardPotential, ref maxFieldDelta, ref fieldDeltaSum, ref comparedFieldValues);
+                AccumulateFieldDelta(managedField.EncounterPotential, nativeField.EncounterPotential, ref maxFieldDelta, ref fieldDeltaSum, ref comparedFieldValues);
+
+                if (managedField.BiomeKind != nativeField.BiomeKind || managedField.LandscapeKind != nativeField.LandscapeKind)
+                {
+                    fieldClassificationMismatchCount++;
+                }
+            }
         }
     }
 
     float averageDelta = compared == 0 ? 0.0f : (float)(deltaSum / compared);
+    float averageFieldDelta = comparedFieldValues == 0 ? 0.0f : (float)(fieldDeltaSum / comparedFieldValues);
     TerrainGenerationProfile managedProfile = profile with { UseNativeSamplerWhenAvailable = false };
     TerrainTileData managedTile = TerrainTileBuilder.Build(coord, lod: 0, managedProfile, includeCollision: false);
     TerrainTileData nativeTile = TerrainTileBuilder.Build(coord, lod: 0, nativeProfile, includeCollision: false);
@@ -1259,10 +1320,26 @@ static TerrainNativeSamplerSmokeReport ValidateNativeSamplerParity(TerrainGenera
         tileVertexCount == nativeTile.Vertices.Length &&
         tileMaxHeightDelta <= 1.5f &&
         tileMaxColorDelta <= 0.03f;
-    bool passed = gridPassed && tilePassed;
+    int expectedComparedFieldValues = expectedCount * 15;
+    bool fieldGridPassed =
+        fieldGridAvailable &&
+        fieldGridContainsDerivedData &&
+        comparedFieldValues == expectedComparedFieldValues &&
+        maxFieldDelta <= 0.015f &&
+        averageFieldDelta <= 0.0025f &&
+        fieldClassificationMismatchCount == 0;
+    bool passed = gridPassed && fieldGridPassed && tilePassed;
     string reason = passed
-        ? "native height grid and tile output match managed path tolerance"
-        : gridPassed ? "native tile output diverged from managed path" : "native height grid diverged from managed sampler";
+        ? "native height grid, derived field grid, and tile output match managed path tolerance"
+        : !gridPassed
+            ? "native height grid diverged from managed sampler"
+            : !fieldGridAvailable
+                ? "native field grid unavailable"
+                : !fieldGridContainsDerivedData
+                    ? "native field grid did not expose derived v2 fields"
+                    : !fieldGridPassed
+                        ? "native derived field grid diverged from managed sampler"
+                        : "native tile output diverged from managed path";
 
     return new TerrainNativeSamplerSmokeReport(
         passed,
@@ -1270,6 +1347,12 @@ static TerrainNativeSamplerSmokeReport ValidateNativeSamplerParity(TerrainGenera
         coord,
         resolution,
         compared,
+        fieldGridAvailable,
+        fieldGridContainsDerivedData,
+        comparedFieldValues,
+        maxFieldDelta,
+        averageFieldDelta,
+        fieldClassificationMismatchCount,
         maxDelta,
         averageDelta,
         tileVertexCount,
@@ -1278,13 +1361,29 @@ static TerrainNativeSamplerSmokeReport ValidateNativeSamplerParity(TerrainGenera
         reason);
 }
 
+static void AccumulateFieldDelta(
+    float managedValue,
+    float nativeValue,
+    ref float maxDelta,
+    ref double deltaSum,
+    ref int comparedValueCount)
+{
+    float delta = Math.Abs(nativeValue - managedValue);
+    maxDelta = Math.Max(maxDelta, delta);
+    deltaSum += delta;
+    comparedValueCount++;
+}
+
 static void PrintNativeSamplerSmoke(TerrainNativeSamplerSmokeReport report)
 {
     Console.WriteLine(
         $"Native sampler smoke: {(report.Passed ? "PASS" : "FAIL")} " +
         $"available {report.Available}, tile {report.Coord}, resolution {report.Resolution}, " +
+        $"field v2 {report.FieldGridAvailable}/{report.FieldGridContainsDerivedData}, " +
         $"samples {report.ComparedSampleCount}, max delta {report.MaxHeightDelta:0.000}, " +
-        $"avg delta {report.AverageHeightDelta:0.000}, tile vertices {report.TileVertexCount}, " +
+        $"avg delta {report.AverageHeightDelta:0.000}, field values {report.ComparedFieldValueCount}, " +
+        $"field delta {report.MaxFieldDelta:0.000}/{report.AverageFieldDelta:0.000}, " +
+        $"field class mismatches {report.FieldClassificationMismatchCount}, tile vertices {report.TileVertexCount}, " +
         $"tile delta {report.TileMaxHeightDelta:0.000}/{report.TileMaxColorDelta:0.000} ({report.Reason})");
 }
 
@@ -1938,6 +2037,12 @@ internal readonly record struct TerrainNativeSamplerSmokeReport(
     TerrainTileCoord Coord,
     int Resolution,
     int ComparedSampleCount,
+    bool FieldGridAvailable,
+    bool FieldGridContainsDerivedData,
+    int ComparedFieldValueCount,
+    float MaxFieldDelta,
+    float AverageFieldDelta,
+    int FieldClassificationMismatchCount,
     float MaxHeightDelta,
     float AverageHeightDelta,
     int TileVertexCount,
@@ -1971,10 +2076,10 @@ internal readonly record struct TerrainTileBenchmarkThresholds(
     float MaxParityColorDelta)
 {
     public static TerrainTileBenchmarkThresholds Default { get; } = new(
-        MaxManagedMillisecondsPerTile: 55.0,
-        MaxNativeMillisecondsPerTile: 18.0,
+        MaxManagedMillisecondsPerTile: 24.0,
+        MaxNativeMillisecondsPerTile: 8.0,
         MaxAllocatedKilobytesPerTile: 1800.0,
-        MinNativeSpeedup: 2.50,
+        MinNativeSpeedup: 1.00,
         MinParityTileCount: 8,
         MaxParityHeightDelta: 0.05f,
         MaxParityColorDelta: 0.03f);

@@ -13,6 +13,7 @@ public static class NativeTerrainBridge
     private static bool _initialized;
     private static bool _available;
     private static IntPtr _libraryHandle;
+    private static SampleFieldGridV2Delegate? _sampleFieldGridV2;
     private static SampleFieldGridV1Delegate? _sampleFieldGridV1;
     private static SampleHeightGridV2Delegate? _sampleHeightGridV2;
     private static SampleHeightGridDelegate? _sampleHeightGrid;
@@ -111,7 +112,7 @@ public static class NativeTerrainBridge
         int expectedCount = width * width * TerrainWorldFieldSampler.NativeFieldGridStride;
         samples = new float[expectedCount];
 
-        return TrySampleFieldGrid(coord, resolution, profile, samples, expectedCount);
+        return TrySampleFieldGrid(coord, resolution, profile, samples, expectedCount, out _);
     }
 
     /// <summary>Attempts to write native field samples into a caller-provided buffer.</summary>
@@ -122,9 +123,22 @@ public static class NativeTerrainBridge
         float[] samples,
         int expectedCount)
     {
-        EnsureInitialized();
+        return TrySampleFieldGrid(coord, resolution, profile, samples, expectedCount, out _);
+    }
 
-        if (!_initialized || !_available || _sampleFieldGridV1 is null)
+    /// <summary>Attempts to write native field samples into a caller-provided buffer and reports whether the buffer already contains derived gameplay fields.</summary>
+    public static bool TrySampleFieldGrid(
+        TerrainTileCoord coord,
+        int resolution,
+        TerrainGenerationProfile profile,
+        float[] samples,
+        int expectedCount,
+        out bool containsDerivedFields)
+    {
+        EnsureInitialized();
+        containsDerivedFields = false;
+
+        if (!_initialized || !_available || (_sampleFieldGridV2 is null && _sampleFieldGridV1 is null))
         {
             return false;
         }
@@ -138,28 +152,56 @@ public static class NativeTerrainBridge
         GCHandle handle = GCHandle.Alloc(samples, GCHandleType.Pinned);
         try
         {
-            int written = _sampleFieldGridV1(
-                profile.Seed,
-                origin.X,
-                origin.Y,
-                resolution,
-                profile.ChunkSize,
-                profile.HeightScale,
-                profile.SeaLevel,
-                profile.ContinentScale,
-                profile.MountainScale,
-                profile.MountainWeight,
-                profile.ValleyWeight,
-                profile.DetailWeight,
-                profile.VistaFrequency,
-                profile.RiverStrength,
-                profile.RiverCarveDepth,
-                profile.TerraceStrength,
-                TerrainWorldFieldSampler.LandBalanceOffsetFor(profile),
-                handle.AddrOfPinnedObject(),
-                expectedCount);
+            containsDerivedFields = _sampleFieldGridV2 is not null;
+            int written = containsDerivedFields
+                ? _sampleFieldGridV2!(
+                    profile.Seed,
+                    origin.X,
+                    origin.Y,
+                    resolution,
+                    profile.ChunkSize,
+                    profile.HeightScale,
+                    profile.SeaLevel,
+                    profile.ContinentScale,
+                    profile.MountainScale,
+                    profile.MountainWeight,
+                    profile.ValleyWeight,
+                    profile.DetailWeight,
+                    profile.VistaFrequency,
+                    profile.RiverStrength,
+                    profile.RiverCarveDepth,
+                    profile.TerraceStrength,
+                    TerrainWorldFieldSampler.LandBalanceOffsetFor(profile),
+                    handle.AddrOfPinnedObject(),
+                    expectedCount)
+                : _sampleFieldGridV1!(
+                    profile.Seed,
+                    origin.X,
+                    origin.Y,
+                    resolution,
+                    profile.ChunkSize,
+                    profile.HeightScale,
+                    profile.SeaLevel,
+                    profile.ContinentScale,
+                    profile.MountainScale,
+                    profile.MountainWeight,
+                    profile.ValleyWeight,
+                    profile.DetailWeight,
+                    profile.VistaFrequency,
+                    profile.RiverStrength,
+                    profile.RiverCarveDepth,
+                    profile.TerraceStrength,
+                    TerrainWorldFieldSampler.LandBalanceOffsetFor(profile),
+                    handle.AddrOfPinnedObject(),
+                    expectedCount);
 
-            return written == expectedCount;
+            bool passed = written == expectedCount;
+            if (!passed)
+            {
+                containsDerivedFields = false;
+            }
+
+            return passed;
         }
         finally
         {
@@ -191,10 +233,10 @@ public static class NativeTerrainBridge
     {
         string[] candidates =
         [
-            "dao.windows.template_debug.x86_64.dll",
             "dao.windows.template_release.x86_64.dll",
-            "dao.linux.template_debug.x86_64.so",
-            "dao.linux.template_release.x86_64.so"
+            "dao.windows.template_debug.x86_64.dll",
+            "dao.linux.template_release.x86_64.so",
+            "dao.linux.template_debug.x86_64.so"
         ];
 
         foreach (string candidate in candidates)
@@ -211,6 +253,11 @@ public static class NativeTerrainBridge
                     continue;
                 }
 
+                if (NativeLibrary.TryGetExport(handle, "dao_native_sample_field_grid_v2", out IntPtr fieldGridV2Export))
+                {
+                    _sampleFieldGridV2 = Marshal.GetDelegateForFunctionPointer<SampleFieldGridV2Delegate>(fieldGridV2Export);
+                }
+
                 if (NativeLibrary.TryGetExport(handle, "dao_native_sample_field_grid_v1", out IntPtr fieldGridExport))
                 {
                     _sampleFieldGridV1 = Marshal.GetDelegateForFunctionPointer<SampleFieldGridV1Delegate>(fieldGridExport);
@@ -225,7 +272,7 @@ public static class NativeTerrainBridge
                     _sampleHeightGrid = Marshal.GetDelegateForFunctionPointer<SampleHeightGridDelegate>(gridExport);
                 }
 
-                if (_sampleFieldGridV1 is null && _sampleHeightGridV2 is null && _sampleHeightGrid is null)
+                if (_sampleFieldGridV2 is null && _sampleFieldGridV1 is null && _sampleHeightGridV2 is null && _sampleHeightGrid is null)
                 {
                     NativeLibrary.Free(handle);
                     continue;
@@ -317,6 +364,28 @@ public static class NativeTerrainBridge
         double landBalanceOffset,
         IntPtr outputHeights,
         int outputHeightCount);
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate int SampleFieldGridV2Delegate(
+        int seed,
+        double originX,
+        double originZ,
+        int resolution,
+        double chunkSize,
+        double heightScale,
+        double seaLevel,
+        double continentScale,
+        double mountainScale,
+        double mountainWeight,
+        double valleyWeight,
+        double detailWeight,
+        double vistaFrequency,
+        double riverStrength,
+        double riverCarveDepth,
+        double terraceStrength,
+        double landBalanceOffset,
+        IntPtr outputSamples,
+        int outputSampleFloatCount);
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     private delegate int SampleFieldGridV1Delegate(

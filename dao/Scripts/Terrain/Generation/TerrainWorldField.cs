@@ -63,6 +63,8 @@ public static class TerrainWorldFieldSampler
     public const int NativeFieldGridStride = 17;
 
     private static readonly ConcurrentDictionary<TerrainGenerationProfile, float> LandBalanceOffsets = new();
+    private const int MaxNativeBiomeKind = (int)TerrainBiomeKind.Snowfield;
+    private const int MaxNativeLandscapeKind = (int)TerrainLandscapeKind.VistaPlateau;
 
     /// <summary>Full terrain sample at a world position, computing all field attributes including height.</summary>
     public static TerrainWorldField Sample(Vector2 world, TerrainGenerationProfile profile)
@@ -82,8 +84,44 @@ public static class TerrainWorldFieldSampler
     /// <summary>Deserializes a <see cref="TerrainWorldField"/> from a native sampler's flat float array at the given index.</summary>
     public static TerrainWorldField SampleNativeFieldGrid(Vector2 world, TerrainGenerationProfile profile, float[] samples, int sampleIndex)
     {
+        return SampleNativeFieldGrid(world, profile, samples, sampleIndex, containsDerivedFields: false);
+    }
+
+    /// <summary>Deserializes a native field grid sample. Derived grids already contain gameplay fields and classifications.</summary>
+    public static TerrainWorldField SampleNativeFieldGrid(
+        Vector2 world,
+        TerrainGenerationProfile profile,
+        float[] samples,
+        int sampleIndex,
+        bool containsDerivedFields)
+    {
         int offset = sampleIndex * NativeFieldGridStride;
         float height = samples[offset];
+        if (containsDerivedFields)
+        {
+            TerrainBiomeKind biome = (TerrainBiomeKind)Mathf.Clamp(Mathf.RoundToInt(samples[offset + 15]), 0, MaxNativeBiomeKind);
+            TerrainLandscapeKind landscape = (TerrainLandscapeKind)Mathf.Clamp(Mathf.RoundToInt(samples[offset + 16]), 0, MaxNativeLandscapeKind);
+            return new TerrainWorldField(
+                world,
+                height,
+                samples[offset + 1],
+                samples[offset + 2],
+                samples[offset + 3],
+                samples[offset + 4],
+                samples[offset + 5],
+                samples[offset + 6],
+                samples[offset + 7],
+                samples[offset + 8],
+                samples[offset + 9],
+                samples[offset + 10],
+                samples[offset + 11],
+                samples[offset + 12],
+                samples[offset + 13],
+                samples[offset + 14],
+                biome,
+                landscape);
+        }
+
         TerrainShapeTerms terms = new(
             samples[offset + 1],
             samples[offset + 2],

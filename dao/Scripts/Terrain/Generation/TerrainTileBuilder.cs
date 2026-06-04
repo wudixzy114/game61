@@ -53,11 +53,18 @@ public static partial class TerrainTileBuilder
         float[] nativeFieldSamples = [];
         bool returnNativeFieldSamples = false;
         bool useNativeFields = false;
+        bool nativeFieldsContainDerivedData = false;
         if (profile.UseNativeSamplerWhenAvailable)
         {
             nativeFieldSamples = ArrayPool<float>.Shared.Rent(nativeFieldSampleCount);
             returnNativeFieldSamples = true;
-            useNativeFields = NativeTerrainBridge.TrySampleFieldGrid(coord, resolution, profile, nativeFieldSamples, nativeFieldSampleCount);
+            useNativeFields = NativeTerrainBridge.TrySampleFieldGrid(
+                coord,
+                resolution,
+                profile,
+                nativeFieldSamples,
+                nativeFieldSampleCount,
+                out nativeFieldsContainDerivedData);
             if (!useNativeFields)
             {
                 ArrayPool<float>.Shared.Return(nativeFieldSamples);
@@ -106,7 +113,7 @@ public static partial class TerrainTileBuilder
                 float localZ = z * step;
                 Vector2 world = new(origin.X + localX, origin.Y + localZ);
                 TerrainWorldField field = useNativeFields
-                    ? TerrainWorldFieldSampler.SampleNativeFieldGrid(world, profile, nativeFieldSamples, index)
+                    ? TerrainWorldFieldSampler.SampleNativeFieldGrid(world, profile, nativeFieldSamples, index, nativeFieldsContainDerivedData)
                     : useNativeHeights
                     ? TerrainWorldFieldSampler.SampleKnownHeight(world, profile, nativeHeights[index])
                     : TerrainWorldFieldSampler.Sample(world, profile);
