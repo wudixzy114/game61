@@ -9,6 +9,7 @@ namespace Dao.Terrain.Streaming;
 public partial class TerrainChunk : Node3D
 {
     private MeshInstance3D? _meshInstance;
+    private MeshInstance3D? _waterInstance;
     private StaticBody3D? _staticBody;
     private readonly Dictionary<TerrainScatterKind, MultiMeshInstance3D> _scatterNodes = new();
     private readonly Dictionary<TerrainLandmarkKind, MultiMeshInstance3D> _landmarkScatter = new();
@@ -21,7 +22,7 @@ public partial class TerrainChunk : Node3D
     public bool HasCollision { get; private set; }
 
     /// <summary>Applies terrain tile data, rebuilding the render mesh, scatter instances, and collision geometry.</summary>
-    public void Apply(TerrainTileData data, Material terrainMaterial)
+    public void Apply(TerrainTileData data, Material terrainMaterial, Material waterMaterial)
     {
         Coord = data.Coord;
         Lod = data.Lod;
@@ -33,6 +34,7 @@ public partial class TerrainChunk : Node3D
         _meshInstance.Mesh = TerrainMeshBuilder.CreateMesh(data);
         _meshInstance.SetSurfaceOverrideMaterial(0, terrainMaterial);
 
+        RebuildLocalWater(data, waterMaterial);
         RebuildScatter(data);
         RebuildCollision(data);
     }
@@ -42,6 +44,31 @@ public partial class TerrainChunk : Node3D
         var meshInstance = new MeshInstance3D { Name = "Mesh" };
         AddChild(meshInstance);
         return meshInstance;
+    }
+
+    private MeshInstance3D CreateWaterInstance()
+    {
+        var waterInstance = new MeshInstance3D { Name = "LocalWater" };
+        AddChild(waterInstance);
+        return waterInstance;
+    }
+
+    private void RebuildLocalWater(TerrainTileData data, Material waterMaterial)
+    {
+        if (!data.WaterSurface.HasSurface)
+        {
+            if (_waterInstance is not null)
+            {
+                _waterInstance.QueueFree();
+                _waterInstance = null;
+            }
+
+            return;
+        }
+
+        _waterInstance ??= CreateWaterInstance();
+        _waterInstance.Mesh = TerrainMeshBuilder.CreateWaterMesh(data);
+        _waterInstance.SetSurfaceOverrideMaterial(0, waterMaterial);
     }
 
     private void RebuildScatter(TerrainTileData data)

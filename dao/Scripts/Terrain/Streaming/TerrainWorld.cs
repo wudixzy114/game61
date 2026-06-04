@@ -40,6 +40,7 @@ public partial class TerrainWorld : Node3D
     private Node3D? _focus;
     private Material _terrainMaterial = null!;
     private Material _waterMaterial = null!;
+    private Material _localWaterMaterial = null!;
     private MeshInstance3D? _waterPlane;
     private double _streamTimer;
     private int _worldPlanGenerationVersion;
@@ -70,6 +71,7 @@ public partial class TerrainWorld : Node3D
 
         _terrainMaterial = TerrainMaterialFactory.CreateTerrainMaterial();
         _waterMaterial = TerrainMaterialFactory.CreateWaterMaterial();
+        _localWaterMaterial = TerrainMaterialFactory.CreateLocalWaterMaterial();
 
         ResolveFocus();
 
@@ -537,7 +539,7 @@ public partial class TerrainWorld : Node3D
     private void ApplyTileData(TerrainTileData data)
     {
         TerrainChunk chunk = GetOrCreateChunk(data.Coord);
-        chunk.Apply(data, _terrainMaterial);
+        chunk.Apply(data, _terrainMaterial, _localWaterMaterial);
     }
 
     private TerrainChunk GetOrCreateChunk(TerrainTileCoord coord)

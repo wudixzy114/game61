@@ -31,6 +31,23 @@ public static class TerrainMaterialFactory
         };
     }
 
+    /// <summary>Creates a vertex-colored transparent material for tile-local rivers, lakes, and oasis pools.</summary>
+    public static StandardMaterial3D CreateLocalWaterMaterial()
+    {
+        return new StandardMaterial3D
+        {
+            AlbedoColor = Colors.White,
+            VertexColorUseAsAlbedo = true,
+            Transparency = BaseMaterial3D.TransparencyEnum.Alpha,
+            CullMode = BaseMaterial3D.CullModeEnum.Disabled,
+            Roughness = 0.14f,
+            Metallic = 0.0f,
+            EmissionEnabled = true,
+            Emission = new Color(0.03f, 0.10f, 0.13f),
+            EmissionEnergyMultiplier = 0.08f
+        };
+    }
+
     /// <summary>Creates a vertex-colored material for tree scatter meshes.</summary>
     public static StandardMaterial3D CreateTreeMaterial()
     {

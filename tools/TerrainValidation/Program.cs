@@ -842,13 +842,16 @@ static TerrainBiomeScatterSmokeReport ValidateBiomeScatterMaterialization(
 
     if (coords.Count == 0)
     {
-        return new TerrainBiomeScatterSmokeReport(false, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "no biome scatter candidate tiles found");
+        return new TerrainBiomeScatterSmokeReport(false, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "no biome scatter candidate tiles found");
     }
 
     TerrainPointOfInterestIndex poiIndex = TerrainPointOfInterestIndex.FromPlan(plan, profile);
     TerrainRouteCorridorIndex corridorIndex = TerrainRouteCorridorIndex.FromPlan(plan, profile);
     Span<int> scatterCounts = stackalloc int[Enum.GetValues<TerrainScatterKind>().Length];
     int sampledTiles = 0;
+    int lakeWaterCellCount = 0;
+    int riverWaterCellCount = 0;
+    int oasisWaterCellCount = 0;
 
     foreach (TerrainTileCoord coord in coords)
     {
@@ -864,8 +867,12 @@ static TerrainBiomeScatterSmokeReport ValidateBiomeScatterMaterialization(
         foreach (TerrainScatterInstance scatter in data.ScatterInstances)
         {
             int kindIndex = Mathf.Clamp((int)scatter.Kind, 0, scatterCounts.Length - 1);
-            scatterCounts[kindIndex]++;
+                scatterCounts[kindIndex]++;
         }
+
+        lakeWaterCellCount += data.WaterSurface.LakeCellCount;
+        riverWaterCellCount += data.WaterSurface.RiverCellCount;
+        oasisWaterCellCount += data.WaterSurface.OasisCellCount;
     }
 
     int grassTuftCount = scatterCounts[(int)TerrainScatterKind.GrassTuft];
@@ -891,6 +898,7 @@ static TerrainBiomeScatterSmokeReport ValidateBiomeScatterMaterialization(
         mangroveRootCount +
         lakeReedCount +
         waterLilyCount;
+    int totalWaterCellCount = lakeWaterCellCount + riverWaterCellCount + oasisWaterCellCount;
     bool passed =
         grassTuftCount > 0 &&
         desertShrubCount > 0 &&
@@ -903,10 +911,14 @@ static TerrainBiomeScatterSmokeReport ValidateBiomeScatterMaterialization(
         mangroveRootCount > 0 &&
         lakeReedCount > 0 &&
         waterLilyCount > 0 &&
-        biomeScatterCount >= 72;
+        biomeScatterCount >= 72 &&
+        lakeWaterCellCount > 0 &&
+        riverWaterCellCount > 0 &&
+        oasisWaterCellCount > 0 &&
+        totalWaterCellCount >= 48;
     string reason = passed
-        ? "biome surface scatter materialized across plains, desert, wetland, lake, snowfield, coast, island, and alpine terrain"
-        : "one or more biome surface scatter kinds did not materialize";
+        ? "biome scatter and local water surfaces materialized across plains, desert, wetland, lake, river, oasis, snowfield, coast, island, and alpine terrain"
+        : "one or more biome scatter or local water surface kinds did not materialize";
 
     return new TerrainBiomeScatterSmokeReport(
         passed,
@@ -924,6 +936,10 @@ static TerrainBiomeScatterSmokeReport ValidateBiomeScatterMaterialization(
         lakeReedCount,
         waterLilyCount,
         biomeScatterCount,
+        lakeWaterCellCount,
+        riverWaterCellCount,
+        oasisWaterCellCount,
+        totalWaterCellCount,
         reason);
 }
 
@@ -937,6 +953,8 @@ static void AddBiomeScatterCandidateCoords(
     var desertCandidates = new List<GameplayScatterRegionCandidate>(plan.Regions.Length / 3);
     var wetlandCandidates = new List<GameplayScatterRegionCandidate>(plan.Regions.Length / 3);
     var lakeCandidates = new List<GameplayScatterRegionCandidate>(plan.Regions.Length / 3);
+    var riverCandidates = new List<GameplayScatterRegionCandidate>(plan.Regions.Length / 3);
+    var oasisCandidates = new List<GameplayScatterRegionCandidate>(plan.Regions.Length / 3);
     var snowCandidates = new List<GameplayScatterRegionCandidate>(plan.Regions.Length / 3);
     var coastCandidates = new List<GameplayScatterRegionCandidate>(plan.Regions.Length / 3);
     var generalCandidates = new List<GameplayScatterRegionCandidate>(plan.Regions.Length);
@@ -962,6 +980,12 @@ static void AddBiomeScatterCandidateCoords(
             : 0.0f;
         float lakeScore = region.BiomeKind == TerrainBiomeKind.Lake || region.LandscapeKind == TerrainLandscapeKind.Lake
             ? 0.50f + region.ResourcePotential * 0.20f + region.ScenicPotential * 0.12f + region.Traversability * 0.06f
+            : 0.0f;
+        float riverScore = region.River > 0.62f && region.LandscapeKind != TerrainLandscapeKind.Ocean
+            ? 0.48f + region.River * 0.22f + region.ScenicPotential * 0.12f + region.ResourcePotential * 0.10f
+            : 0.0f;
+        float oasisScore = region.BiomeKind == TerrainBiomeKind.Oasis || region.RegionKind == TerrainWorldRegionKind.Oasis
+            ? 0.50f + region.ResourcePotential * 0.18f + region.ScenicPotential * 0.12f + region.Traversability * 0.08f
             : 0.0f;
         float snowScore = region.BiomeKind == TerrainBiomeKind.Snowfield || region.LandscapeKind == TerrainLandscapeKind.Snowfield
             ? 0.46f + region.Exposure * 0.20f + region.ScenicPotential * 0.14f + region.Traversability * 0.06f
@@ -990,6 +1014,16 @@ static void AddBiomeScatterCandidateCoords(
             lakeCandidates.Add(new GameplayScatterRegionCandidate(region.WorldPosition, lakeScore));
         }
 
+        if (riverScore > 0.0f)
+        {
+            riverCandidates.Add(new GameplayScatterRegionCandidate(region.WorldPosition, riverScore));
+        }
+
+        if (oasisScore > 0.0f)
+        {
+            oasisCandidates.Add(new GameplayScatterRegionCandidate(region.WorldPosition, oasisScore));
+        }
+
         if (snowScore > 0.0f)
         {
             snowCandidates.Add(new GameplayScatterRegionCandidate(region.WorldPosition, snowScore));
@@ -1000,18 +1034,21 @@ static void AddBiomeScatterCandidateCoords(
             coastCandidates.Add(new GameplayScatterRegionCandidate(region.WorldPosition, coastScore));
         }
 
-        float generalScore = Mathf.Max(Mathf.Max(Mathf.Max(grassScore, desertScore), Mathf.Max(wetlandScore, lakeScore)), Mathf.Max(snowScore, coastScore));
+        float waterScore = Mathf.Max(Mathf.Max(wetlandScore, lakeScore), Mathf.Max(riverScore, oasisScore));
+        float generalScore = Mathf.Max(Mathf.Max(Mathf.Max(grassScore, desertScore), waterScore), Mathf.Max(snowScore, coastScore));
         if (generalScore > 0.0f)
         {
             generalCandidates.Add(new GameplayScatterRegionCandidate(region.WorldPosition, generalScore));
         }
     }
 
-    int categoryQuota = Mathf.Max(8, maxCoords / 7);
+    int categoryQuota = Mathf.Max(7, maxCoords / 9);
     AddSortedCandidateCoords(grassCandidates, profile, coords, Mathf.Min(maxCoords, coords.Count + categoryQuota));
     AddSortedCandidateCoords(desertCandidates, profile, coords, Mathf.Min(maxCoords, coords.Count + categoryQuota));
     AddSortedCandidateCoords(wetlandCandidates, profile, coords, Mathf.Min(maxCoords, coords.Count + categoryQuota));
     AddSortedCandidateCoords(lakeCandidates, profile, coords, Mathf.Min(maxCoords, coords.Count + categoryQuota));
+    AddSortedCandidateCoords(riverCandidates, profile, coords, Mathf.Min(maxCoords, coords.Count + categoryQuota));
+    AddSortedCandidateCoords(oasisCandidates, profile, coords, Mathf.Min(maxCoords, coords.Count + categoryQuota));
     AddSortedCandidateCoords(snowCandidates, profile, coords, Mathf.Min(maxCoords, coords.Count + categoryQuota));
     AddSortedCandidateCoords(coastCandidates, profile, coords, Mathf.Min(maxCoords, coords.Count + categoryQuota));
     AddSortedCandidateCoords(generalCandidates, profile, coords, maxCoords);
@@ -1024,6 +1061,7 @@ static void PrintBiomeScatterSmoke(TerrainBiomeScatterSmokeReport report)
         $"tiles {report.SampledTileCount}/{report.CandidateTileCount}, " +
         $"grass/desert/cactus/reeds/snow/alpine/palms/driftwood/mangrove/lake reeds/lilies " +
         $"{report.GrassTuftCount}/{report.DesertShrubCount}/{report.CactusClusterCount}/{report.ReedClusterCount}/{report.SnowClumpCount}/{report.AlpinePineCount}/{report.CoastalPalmCount}/{report.DriftwoodCount}/{report.MangroveRootCount}/{report.LakeReedCount}/{report.WaterLilyCount}, " +
+        $"water cells lake/river/oasis {report.LakeWaterCellCount}/{report.RiverWaterCellCount}/{report.OasisWaterCellCount}, " +
         $"total {report.BiomeScatterCount} ({report.Reason})");
 }
 
@@ -2917,6 +2955,10 @@ internal readonly record struct TerrainBiomeScatterSmokeReport(
     int LakeReedCount,
     int WaterLilyCount,
     int BiomeScatterCount,
+    int LakeWaterCellCount,
+    int RiverWaterCellCount,
+    int OasisWaterCellCount,
+    int TotalWaterCellCount,
     string Reason);
 
 /// <summary>Reports whether scenic natural landmarks (waterfalls, dunes, monoliths, etc.) materialize across diverse terrain types.</summary>

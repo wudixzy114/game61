@@ -25,4 +25,25 @@ public static class TerrainMeshBuilder
 
         return mesh;
     }
+
+    /// <summary>Creates an ArrayMesh for generated local river, lake, and oasis water surfaces.</summary>
+    public static ArrayMesh CreateWaterMesh(TerrainTileData data)
+    {
+        TerrainWaterSurfaceData water = data.WaterSurface;
+        var arrays = new Godot.Collections.Array();
+        arrays.Resize((int)Mesh.ArrayType.Max);
+        arrays[(int)Mesh.ArrayType.Vertex] = water.Vertices;
+        arrays[(int)Mesh.ArrayType.Normal] = water.Normals;
+        arrays[(int)Mesh.ArrayType.TexUV] = water.Uvs;
+        arrays[(int)Mesh.ArrayType.Color] = water.Colors;
+        arrays[(int)Mesh.ArrayType.Index] = water.Indices;
+
+        var mesh = new ArrayMesh();
+        mesh.AddSurfaceFromArrays(Mesh.PrimitiveType.Triangles, arrays);
+        mesh.CustomAabb = new Aabb(
+            new Vector3(0.0f, water.MinHeight - 0.5f, 0.0f),
+            new Vector3(data.ChunkSize, water.MaxHeight - water.MinHeight + 1.0f, data.ChunkSize));
+
+        return mesh;
+    }
 }

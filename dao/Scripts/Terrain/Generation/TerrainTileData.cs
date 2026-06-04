@@ -2,6 +2,35 @@ using Godot;
 
 namespace Dao.Terrain.Generation;
 
+/// <summary>Generated local water surface mesh for a terrain tile, used for rivers, lakes, and oasis pools above the terrain surface.</summary>
+public readonly record struct TerrainWaterSurfaceData(
+    Vector3[] Vertices,
+    Vector3[] Normals,
+    Vector2[] Uvs,
+    Color[] Colors,
+    int[] Indices,
+    int LakeCellCount,
+    int RiverCellCount,
+    int OasisCellCount,
+    float MinHeight,
+    float MaxHeight)
+{
+    public static TerrainWaterSurfaceData Empty { get; } = new(
+        [],
+        [],
+        [],
+        [],
+        [],
+        LakeCellCount: 0,
+        RiverCellCount: 0,
+        OasisCellCount: 0,
+        MinHeight: 0.0f,
+        MaxHeight: 0.0f);
+
+    public bool HasSurface => Vertices.Length > 0 && Indices.Length > 0;
+    public int CellCount => LakeCellCount + RiverCellCount + OasisCellCount;
+}
+
 /// <summary>Complete generated data for a single terrain tile, including mesh, collision, scatter instances, and landmarks.</summary>
 public sealed class TerrainTileData
 {
@@ -16,6 +45,7 @@ public sealed class TerrainTileData
         Vector2[] uvs,
         Color[] colors,
         int[] indices,
+        TerrainWaterSurfaceData waterSurface,
         Vector3[] collisionFaces,
         TerrainScatterInstance[] scatterInstances,
         TerrainLandmarkData[] landmarks,
@@ -32,6 +62,7 @@ public sealed class TerrainTileData
         Uvs = uvs;
         Colors = colors;
         Indices = indices;
+        WaterSurface = waterSurface;
         CollisionFaces = collisionFaces;
         ScatterInstances = scatterInstances;
         Landmarks = landmarks;
@@ -59,6 +90,8 @@ public sealed class TerrainTileData
     public Color[] Colors { get; }
     /// <summary>Triangle index buffer.</summary>
     public int[] Indices { get; }
+    /// <summary>Local rivers, lakes, and oasis pool water surface mesh data for this tile.</summary>
+    public TerrainWaterSurfaceData WaterSurface { get; }
     /// <summary>Collision mesh vertex data (empty if collision not generated).</summary>
     public Vector3[] CollisionFaces { get; }
     /// <summary>Surface scatter instances (trees, rocks, gameplay elements, landmarks).</summary>
