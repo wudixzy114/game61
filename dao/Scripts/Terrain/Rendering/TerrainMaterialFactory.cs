@@ -149,6 +149,20 @@ public static class TerrainMaterialFactory
                 Roughness = 0.96f,
                 Metallic = 0.0f
             },
+            TerrainScatterKind.LakeReed => new StandardMaterial3D
+            {
+                AlbedoColor = Colors.White,
+                VertexColorUseAsAlbedo = true,
+                Roughness = 0.86f,
+                Metallic = 0.0f
+            },
+            TerrainScatterKind.WaterLily => new StandardMaterial3D
+            {
+                AlbedoColor = Colors.White,
+                VertexColorUseAsAlbedo = true,
+                Roughness = 0.72f,
+                Metallic = 0.0f
+            },
             _ => CreateRockMaterial()
         };
 

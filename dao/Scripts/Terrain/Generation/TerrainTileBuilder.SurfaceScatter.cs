@@ -71,7 +71,8 @@ public static partial class TerrainTileBuilder
         List<TerrainScatterInstance> scatter)
     {
         bool isTidalMangroveFlat = IsMangroveTidalFlat(height, slope, field, profile);
-        if (slope > 0.36f || (!isTidalMangroveFlat && field.Traversability < 0.18f))
+        bool isLakeScatterZone = IsLakeScatterZone(height, slope, field, profile);
+        if (slope > 0.36f || (!isTidalMangroveFlat && !isLakeScatterZone && field.Traversability < 0.18f))
         {
             return;
         }
@@ -98,6 +99,27 @@ public static partial class TerrainTileBuilder
             probability = Mathf.Lerp(0.26f, 0.58f, suitability) * densityPenalty;
             tint = new Color(0.18f, 0.25f, 0.14f).Lerp(new Color(0.36f, 0.44f, 0.22f), Mathf.Clamp(field.Moisture * 0.34f + riverMouth * 0.12f, 0.0f, 0.42f));
             baseScale = 0.86f;
+        }
+        else if (isLakeScatterZone)
+        {
+            float lakeCore = Mathf.SmoothStep(0.34f, 0.72f, field.Lake);
+            float lakeMargin = 1.0f - Mathf.Clamp(Mathf.Abs(field.Lake - 0.38f) / 0.32f, 0.0f, 1.0f);
+            float warmWater = Mathf.SmoothStep(0.16f, 0.52f, field.Temperature);
+            float calmWater = lakeCore * (1.0f - Mathf.SmoothStep(0.10f, 0.22f, slope));
+            float shelteredWater = Mathf.Max(calmWater, lakeMargin * warmWater * Mathf.SmoothStep(0.58f, 0.86f, field.Moisture));
+            bool placeWaterLily =
+                shelteredWater > 0.16f &&
+                slope < 0.18f &&
+                field.Temperature > 0.18f &&
+                Hash01(coord.X, coord.Z, cellX * 6239 + cellZ * 6263, profile.Seed + 279) < Mathf.Lerp(0.24f, 0.62f, shelteredWater * warmWater);
+            kind = placeWaterLily ? TerrainScatterKind.WaterLily : TerrainScatterKind.LakeReed;
+            probability = (placeWaterLily
+                ? Mathf.Lerp(0.12f, 0.34f, shelteredWater * (0.52f + warmWater * 0.48f))
+                : Mathf.Lerp(0.12f, 0.36f, Mathf.Max(lakeMargin, field.ResourcePotential * 0.72f))) * densityPenalty;
+            tint = placeWaterLily
+                ? new Color(0.12f, 0.36f, 0.24f).Lerp(new Color(0.62f, 0.78f, 0.56f), Mathf.Clamp(warmWater * 0.32f, 0.0f, 0.32f))
+                : new Color(0.20f, 0.42f, 0.26f).Lerp(new Color(0.52f, 0.48f, 0.24f), Mathf.Clamp(lakeMargin * 0.26f, 0.0f, 0.26f));
+            baseScale = placeWaterLily ? 0.58f : 0.74f;
         }
         else if (field.BiomeKind is TerrainBiomeKind.Plains or TerrainBiomeKind.Grassland && slope < 0.20f && field.Moisture is > 0.28f and < 0.72f)
         {
@@ -237,5 +259,24 @@ public static partial class TerrainTileBuilder
             field.LandscapeKind is TerrainLandscapeKind.Coast or TerrainLandscapeKind.Wetland or TerrainLandscapeKind.RiverValley;
         bool hasWaterSource = field.River > 0.26f || height < profile.SeaLevel + 12.0f;
         return coastalOrWetland && hasWaterSource;
+    }
+
+    private static bool IsLakeScatterZone(
+        float height,
+        float slope,
+        TerrainWorldField field,
+        TerrainGenerationProfile profile)
+    {
+        if (slope > 0.22f ||
+            height < profile.SeaLevel + 6.0f ||
+            height > profile.SeaLevel + profile.HeightScale * 0.72f ||
+            field.Lake < 0.30f)
+        {
+            return false;
+        }
+
+        return field.BiomeKind == TerrainBiomeKind.Lake ||
+            field.LandscapeKind == TerrainLandscapeKind.Lake ||
+            (field.Moisture > 0.58f && field.ResourcePotential > 0.34f);
     }
 }

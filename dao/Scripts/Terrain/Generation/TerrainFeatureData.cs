@@ -19,6 +19,8 @@ public enum TerrainScatterKind
     CoastalPalm,
     Driftwood,
     MangroveRoot,
+    LakeReed,
+    WaterLily,
     Landmark
 }
 

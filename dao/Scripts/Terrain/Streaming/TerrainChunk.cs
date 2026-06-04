@@ -364,6 +364,26 @@ public partial class TerrainChunk : Node3D
             },
             TerrainScatterKind.Driftwood => new BoxMesh { Size = new Vector3(1.28f, 0.20f, 0.38f) },
             TerrainScatterKind.MangroveRoot => new BoxMesh { Size = new Vector3(1.12f, 0.42f, 0.86f) },
+            TerrainScatterKind.LakeReed => new CylinderMesh
+            {
+                TopRadius = 0.10f,
+                BottomRadius = 0.22f,
+                Height = 1.18f,
+                RadialSegments = 5,
+                Rings = 1,
+                CapTop = true,
+                CapBottom = true
+            },
+            TerrainScatterKind.WaterLily => new CylinderMesh
+            {
+                TopRadius = 0.42f,
+                BottomRadius = 0.46f,
+                Height = 0.06f,
+                RadialSegments = 12,
+                Rings = 1,
+                CapTop = true,
+                CapBottom = true
+            },
             _ => new SphereMesh
             {
                 Radius = 0.5f,
@@ -400,6 +420,8 @@ public partial class TerrainChunk : Node3D
             TerrainScatterKind.CoastalPalm => new ScatterVisual("CoastalPalms", 0.92f, new Vector3(0.82f, 1.42f, 0.82f), 72.0f),
             TerrainScatterKind.Driftwood => new ScatterVisual("Driftwood", 0.12f, new Vector3(1.52f, 0.32f, 0.64f), 36.0f),
             TerrainScatterKind.MangroveRoot => new ScatterVisual("MangroveRoots", 0.24f, new Vector3(1.18f, 0.70f, 0.92f), 42.0f),
+            TerrainScatterKind.LakeReed => new ScatterVisual("LakeReeds", 0.34f, new Vector3(0.70f, 1.10f, 0.70f), 52.0f),
+            TerrainScatterKind.WaterLily => new ScatterVisual("WaterLilies", 0.04f, new Vector3(1.18f, 0.10f, 1.18f), 24.0f),
             _ => new ScatterVisual(kind.ToString(), 0.35f, Vector3.One, 64.0f)
         };
     }

@@ -19,13 +19,21 @@ bool skipGameplayScatterSmoke = HasFlag(args, "--skip-gameplay-scatter-smoke");
 bool skipBiomeScatterSmoke = HasFlag(args, "--skip-biome-scatter-smoke");
 bool skipScenicLandmarkSmoke = HasFlag(args, "--skip-scenic-landmark-smoke");
 bool skipArtifactSmoke = HasFlag(args, "--skip-artifact-smoke");
+bool smokeAllSeeds = HasFlag(args, "--smoke-all-seeds");
 bool nativeSmoke = HasFlag(args, "--native-smoke");
 bool benchmarkTiles = HasFlag(args, "--benchmark-tiles");
 int benchmarkTileCount = Math.Max(1, GetIntArg(args, "--benchmark-tile-count", 48));
 int artifactImageSize = Math.Clamp(GetIntArg(args, "--artifact-image-size", 256), 64, 2048);
-string artifactOutputDirectory = GetArg(args, "--artifact-output-dir") ?? DefaultArtifactOutputDirectory(seed);
+string? artifactOutputDirectoryArg = GetArg(args, "--artifact-output-dir");
+string artifactOutputDirectory = artifactOutputDirectoryArg ??
+    (smokeAllSeeds && seedCount > 1
+        ? DefaultBatchArtifactOutputDirectory(seed, seedCount)
+        : DefaultArtifactOutputDirectory(seed));
 
-int failures = 0;
+int seedFailures = 0;
+int totalFailures = 0;
+int auxiliaryCheckCount = 0;
+int auxiliaryFailureCount = 0;
 TerrainValidationAggregate aggregate = new();
 TerrainRouteCorridorSmokeReport? corridorSmokeReport = null;
 TerrainRouteScatterSmokeReport? routeScatterSmokeReport = null;
@@ -54,79 +62,64 @@ for (int i = 0; i < seedCount; i++)
 
     if (!result.Passed)
     {
-        failures++;
+        seedFailures++;
+        totalFailures++;
     }
 
     PrintSeedResult(result, seedCount == 1 || verbose);
+    bool runSeedSmokes = i == 0 || smokeAllSeeds;
 
-    if (i == 0 && !skipCorridorSmoke)
+    if (runSeedSmokes && !skipCorridorSmoke)
     {
         corridorSmokeReport = ValidateRouteCorridorTileEffect(seedProfile, result.Plan);
         PrintCorridorSmoke(corridorSmokeReport.Value);
-        if (!corridorSmokeReport.Value.Passed)
-        {
-            failures++;
-        }
+        RecordAuxiliaryCheck(corridorSmokeReport.Value.Passed, ref totalFailures, ref auxiliaryCheckCount, ref auxiliaryFailureCount);
     }
 
-    if (i == 0 && !skipRouteScatterSmoke)
+    if (runSeedSmokes && !skipRouteScatterSmoke)
     {
         routeScatterSmokeReport = ValidateRouteScatterMaterialization(seedProfile, result.Plan);
         PrintRouteScatterSmoke(routeScatterSmokeReport.Value);
-        if (!routeScatterSmokeReport.Value.Passed)
-        {
-            failures++;
-        }
+        RecordAuxiliaryCheck(routeScatterSmokeReport.Value.Passed, ref totalFailures, ref auxiliaryCheckCount, ref auxiliaryFailureCount);
     }
 
-    if (i == 0 && !skipPoiTileSmoke)
+    if (runSeedSmokes && !skipPoiTileSmoke)
     {
         poiTileSmokeReport = ValidatePoiTileMaterialization(seedProfile, result.Plan);
         PrintPoiTileSmoke(poiTileSmokeReport.Value);
-        if (!poiTileSmokeReport.Value.Passed)
-        {
-            failures++;
-        }
+        RecordAuxiliaryCheck(poiTileSmokeReport.Value.Passed, ref totalFailures, ref auxiliaryCheckCount, ref auxiliaryFailureCount);
     }
 
-    if (i == 0 && !skipGameplayScatterSmoke)
+    if (runSeedSmokes && !skipGameplayScatterSmoke)
     {
         gameplayScatterSmokeReport = ValidateGameplayScatterMaterialization(seedProfile, result.Plan);
         PrintGameplayScatterSmoke(gameplayScatterSmokeReport.Value);
-        if (!gameplayScatterSmokeReport.Value.Passed)
-        {
-            failures++;
-        }
+        RecordAuxiliaryCheck(gameplayScatterSmokeReport.Value.Passed, ref totalFailures, ref auxiliaryCheckCount, ref auxiliaryFailureCount);
     }
 
-    if (i == 0 && !skipBiomeScatterSmoke)
+    if (runSeedSmokes && !skipBiomeScatterSmoke)
     {
         biomeScatterSmokeReport = ValidateBiomeScatterMaterialization(seedProfile, result.Plan);
         PrintBiomeScatterSmoke(biomeScatterSmokeReport.Value);
-        if (!biomeScatterSmokeReport.Value.Passed)
-        {
-            failures++;
-        }
+        RecordAuxiliaryCheck(biomeScatterSmokeReport.Value.Passed, ref totalFailures, ref auxiliaryCheckCount, ref auxiliaryFailureCount);
     }
 
-    if (i == 0 && !skipScenicLandmarkSmoke)
+    if (runSeedSmokes && !skipScenicLandmarkSmoke)
     {
         scenicLandmarkSmokeReport = ValidateScenicLandmarkMaterialization(seedProfile, result.Plan);
         PrintScenicLandmarkSmoke(scenicLandmarkSmokeReport.Value);
-        if (!scenicLandmarkSmokeReport.Value.Passed)
-        {
-            failures++;
-        }
+        RecordAuxiliaryCheck(scenicLandmarkSmokeReport.Value.Passed, ref totalFailures, ref auxiliaryCheckCount, ref auxiliaryFailureCount);
     }
 
-    if (i == 0 && !skipArtifactSmoke)
+    if (runSeedSmokes && !skipArtifactSmoke)
     {
-        artifactSmokeReport = ValidateOpenWorldArtifactExport(seedProfile, result.Plan, artifactOutputDirectory, artifactImageSize);
+        string seedArtifactOutputDirectory = ArtifactOutputDirectoryForSeed(
+            artifactOutputDirectory,
+            seedProfile.Seed,
+            smokeAllSeeds && seedCount > 1);
+        artifactSmokeReport = ValidateOpenWorldArtifactExport(seedProfile, result.Plan, seedArtifactOutputDirectory, artifactImageSize);
         PrintArtifactSmoke(artifactSmokeReport.Value);
-        if (!artifactSmokeReport.Value.Passed)
-        {
-            failures++;
-        }
+        RecordAuxiliaryCheck(artifactSmokeReport.Value.Passed, ref totalFailures, ref auxiliaryCheckCount, ref auxiliaryFailureCount);
     }
 }
 
@@ -134,26 +127,23 @@ if (nativeSmoke)
 {
     nativeSmokeReport = ValidateNativeSamplerParity(profile);
     PrintNativeSamplerSmoke(nativeSmokeReport.Value);
-    if (!nativeSmokeReport.Value.Passed)
-    {
-        failures++;
-    }
+    RecordAuxiliaryCheck(nativeSmokeReport.Value.Passed, ref totalFailures, ref auxiliaryCheckCount, ref auxiliaryFailureCount);
 }
 
 if (benchmarkTiles && benchmarkPlan is not null)
 {
     tileBenchmarkReport = BenchmarkTerrainTiles(benchmarkProfile, benchmarkPlan, benchmarkTileCount);
     PrintTileBenchmark(tileBenchmarkReport.Value);
-    if (!tileBenchmarkReport.Value.Passed)
-    {
-        failures++;
-    }
+    RecordAuxiliaryCheck(tileBenchmarkReport.Value.Passed, ref totalFailures, ref auxiliaryCheckCount, ref auxiliaryFailureCount);
 }
 
 PrintAggregate(
     aggregate,
     seedCount,
-    failures,
+    seedFailures,
+    totalFailures,
+    auxiliaryCheckCount,
+    auxiliaryFailureCount,
     corridorSmokeReport,
     routeScatterSmokeReport,
     poiTileSmokeReport,
@@ -163,7 +153,7 @@ PrintAggregate(
     artifactSmokeReport,
     nativeSmokeReport,
     tileBenchmarkReport);
-return failures == 0 ? 0 : 1;
+return totalFailures == 0 ? 0 : 1;
 
 static TerrainValidationResult ValidateSeed(TerrainGenerationProfile profile, float worldSize)
 {
@@ -173,6 +163,20 @@ static TerrainValidationResult ValidateSeed(TerrainGenerationProfile profile, fl
     TerrainExperienceGateResult experienceGate = TerrainExperienceAnalyzer.ValidateOpenWorldDefault(plan.ExperienceReport);
     TerrainPointOfInterestArchetypeValidationReport archetypeGate = TerrainPointOfInterestArchetypeCatalog.ValidatePlanReadiness(plan);
     return new TerrainValidationResult(profile.Seed, plan, qualityGate, planningGate, experienceGate, archetypeGate);
+}
+
+static void RecordAuxiliaryCheck(
+    bool passed,
+    ref int totalFailures,
+    ref int auxiliaryCheckCount,
+    ref int auxiliaryFailureCount)
+{
+    auxiliaryCheckCount++;
+    if (!passed)
+    {
+        auxiliaryFailureCount++;
+        totalFailures++;
+    }
 }
 
 static void PrintSeedResult(TerrainValidationResult result, bool detailed)
@@ -778,7 +782,7 @@ static TerrainBiomeScatterSmokeReport ValidateBiomeScatterMaterialization(
 
     if (coords.Count == 0)
     {
-        return new TerrainBiomeScatterSmokeReport(false, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "no biome scatter candidate tiles found");
+        return new TerrainBiomeScatterSmokeReport(false, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "no biome scatter candidate tiles found");
     }
 
     TerrainPointOfInterestIndex poiIndex = TerrainPointOfInterestIndex.FromPlan(plan, profile);
@@ -813,6 +817,8 @@ static TerrainBiomeScatterSmokeReport ValidateBiomeScatterMaterialization(
     int coastalPalmCount = scatterCounts[(int)TerrainScatterKind.CoastalPalm];
     int driftwoodCount = scatterCounts[(int)TerrainScatterKind.Driftwood];
     int mangroveRootCount = scatterCounts[(int)TerrainScatterKind.MangroveRoot];
+    int lakeReedCount = scatterCounts[(int)TerrainScatterKind.LakeReed];
+    int waterLilyCount = scatterCounts[(int)TerrainScatterKind.WaterLily];
     int biomeScatterCount =
         grassTuftCount +
         desertShrubCount +
@@ -822,7 +828,9 @@ static TerrainBiomeScatterSmokeReport ValidateBiomeScatterMaterialization(
         alpinePineCount +
         coastalPalmCount +
         driftwoodCount +
-        mangroveRootCount;
+        mangroveRootCount +
+        lakeReedCount +
+        waterLilyCount;
     bool passed =
         grassTuftCount > 0 &&
         desertShrubCount > 0 &&
@@ -833,9 +841,11 @@ static TerrainBiomeScatterSmokeReport ValidateBiomeScatterMaterialization(
         coastalPalmCount > 0 &&
         driftwoodCount > 0 &&
         mangroveRootCount > 0 &&
-        biomeScatterCount >= 54;
+        lakeReedCount > 0 &&
+        waterLilyCount > 0 &&
+        biomeScatterCount >= 72;
     string reason = passed
-        ? "biome surface scatter materialized across plains, desert, wetland, snowfield, coast, island, and alpine terrain"
+        ? "biome surface scatter materialized across plains, desert, wetland, lake, snowfield, coast, island, and alpine terrain"
         : "one or more biome surface scatter kinds did not materialize";
 
     return new TerrainBiomeScatterSmokeReport(
@@ -851,6 +861,8 @@ static TerrainBiomeScatterSmokeReport ValidateBiomeScatterMaterialization(
         coastalPalmCount,
         driftwoodCount,
         mangroveRootCount,
+        lakeReedCount,
+        waterLilyCount,
         biomeScatterCount,
         reason);
 }
@@ -864,6 +876,7 @@ static void AddBiomeScatterCandidateCoords(
     var grassCandidates = new List<GameplayScatterRegionCandidate>(plan.Regions.Length / 3);
     var desertCandidates = new List<GameplayScatterRegionCandidate>(plan.Regions.Length / 3);
     var wetlandCandidates = new List<GameplayScatterRegionCandidate>(plan.Regions.Length / 3);
+    var lakeCandidates = new List<GameplayScatterRegionCandidate>(plan.Regions.Length / 3);
     var snowCandidates = new List<GameplayScatterRegionCandidate>(plan.Regions.Length / 3);
     var coastCandidates = new List<GameplayScatterRegionCandidate>(plan.Regions.Length / 3);
     var generalCandidates = new List<GameplayScatterRegionCandidate>(plan.Regions.Length);
@@ -887,6 +900,9 @@ static void AddBiomeScatterCandidateCoords(
         float wetlandScore = region.BiomeKind == TerrainBiomeKind.Wetland || region.LandscapeKind == TerrainLandscapeKind.Wetland
             ? 0.46f + region.River * 0.20f + region.ResourcePotential * 0.18f + region.Traversability * 0.08f
             : 0.0f;
+        float lakeScore = region.BiomeKind == TerrainBiomeKind.Lake || region.LandscapeKind == TerrainLandscapeKind.Lake
+            ? 0.50f + region.ResourcePotential * 0.20f + region.ScenicPotential * 0.12f + region.Traversability * 0.06f
+            : 0.0f;
         float snowScore = region.BiomeKind == TerrainBiomeKind.Snowfield || region.LandscapeKind == TerrainLandscapeKind.Snowfield
             ? 0.46f + region.Exposure * 0.20f + region.ScenicPotential * 0.14f + region.Traversability * 0.06f
             : 0.0f;
@@ -909,6 +925,11 @@ static void AddBiomeScatterCandidateCoords(
             wetlandCandidates.Add(new GameplayScatterRegionCandidate(region.WorldPosition, wetlandScore));
         }
 
+        if (lakeScore > 0.0f)
+        {
+            lakeCandidates.Add(new GameplayScatterRegionCandidate(region.WorldPosition, lakeScore));
+        }
+
         if (snowScore > 0.0f)
         {
             snowCandidates.Add(new GameplayScatterRegionCandidate(region.WorldPosition, snowScore));
@@ -919,17 +940,18 @@ static void AddBiomeScatterCandidateCoords(
             coastCandidates.Add(new GameplayScatterRegionCandidate(region.WorldPosition, coastScore));
         }
 
-        float generalScore = Mathf.Max(Mathf.Max(Mathf.Max(grassScore, desertScore), Mathf.Max(wetlandScore, snowScore)), coastScore);
+        float generalScore = Mathf.Max(Mathf.Max(Mathf.Max(grassScore, desertScore), Mathf.Max(wetlandScore, lakeScore)), Mathf.Max(snowScore, coastScore));
         if (generalScore > 0.0f)
         {
             generalCandidates.Add(new GameplayScatterRegionCandidate(region.WorldPosition, generalScore));
         }
     }
 
-    int categoryQuota = Mathf.Max(8, maxCoords / 6);
+    int categoryQuota = Mathf.Max(8, maxCoords / 7);
     AddSortedCandidateCoords(grassCandidates, profile, coords, Mathf.Min(maxCoords, coords.Count + categoryQuota));
     AddSortedCandidateCoords(desertCandidates, profile, coords, Mathf.Min(maxCoords, coords.Count + categoryQuota));
     AddSortedCandidateCoords(wetlandCandidates, profile, coords, Mathf.Min(maxCoords, coords.Count + categoryQuota));
+    AddSortedCandidateCoords(lakeCandidates, profile, coords, Mathf.Min(maxCoords, coords.Count + categoryQuota));
     AddSortedCandidateCoords(snowCandidates, profile, coords, Mathf.Min(maxCoords, coords.Count + categoryQuota));
     AddSortedCandidateCoords(coastCandidates, profile, coords, Mathf.Min(maxCoords, coords.Count + categoryQuota));
     AddSortedCandidateCoords(generalCandidates, profile, coords, maxCoords);
@@ -940,8 +962,8 @@ static void PrintBiomeScatterSmoke(TerrainBiomeScatterSmokeReport report)
     Console.WriteLine(
         $"Biome scatter smoke: {(report.Passed ? "PASS" : "FAIL")} " +
         $"tiles {report.SampledTileCount}/{report.CandidateTileCount}, " +
-        $"grass/desert/cactus/reeds/snow/alpine/palms/driftwood/mangrove " +
-        $"{report.GrassTuftCount}/{report.DesertShrubCount}/{report.CactusClusterCount}/{report.ReedClusterCount}/{report.SnowClumpCount}/{report.AlpinePineCount}/{report.CoastalPalmCount}/{report.DriftwoodCount}/{report.MangroveRootCount}, " +
+        $"grass/desert/cactus/reeds/snow/alpine/palms/driftwood/mangrove/lake reeds/lilies " +
+        $"{report.GrassTuftCount}/{report.DesertShrubCount}/{report.CactusClusterCount}/{report.ReedClusterCount}/{report.SnowClumpCount}/{report.AlpinePineCount}/{report.CoastalPalmCount}/{report.DriftwoodCount}/{report.MangroveRootCount}/{report.LakeReedCount}/{report.WaterLilyCount}, " +
         $"total {report.BiomeScatterCount} ({report.Reason})");
 }
 
@@ -1058,13 +1080,14 @@ static TerrainScenicLandmarkSmokeReport ValidateScenicLandmarkMaterialization(
     bool passed =
         waterfallCount > 0 &&
         biomeScenicLandmarkCount > 0 &&
+        canyonNeedleCount > 0 &&
         naturalArchCount > 0 &&
         geothermalSpringCount > 0 &&
         glacialRidgeCount > 0 &&
         distinctGeneratedKinds >= 7 &&
         scenicLandmarkCount >= waterfallCount + biomeScenicLandmarkCount;
     string reason = passed
-        ? "scenic natural landmarks materialized across water, desert, rock, geothermal, and snow terrain"
+        ? "scenic natural landmarks materialized across water, desert, canyon, rock, geothermal, and snow terrain"
         : "generated scenic landmark variety did not materialize";
 
     return new TerrainScenicLandmarkSmokeReport(
@@ -2013,7 +2036,10 @@ static void PrintTileBenchmarkPass(string label, TerrainTileBenchmarkPass pass)
 static void PrintAggregate(
     TerrainValidationAggregate aggregate,
     int seedCount,
-    int failures,
+    int seedFailures,
+    int totalFailures,
+    int auxiliaryCheckCount,
+    int auxiliaryFailureCount,
     TerrainRouteCorridorSmokeReport? corridorSmokeReport,
     TerrainRouteScatterSmokeReport? routeScatterSmokeReport,
     TerrainPoiTileSmokeReport? poiTileSmokeReport,
@@ -2025,7 +2051,13 @@ static void PrintAggregate(
     TerrainTileBenchmarkReport? tileBenchmarkReport)
 {
     Console.WriteLine();
-    Console.WriteLine($"Open world terrain validation: {(failures == 0 ? "PASS" : "FAIL")} ({seedCount - failures}/{seedCount} seeds passed)");
+    Console.WriteLine($"Open world terrain validation: {(seedFailures == 0 ? "PASS" : "FAIL")} ({seedCount - seedFailures}/{seedCount} seeds passed)");
+    if (auxiliaryCheckCount > 0)
+    {
+        Console.WriteLine($"Auxiliary checks: {(auxiliaryFailureCount == 0 ? "PASS" : "FAIL")} ({auxiliaryCheckCount - auxiliaryFailureCount}/{auxiliaryCheckCount} checks passed)");
+    }
+
+    Console.WriteLine($"Overall validation: {(totalFailures == 0 ? "PASS" : "FAIL")}");
     Console.WriteLine($"Land ratio min/avg/max: {aggregate.MinLandRatio:0.000} / {aggregate.AverageLandRatio:0.000} / {aggregate.MaxLandRatio:0.000}");
     Console.WriteLine($"Scenic ratio min/avg/max: {aggregate.MinScenicRatio:0.000} / {aggregate.AverageScenicRatio:0.000} / {aggregate.MaxScenicRatio:0.000}");
     Console.WriteLine($"Traversable land min/avg/max: {aggregate.MinTraversableLandRatio:0.000} / {aggregate.AverageTraversableLandRatio:0.000} / {aggregate.MaxTraversableLandRatio:0.000}");
@@ -2155,6 +2187,21 @@ static string DefaultArtifactOutputDirectory(int seed)
     return System.IO.Path.Combine(System.IO.Path.GetTempPath(), "dao_terrain_validation", $"seed_{seed}");
 }
 
+static string DefaultBatchArtifactOutputDirectory(int seed, int seedCount)
+{
+    return System.IO.Path.Combine(System.IO.Path.GetTempPath(), "dao_terrain_validation", $"batch_seed_{seed}_count_{seedCount}");
+}
+
+static string ArtifactOutputDirectoryForSeed(
+    string baseDirectory,
+    int seed,
+    bool isolateBySeed)
+{
+    return isolateBySeed
+        ? System.IO.Path.Combine(baseDirectory, $"seed_{seed}")
+        : baseDirectory;
+}
+
 static string FileSystemPath(string path)
 {
     if (path.Contains("://", StringComparison.Ordinal))
@@ -2270,6 +2317,8 @@ internal readonly record struct TerrainBiomeScatterSmokeReport(
     int CoastalPalmCount,
     int DriftwoodCount,
     int MangroveRootCount,
+    int LakeReedCount,
+    int WaterLilyCount,
     int BiomeScatterCount,
     string Reason);
 

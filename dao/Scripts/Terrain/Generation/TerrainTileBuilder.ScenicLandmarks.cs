@@ -109,8 +109,16 @@ public static partial class TerrainTileBuilder
 
         TerrainLandmarkData best = default;
         float bestScore = 0.0f;
+        TerrainLandmarkData bestWaterfall = default;
+        float bestWaterfallScore = 0.0f;
+        TerrainLandmarkData bestCanyonNeedle = default;
+        float bestCanyonNeedleScore = 0.0f;
+        TerrainLandmarkData bestNaturalArch = default;
+        float bestNaturalArchScore = 0.0f;
+        TerrainLandmarkData bestGlacialRidge = default;
+        float bestGlacialRidgeScore = 0.0f;
 
-        for (int i = 0; i < 12; i++)
+        for (int i = 0; i < 16; i++)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
@@ -127,14 +135,58 @@ public static partial class TerrainTileBuilder
             TerrainWorldField field = SampleFieldBilinear(localX, localZ, resolution, step, fields, vertexCountPerSide);
             float elevation = Mathf.SmoothStep(profile.SeaLevel + 120.0f, profile.SeaLevel + profile.HeightScale * 0.70f, height);
             TerrainLandmarkKind kind = TerrainLandmarkKind.Waterfall;
-            float score = ScoreWaterfallLandmark(field, slope, elevation);
+            float waterfallScore = ScoreWaterfallLandmark(field, slope, elevation);
+            float score = waterfallScore;
             ConsiderNaturalLandmark(TerrainLandmarkKind.DuneCrest, ScoreDuneCrestLandmark(field, slope, elevation), ref kind, ref score);
             ConsiderNaturalLandmark(TerrainLandmarkKind.DesertMonolith, ScoreDesertMonolithLandmark(field, slope, elevation), ref kind, ref score);
-            ConsiderNaturalLandmark(TerrainLandmarkKind.CanyonNeedle, ScoreCanyonNeedleLandmark(field, slope, elevation), ref kind, ref score);
+            float canyonNeedleScore = ScoreCanyonNeedleLandmark(field, slope, elevation);
+            ConsiderNaturalLandmark(TerrainLandmarkKind.CanyonNeedle, canyonNeedleScore, ref kind, ref score);
             ConsiderNaturalLandmark(TerrainLandmarkKind.IceSpire, ScoreIceSpireLandmark(field, slope, elevation), ref kind, ref score);
-            ConsiderNaturalLandmark(TerrainLandmarkKind.NaturalArch, ScoreNaturalArchLandmark(field, slope, elevation), ref kind, ref score);
+            float naturalArchScore = ScoreNaturalArchLandmark(field, slope, elevation);
+            ConsiderNaturalLandmark(TerrainLandmarkKind.NaturalArch, naturalArchScore, ref kind, ref score);
             ConsiderNaturalLandmark(TerrainLandmarkKind.GeothermalSpring, ScoreGeothermalSpringLandmark(field, slope, elevation), ref kind, ref score);
-            ConsiderNaturalLandmark(TerrainLandmarkKind.GlacialRidge, ScoreGlacialRidgeLandmark(field, slope, elevation), ref kind, ref score);
+            float glacialRidgeScore = ScoreGlacialRidgeLandmark(field, slope, elevation);
+            ConsiderNaturalLandmark(TerrainLandmarkKind.GlacialRidge, glacialRidgeScore, ref kind, ref score);
+
+            if (waterfallScore > bestWaterfallScore)
+            {
+                bestWaterfallScore = waterfallScore;
+                bestWaterfall = new TerrainLandmarkData(
+                    TerrainLandmarkKind.Waterfall,
+                    new Vector3(localX, height, localZ),
+                    Mathf.Clamp(waterfallScore, 0.0f, 1.0f),
+                    $"Waterfall_{coord.X}_{coord.Z}");
+            }
+
+            if (canyonNeedleScore > bestCanyonNeedleScore)
+            {
+                bestCanyonNeedleScore = canyonNeedleScore;
+                bestCanyonNeedle = new TerrainLandmarkData(
+                    TerrainLandmarkKind.CanyonNeedle,
+                    new Vector3(localX, height, localZ),
+                    Mathf.Clamp(canyonNeedleScore, 0.0f, 1.0f),
+                    $"CanyonNeedle_{coord.X}_{coord.Z}");
+            }
+
+            if (naturalArchScore > bestNaturalArchScore)
+            {
+                bestNaturalArchScore = naturalArchScore;
+                bestNaturalArch = new TerrainLandmarkData(
+                    TerrainLandmarkKind.NaturalArch,
+                    new Vector3(localX, height, localZ),
+                    Mathf.Clamp(naturalArchScore, 0.0f, 1.0f),
+                    $"NaturalArch_{coord.X}_{coord.Z}");
+            }
+
+            if (glacialRidgeScore > bestGlacialRidgeScore)
+            {
+                bestGlacialRidgeScore = glacialRidgeScore;
+                bestGlacialRidge = new TerrainLandmarkData(
+                    TerrainLandmarkKind.GlacialRidge,
+                    new Vector3(localX, height, localZ),
+                    Mathf.Clamp(glacialRidgeScore, 0.0f, 1.0f),
+                    $"GlacialRidge_{coord.X}_{coord.Z}");
+            }
 
             if (score > bestScore)
             {
@@ -147,16 +199,80 @@ public static partial class TerrainTileBuilder
             }
         }
 
-        if (bestScore < NaturalLandmarkThreshold(best.Kind))
+        bool addedLandmark = false;
+        if (bestScore >= NaturalLandmarkThreshold(best.Kind))
+        {
+            AddNaturalLandmarkInstance(coord, profile, best, 1621, 313, scatter, landmarks);
+            addedLandmark = true;
+        }
+
+        if (best.Kind != TerrainLandmarkKind.Waterfall &&
+            bestWaterfallScore >= NaturalLandmarkThreshold(TerrainLandmarkKind.Waterfall) &&
+            IsDistinctNaturalLandmark(bestWaterfall.LocalPosition, landmarks))
+        {
+            AddNaturalLandmarkInstance(coord, profile, bestWaterfall, 1643, 315, scatter, landmarks);
+            addedLandmark = true;
+        }
+
+        if (best.Kind != TerrainLandmarkKind.CanyonNeedle &&
+            bestCanyonNeedleScore >= NaturalLandmarkThreshold(TerrainLandmarkKind.CanyonNeedle) &&
+            IsDistinctNaturalLandmark(bestCanyonNeedle.LocalPosition, landmarks))
+        {
+            AddNaturalLandmarkInstance(coord, profile, bestCanyonNeedle, 1663, 317, scatter, landmarks);
+            addedLandmark = true;
+        }
+
+        if (best.Kind != TerrainLandmarkKind.NaturalArch &&
+            bestNaturalArchScore >= NaturalLandmarkThreshold(TerrainLandmarkKind.NaturalArch) &&
+            IsDistinctNaturalLandmark(bestNaturalArch.LocalPosition, landmarks))
+        {
+            AddNaturalLandmarkInstance(coord, profile, bestNaturalArch, 1667, 321, scatter, landmarks);
+            addedLandmark = true;
+        }
+
+        if (best.Kind != TerrainLandmarkKind.GlacialRidge &&
+            bestGlacialRidgeScore >= NaturalLandmarkThreshold(TerrainLandmarkKind.GlacialRidge) &&
+            IsDistinctNaturalLandmark(bestGlacialRidge.LocalPosition, landmarks))
+        {
+            AddNaturalLandmarkInstance(coord, profile, bestGlacialRidge, 1699, 319, scatter, landmarks);
+            addedLandmark = true;
+        }
+
+        if (!addedLandmark)
         {
             return;
         }
+    }
 
-        landmarks.Add(best);
-        float rotation = Hash01(coord.X, coord.Z, 1621, profile.Seed + 313) * Mathf.Pi * 2.0f;
-        float scale = NaturalLandmarkScale(best.Kind, best.Score);
-        Color tint = NaturalLandmarkColor(best.Kind, best.Score);
-        scatter.Add(new TerrainScatterInstance(TerrainScatterKind.Landmark, best.LocalPosition, rotation, scale, tint, best.Kind));
+    private static void AddNaturalLandmarkInstance(
+        TerrainTileCoord coord,
+        TerrainGenerationProfile profile,
+        TerrainLandmarkData landmark,
+        int rotationSalt,
+        int seedOffset,
+        List<TerrainScatterInstance> scatter,
+        List<TerrainLandmarkData> landmarks)
+    {
+        landmarks.Add(landmark);
+        float rotation = Hash01(coord.X, coord.Z, rotationSalt, profile.Seed + seedOffset) * Mathf.Pi * 2.0f;
+        float scale = NaturalLandmarkScale(landmark.Kind, landmark.Score);
+        Color tint = NaturalLandmarkColor(landmark.Kind, landmark.Score);
+        scatter.Add(new TerrainScatterInstance(TerrainScatterKind.Landmark, landmark.LocalPosition, rotation, scale, tint, landmark.Kind));
+    }
+
+    private static bool IsDistinctNaturalLandmark(
+        Vector3 localPosition,
+        List<TerrainLandmarkData> landmarks)
+    {
+        foreach (TerrainLandmarkData landmark in landmarks)
+        {
+            if (localPosition.DistanceSquaredTo(landmark.LocalPosition) <= 144.0f)
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private static void ConsiderNaturalLandmark(
@@ -226,18 +342,32 @@ public static partial class TerrainTileBuilder
 
     private static float ScoreCanyonNeedleLandmark(TerrainWorldField field, float slope, float elevation)
     {
-        if (field.LandscapeKind is not (TerrainLandscapeKind.Canyon or TerrainLandscapeKind.Highlands or TerrainLandscapeKind.MountainMassif or TerrainLandscapeKind.VistaPlateau) ||
-            slope < 0.20f)
+        if (field.LandscapeKind is not (TerrainLandscapeKind.Canyon or TerrainLandscapeKind.Highlands or TerrainLandscapeKind.MountainMassif or TerrainLandscapeKind.VistaPlateau or TerrainLandscapeKind.RiverValley) ||
+            slope < 0.10f ||
+            elevation < 0.18f)
         {
             return 0.0f;
         }
 
-        float slopeFit = Mathf.Clamp((slope - 0.18f) / 0.36f, 0.0f, 1.0f);
-        return 0.34f +
+        float slopeFit =
+            Mathf.SmoothStep(0.10f, 0.28f, slope) *
+            (1.0f - Mathf.SmoothStep(0.62f, 0.84f, slope));
+        float riverCut = Mathf.SmoothStep(0.34f, 0.76f, field.River);
+        float terrainBonus = field.LandscapeKind switch
+        {
+            TerrainLandscapeKind.Canyon => 0.12f,
+            TerrainLandscapeKind.RiverValley => 0.09f,
+            TerrainLandscapeKind.VistaPlateau => 0.08f,
+            TerrainLandscapeKind.Highlands => 0.07f,
+            _ => 0.05f
+        };
+        return 0.38f +
             field.ScenicPotential * 0.24f +
-            field.Exposure * 0.22f +
-            elevation * 0.16f +
-            slopeFit * 0.12f;
+            field.Exposure * 0.18f +
+            elevation * 0.14f +
+            slopeFit * 0.12f +
+            riverCut * 0.08f +
+            terrainBonus;
     }
 
     private static float ScoreIceSpireLandmark(TerrainWorldField field, float slope, float elevation)
@@ -263,21 +393,37 @@ public static partial class TerrainTileBuilder
 
     private static float ScoreNaturalArchLandmark(TerrainWorldField field, float slope, float elevation)
     {
-        bool rockArchTerrain = field.LandscapeKind is TerrainLandscapeKind.Canyon or TerrainLandscapeKind.Highlands or TerrainLandscapeKind.VistaPlateau;
-        bool desertArchTerrain = IsDesertLike(field) && field.Exposure > 0.58f && slope > 0.14f;
-        if ((!rockArchTerrain && !desertArchTerrain) || slope is < 0.10f or > 0.34f)
+        bool rockArchTerrain = field.LandscapeKind is TerrainLandscapeKind.Canyon or TerrainLandscapeKind.Highlands or TerrainLandscapeKind.MountainMassif or TerrainLandscapeKind.VistaPlateau;
+        bool erodedRiverArchTerrain = field.LandscapeKind == TerrainLandscapeKind.RiverValley && field.River > 0.42f && field.Exposure > 0.30f;
+        bool desertArchTerrain = IsDesertLike(field) && field.Exposure > 0.50f && slope > 0.12f;
+        if ((!rockArchTerrain && !erodedRiverArchTerrain && !desertArchTerrain) || slope is < 0.08f or > 0.40f)
         {
             return 0.0f;
         }
 
-        float slopeFit = 1.0f - Mathf.Clamp(Mathf.Abs(slope - 0.18f) * 3.6f, 0.0f, 1.0f);
+        float slopeFit =
+            Mathf.SmoothStep(0.08f, 0.18f, slope) *
+            (1.0f - Mathf.SmoothStep(0.34f, 0.46f, slope));
         float dryness = Mathf.Clamp(1.0f - field.Moisture, 0.0f, 1.0f);
-        return 0.42f +
-            field.ScenicPotential * 0.22f +
-            field.Exposure * 0.18f +
-            dryness * 0.10f +
+        float erosionFit = Mathf.Max(
+            Mathf.SmoothStep(0.34f, 0.74f, field.River) * 0.08f,
+            dryness * 0.07f);
+        float terrainBonus = field.LandscapeKind switch
+        {
+            TerrainLandscapeKind.Canyon => 0.08f,
+            TerrainLandscapeKind.VistaPlateau => 0.07f,
+            TerrainLandscapeKind.RiverValley => 0.06f,
+            TerrainLandscapeKind.Highlands => 0.05f,
+            _ => desertArchTerrain ? 0.06f : 0.04f
+        };
+        return 0.40f +
+            field.ScenicPotential * 0.23f +
+            field.Exposure * 0.20f +
+            dryness * 0.08f +
             elevation * 0.08f +
-            slopeFit * 0.12f;
+            slopeFit * 0.13f +
+            erosionFit +
+            terrainBonus;
     }
 
     private static float ScoreGeothermalSpringLandmark(TerrainWorldField field, float slope, float elevation)
@@ -351,7 +497,7 @@ public static partial class TerrainTileBuilder
             TerrainLandmarkKind.Waterfall => 0.74f,
             TerrainLandmarkKind.DuneCrest => 0.68f,
             TerrainLandmarkKind.DesertMonolith => 0.66f,
-            TerrainLandmarkKind.CanyonNeedle => 0.70f,
+            TerrainLandmarkKind.CanyonNeedle => 0.68f,
             TerrainLandmarkKind.IceSpire => 0.66f,
             TerrainLandmarkKind.NaturalArch => 0.64f,
             TerrainLandmarkKind.GeothermalSpring => 0.64f,
