@@ -929,7 +929,7 @@ static TerrainBiomeScatterSmokeReport ValidateBiomeScatterMaterialization(
         foreach (TerrainScatterInstance scatter in data.ScatterInstances)
         {
             int kindIndex = Mathf.Clamp((int)scatter.Kind, 0, scatterCounts.Length - 1);
-                scatterCounts[kindIndex]++;
+            scatterCounts[kindIndex]++;
         }
 
         lakeWaterCellCount += data.WaterSurface.LakeCellCount;
