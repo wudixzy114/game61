@@ -4,6 +4,7 @@ using System.Diagnostics;
 using Dao.Terrain;
 using Dao.Terrain.Generation;
 using Dao.Terrain.Runtime;
+using Dao.Terrain.Streaming;
 using Godot;
 
 TerrainGenerationProfile profile = CreateDemoProfile();
@@ -19,6 +20,7 @@ bool skipGameplayScatterSmoke = HasFlag(args, "--skip-gameplay-scatter-smoke");
 bool skipBiomeScatterSmoke = HasFlag(args, "--skip-biome-scatter-smoke");
 bool skipScenicLandmarkSmoke = HasFlag(args, "--skip-scenic-landmark-smoke");
 bool skipArtifactSmoke = HasFlag(args, "--skip-artifact-smoke");
+bool skipRuntimeWorldSmoke = HasFlag(args, "--skip-runtime-world-smoke");
 bool smokeAllSeeds = HasFlag(args, "--smoke-all-seeds");
 bool nativeSmoke = HasFlag(args, "--native-smoke");
 bool benchmarkTiles = HasFlag(args, "--benchmark-tiles");
@@ -42,6 +44,7 @@ TerrainGameplayScatterSmokeReport? gameplayScatterSmokeReport = null;
 TerrainBiomeScatterSmokeReport? biomeScatterSmokeReport = null;
 TerrainScenicLandmarkSmokeReport? scenicLandmarkSmokeReport = null;
 TerrainArtifactSmokeReport? artifactSmokeReport = null;
+TerrainRuntimeWorldSmokeReport? runtimeWorldSmokeReport = null;
 TerrainNativeSamplerSmokeReport? nativeSmokeReport = null;
 TerrainTileBenchmarkReport? tileBenchmarkReport = null;
 TerrainGenerationProfile benchmarkProfile = profile with { Seed = seed };
@@ -121,6 +124,13 @@ for (int i = 0; i < seedCount; i++)
         PrintArtifactSmoke(artifactSmokeReport.Value);
         RecordAuxiliaryCheck(artifactSmokeReport.Value.Passed, ref totalFailures, ref auxiliaryCheckCount, ref auxiliaryFailureCount);
     }
+
+    if (runSeedSmokes && !skipRuntimeWorldSmoke)
+    {
+        runtimeWorldSmokeReport = ValidateRuntimeWorldPlanMaterialization(seedProfile, worldSize);
+        PrintRuntimeWorldSmoke(runtimeWorldSmokeReport.Value);
+        RecordAuxiliaryCheck(runtimeWorldSmokeReport.Value.Passed, ref totalFailures, ref auxiliaryCheckCount, ref auxiliaryFailureCount);
+    }
 }
 
 if (nativeSmoke)
@@ -151,6 +161,7 @@ PrintAggregate(
     biomeScatterSmokeReport,
     scenicLandmarkSmokeReport,
     artifactSmokeReport,
+    runtimeWorldSmokeReport,
     nativeSmokeReport,
     tileBenchmarkReport);
 return totalFailures == 0 ? 0 : 1;
@@ -1439,6 +1450,177 @@ static void PrintArtifactSmoke(TerrainArtifactSmokeReport report)
     Console.WriteLine($"Artifact paths: {report.MapPath}, {report.ReportPath}");
 }
 
+static TerrainRuntimeWorldSmokeReport ValidateRuntimeWorldPlanMaterialization(
+    TerrainGenerationProfile profile,
+    float worldSize)
+{
+    TerrainWorldPlan plan = TerrainWorld.CreateRuntimeOpenWorldPlan(profile, worldSize);
+    TerrainQualityGateResult qualityGate = TerrainQualityAnalyzer.ValidateOpenWorldDefault(plan.QualityReport);
+    TerrainWorldPlanningGateResult planningGate = TerrainWorldPlanner.ValidateOpenWorldPlanning(plan);
+    TerrainExperienceGateResult experienceGate = TerrainExperienceAnalyzer.ValidateOpenWorldDefault(plan.ExperienceReport);
+    TerrainPointOfInterestArchetypeValidationReport archetypeGate = TerrainPointOfInterestArchetypeCatalog.ValidatePlanReadiness(plan);
+    TerrainRouteCorridorIndex corridorIndex = TerrainRouteCorridorIndex.FromPlan(plan, profile);
+    TerrainPointOfInterestIndex poiIndex = TerrainPointOfInterestIndex.FromPlan(plan, profile);
+
+    var coords = new HashSet<TerrainTileCoord>();
+    AddRouteScatterCandidateCoords(plan, profile, coords, maxCoords: 48);
+    foreach (TerrainWorldPointOfInterest point in plan.PointsOfInterest)
+    {
+        AddPoiFootprintCoords(coords, point, profile);
+    }
+
+    var materializedPoiNames = new HashSet<string>(StringComparer.Ordinal);
+    Span<int> scatterLandmarkCounts = stackalloc int[Enum.GetValues<TerrainLandmarkKind>().Length];
+    int sampledTiles = 0;
+    int roadMarkerCount = 0;
+    int bridgeSpanCount = 0;
+
+    foreach (TerrainTileCoord coord in coords)
+    {
+        TerrainTileData data = TerrainTileBuilder.Build(
+            coord,
+            lod: 0,
+            profile,
+            includeCollision: false,
+            corridorIndex,
+            poiIndex);
+        sampledTiles++;
+
+        foreach (TerrainLandmarkData landmark in data.Landmarks)
+        {
+            if (landmark.DebugName.StartsWith("POI_", StringComparison.Ordinal))
+            {
+                materializedPoiNames.Add(landmark.DebugName);
+            }
+        }
+
+        foreach (TerrainScatterInstance scatter in data.ScatterInstances)
+        {
+            if (scatter.Kind != TerrainScatterKind.Landmark)
+            {
+                continue;
+            }
+
+            int kindIndex = Mathf.Clamp((int)scatter.LandmarkKind, 0, scatterLandmarkCounts.Length - 1);
+            scatterLandmarkCounts[kindIndex]++;
+            if (scatter.LandmarkKind == TerrainLandmarkKind.RoadMarker)
+            {
+                roadMarkerCount++;
+            }
+            else if (scatter.LandmarkKind == TerrainLandmarkKind.BridgeSpan)
+            {
+                bridgeSpanCount++;
+            }
+        }
+    }
+
+    int settlementInteriorScatterCount = SettlementInteriorScatterCount(scatterLandmarkCounts);
+    int routeLandmarkCount = roadMarkerCount + bridgeSpanCount;
+    bool passed =
+        qualityGate.Passed &&
+        planningGate.Passed &&
+        experienceGate.Passed &&
+        archetypeGate.Passed &&
+        corridorIndex.HasSegments &&
+        poiIndex.HasPoints &&
+        sampledTiles > 0 &&
+        materializedPoiNames.Count == plan.PointsOfInterest.Length &&
+        roadMarkerCount >= 8 &&
+        bridgeSpanCount > 0 &&
+        routeLandmarkCount >= 12 &&
+        settlementInteriorScatterCount >= 24;
+    string reason = passed
+        ? "runtime TerrainWorld plan entry generated indexed routes/POIs that materialized on tiles"
+        : RuntimeWorldFailureReason(
+            qualityGate,
+            planningGate,
+            experienceGate,
+            archetypeGate,
+            corridorIndex.HasSegments,
+            poiIndex.HasPoints,
+            sampledTiles,
+            materializedPoiNames.Count,
+            plan.PointsOfInterest.Length,
+            roadMarkerCount,
+            bridgeSpanCount,
+            settlementInteriorScatterCount);
+
+    return new TerrainRuntimeWorldSmokeReport(
+        passed,
+        plan.PointsOfInterest.Length,
+        plan.Routes.Length,
+        sampledTiles,
+        materializedPoiNames.Count,
+        roadMarkerCount,
+        bridgeSpanCount,
+        settlementInteriorScatterCount,
+        corridorIndex.HasSegments,
+        poiIndex.HasPoints,
+        qualityGate.Passed,
+        planningGate.Passed,
+        experienceGate.Passed,
+        archetypeGate.Passed,
+        reason);
+}
+
+static string RuntimeWorldFailureReason(
+    TerrainQualityGateResult qualityGate,
+    TerrainWorldPlanningGateResult planningGate,
+    TerrainExperienceGateResult experienceGate,
+    TerrainPointOfInterestArchetypeValidationReport archetypeGate,
+    bool hasCorridorIndex,
+    bool hasPointIndex,
+    int sampledTiles,
+    int materializedPoiCount,
+    int expectedPoiCount,
+    int roadMarkerCount,
+    int bridgeSpanCount,
+    int settlementInteriorScatterCount)
+{
+    if (!qualityGate.Passed || !planningGate.Passed || !experienceGate.Passed || !archetypeGate.Passed)
+    {
+        return "runtime open world plan failed readiness gates";
+    }
+
+    if (!hasCorridorIndex || !hasPointIndex)
+    {
+        return "runtime open world plan did not build route corridor and POI indices";
+    }
+
+    if (sampledTiles == 0)
+    {
+        return "runtime open world plan produced no candidate tiles for materialization";
+    }
+
+    if (materializedPoiCount != expectedPoiCount)
+    {
+        return $"runtime POI materialization incomplete ({materializedPoiCount}/{expectedPoiCount})";
+    }
+
+    if (roadMarkerCount < 8 || bridgeSpanCount == 0)
+    {
+        return $"runtime route materialization incomplete (markers {roadMarkerCount}, bridges {bridgeSpanCount})";
+    }
+
+    if (settlementInteriorScatterCount < 24)
+    {
+        return $"runtime settlement interior scatter too sparse ({settlementInteriorScatterCount})";
+    }
+
+    return "runtime TerrainWorld plan materialization failed";
+}
+
+static void PrintRuntimeWorldSmoke(TerrainRuntimeWorldSmokeReport report)
+{
+    Console.WriteLine(
+        $"Runtime TerrainWorld smoke: {(report.Passed ? "PASS" : "FAIL")} " +
+        $"POIs {report.MaterializedPointCount}/{report.PointOfInterestCount}, routes {report.RouteCount}, tiles {report.SampledTileCount}, " +
+        $"indices route/POI {(report.HasCorridorIndex ? "yes" : "no")}/{(report.HasPointIndex ? "yes" : "no")}, " +
+        $"markers/bridges {report.RoadMarkerCount}/{report.BridgeSpanCount}, settlement scatter {report.SettlementInteriorScatterCount}, " +
+        $"gates Q/P/E/A {(report.QualityGatePassed ? "pass" : "fail")}/{(report.PlanningGatePassed ? "pass" : "fail")}/{(report.ExperienceGatePassed ? "pass" : "fail")}/{(report.ArchetypeGatePassed ? "pass" : "fail")} " +
+        $"({report.Reason})");
+}
+
 static int CountPositive(params int[] values)
 {
     int count = 0;
@@ -2334,6 +2516,7 @@ static void PrintAggregate(
     TerrainBiomeScatterSmokeReport? biomeScatterSmokeReport,
     TerrainScenicLandmarkSmokeReport? scenicLandmarkSmokeReport,
     TerrainArtifactSmokeReport? artifactSmokeReport,
+    TerrainRuntimeWorldSmokeReport? runtimeWorldSmokeReport,
     TerrainNativeSamplerSmokeReport? nativeSmokeReport,
     TerrainTileBenchmarkReport? tileBenchmarkReport)
 {
@@ -2392,6 +2575,10 @@ static void PrintAggregate(
     if (artifactSmokeReport is not null)
     {
         Console.WriteLine($"Open world artifact smoke: {(artifactSmokeReport.Value.Passed ? "PASS" : "FAIL")}");
+    }
+    if (runtimeWorldSmokeReport is not null)
+    {
+        Console.WriteLine($"Runtime TerrainWorld smoke: {(runtimeWorldSmokeReport.Value.Passed ? "PASS" : "FAIL")}");
     }
     if (nativeSmokeReport is not null)
     {
@@ -2648,6 +2835,24 @@ internal readonly record struct TerrainArtifactSmokeReport(
     int OverlayChangedPixels,
     float MaxOverlayColorDelta,
     bool ReportContainsRequiredSections,
+    string Reason);
+
+/// <summary>Reports whether TerrainWorld's runtime plan entry creates indexed open-world content that materializes on tiles.</summary>
+internal readonly record struct TerrainRuntimeWorldSmokeReport(
+    bool Passed,
+    int PointOfInterestCount,
+    int RouteCount,
+    int SampledTileCount,
+    int MaterializedPointCount,
+    int RoadMarkerCount,
+    int BridgeSpanCount,
+    int SettlementInteriorScatterCount,
+    bool HasCorridorIndex,
+    bool HasPointIndex,
+    bool QualityGatePassed,
+    bool PlanningGatePassed,
+    bool ExperienceGatePassed,
+    bool ArchetypeGatePassed,
     string Reason);
 
 /// <summary>Pairs a world position with a score for sorting scatter candidate regions.</summary>

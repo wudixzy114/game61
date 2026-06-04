@@ -17,6 +17,11 @@ public partial class TerrainWorld : Node3D
     [Export] public NodePath FocusPath { get; set; } = new();
     [Export(PropertyHint.Range, "0.05,2,0.01")] public double StreamingIntervalSeconds { get; set; } = 0.18;
     [Export] public bool CreateWaterPlane { get; set; } = true;
+    [ExportGroup("Open World Planning")]
+    [Export] public bool GenerateOpenWorldPlanOnReady { get; set; } = true;
+    [Export] public bool ValidateGeneratedOpenWorldPlan { get; set; } = true;
+    [Export] public bool PrintGeneratedOpenWorldPlanSummary { get; set; } = false;
+    [Export(PropertyHint.Range, "1024,65536,1")] public float OpenWorldPlanWorldSize { get; set; } = 12_288.0f;
 
     private readonly Dictionary<TerrainTileCoord, TerrainChunk> _chunks = new();
     private readonly Dictionary<TerrainTileCoord, PendingTileJob> _jobs = new();
@@ -36,10 +41,17 @@ public partial class TerrainWorld : Node3D
     private double _streamTimer;
     private bool _isReady;
 
+    /// <summary>Current immutable terrain generation profile used by streaming jobs.</summary>
+    public TerrainGenerationProfile Profile => _profile;
+
+    /// <summary>Current open-world plan driving route corridors, POI footprints, settlements, and gameplay landmarks.</summary>
+    public TerrainWorldPlan? WorldPlan => _worldPlan;
+
     public override void _Ready()
     {
         Settings ??= new TerrainSettings();
         _profile = Settings.Snapshot();
+        EnsureGeneratedWorldPlan();
         RebuildPlanIndices();
         if (_profile.UseNativeSamplerWhenAvailable)
         {
@@ -96,6 +108,87 @@ public partial class TerrainWorld : Node3D
     public void SetWorldPlan(TerrainWorldPlan? worldPlan)
     {
         _worldPlan = worldPlan;
+        ApplyPlanIndexChanges();
+    }
+
+    /// <summary>Regenerates the terrain profile and rebuilds all streaming state.</summary>
+    public void Regenerate()
+    {
+        Settings ??= new TerrainSettings();
+        _profile = Settings.Snapshot();
+        if (GenerateOpenWorldPlanOnReady)
+        {
+            _worldPlan = GenerateOpenWorldPlan(apply: false);
+        }
+
+        RebuildPlanIndices();
+
+        if (_profile.UseNativeSamplerWhenAvailable)
+        {
+            NativeTerrainBridge.EnsureInitialized();
+        }
+
+        CancelAllJobs();
+        ClearTileCache();
+        ClearChunks();
+        UpdateStreaming(force: true);
+    }
+
+    /// <summary>Builds a new open-world plan for this terrain world and optionally applies it to streaming tiles.</summary>
+    public TerrainWorldPlan GenerateOpenWorldPlan(bool apply = true)
+    {
+        Settings ??= new TerrainSettings();
+        if (!_isReady)
+        {
+            _profile = Settings.Snapshot();
+        }
+
+        float worldSize = Mathf.Max(_profile.ChunkSize, OpenWorldPlanWorldSize);
+        TerrainWorldPlan plan = CreateRuntimeOpenWorldPlan(_profile, worldSize);
+
+        if (ValidateGeneratedOpenWorldPlan || PrintGeneratedOpenWorldPlanSummary)
+        {
+            ReportGeneratedOpenWorldPlan(plan);
+        }
+
+        if (apply)
+        {
+            SetWorldPlan(plan);
+        }
+
+        return plan;
+    }
+
+    /// <summary>Creates the open-world plan used by TerrainWorld runtime streaming for a profile and world size.</summary>
+    public static TerrainWorldPlan CreateRuntimeOpenWorldPlan(TerrainGenerationProfile profile, float worldSize)
+    {
+        return CreateRuntimeOpenWorldPlan(profile, Vector2.Zero, worldSize);
+    }
+
+    /// <summary>Creates the open-world plan used by TerrainWorld runtime streaming for a profile, center, and world size.</summary>
+    public static TerrainWorldPlan CreateRuntimeOpenWorldPlan(
+        TerrainGenerationProfile profile,
+        Vector2 center,
+        float worldSize)
+    {
+        return TerrainWorldPlanner.CreateOpenWorldPlan(
+            profile,
+            center,
+            Mathf.Max(profile.ChunkSize, worldSize));
+    }
+
+    private void EnsureGeneratedWorldPlan()
+    {
+        if (!GenerateOpenWorldPlanOnReady || _worldPlan is not null)
+        {
+            return;
+        }
+
+        _worldPlan = GenerateOpenWorldPlan(apply: false);
+    }
+
+    private void ApplyPlanIndexChanges()
+    {
         int previousKey = TerrainFeatureKey;
         RebuildPlanIndices();
 
@@ -110,21 +203,32 @@ public partial class TerrainWorld : Node3D
         UpdateStreaming(force: true);
     }
 
-    /// <summary>Regenerates the terrain profile and rebuilds all streaming state.</summary>
-    public void Regenerate()
+    private void ReportGeneratedOpenWorldPlan(TerrainWorldPlan plan)
     {
-        Settings ??= new TerrainSettings();
-        _profile = Settings.Snapshot();
-        RebuildPlanIndices();
-        if (_profile.UseNativeSamplerWhenAvailable)
+        TerrainWorldPlanningGateResult planningGate = TerrainWorldPlanner.ValidateOpenWorldPlanning(plan);
+        TerrainQualityGateResult qualityGate = TerrainQualityAnalyzer.ValidateOpenWorldDefault(plan.QualityReport);
+        TerrainExperienceGateResult experienceGate = TerrainExperienceAnalyzer.ValidateOpenWorldDefault(plan.ExperienceReport);
+        bool passed = planningGate.Passed && qualityGate.Passed && experienceGate.Passed;
+
+        if (PrintGeneratedOpenWorldPlanSummary)
         {
-            NativeTerrainBridge.EnsureInitialized();
+            GD.Print(
+                $"Open world terrain plan {(passed ? "PASS" : "FAIL")}: " +
+                $"{planningGate.Report.PointOfInterestCount} POIs, {planningGate.Report.RouteCount} routes, " +
+                $"settlements V/T/O {planningGate.Report.VillageCount}/{planningGate.Report.TownCount}/{planningGate.Report.OasisHubCount}, " +
+                $"land {qualityGate.Report.LandRatio:0.000}, scenic {qualityGate.Report.ScenicRatio:0.000}, " +
+                $"encounter {experienceGate.Report.AverageEncounterPotential:0.000}, rhythm {experienceGate.Report.RouteRhythmScore:0.000}, " +
+                $"connected {planningGate.Report.ConnectedPointRatio:0.000}, " +
+                $"settlement net {planningGate.Report.ConnectedSettlementRatio:0.000}/{planningGate.Report.SettlementRouteCount}, " +
+                $"coverage {planningGate.Report.PointOfInterestWorldCoverage:0.000}/{planningGate.Report.RouteWorldCoverage:0.000}.");
         }
 
-        CancelAllJobs();
-        ClearTileCache();
-        ClearChunks();
-        UpdateStreaming(force: true);
+        if (ValidateGeneratedOpenWorldPlan && !passed)
+        {
+            GD.PushWarning(
+                $"Generated open world terrain plan failed readiness gates. " +
+                $"Planning gate: {planningGate.Passed}, quality gate: {qualityGate.Passed}, experience gate: {experienceGate.Passed}.");
+        }
     }
 
     private void ResolveFocus()

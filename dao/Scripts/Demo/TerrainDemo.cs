@@ -26,7 +26,7 @@ public partial class TerrainDemo : Node3D
         DemoFlyCamera camera = CreateCamera();
         AddChild(camera);
 
-        TerrainWorld terrainWorld = CreateTerrainWorld(camera);
+        TerrainWorld terrainWorld = CreateTerrainWorld(camera, OpenWorldPlanWorldSize);
         AddChild(terrainWorld);
         terrainWorld.SetFocus(camera);
 
@@ -44,7 +44,7 @@ public partial class TerrainDemo : Node3D
         return new DemoFlyCamera { Name = "Camera" };
     }
 
-    private static TerrainWorld CreateTerrainWorld(Node3D focus)
+    private static TerrainWorld CreateTerrainWorld(Node3D focus, float openWorldPlanWorldSize)
     {
         var settings = new TerrainSettings
         {
@@ -78,19 +78,26 @@ public partial class TerrainDemo : Node3D
             Settings = settings,
             CreateWaterPlane = true,
             StreamingIntervalSeconds = 0.12,
-            FocusPath = focus.GetPath()
+            FocusPath = focus.GetPath(),
+            GenerateOpenWorldPlanOnReady = true,
+            ValidateGeneratedOpenWorldPlan = true,
+            PrintGeneratedOpenWorldPlanSummary = false,
+            OpenWorldPlanWorldSize = openWorldPlanWorldSize
         };
     }
 
     private void BuildOpenWorldPlanArtifacts(TerrainWorld terrainWorld)
     {
-        TerrainGenerationProfile profile = terrainWorld.Settings?.Snapshot() ?? new TerrainSettings().Snapshot();
-        TerrainWorldPlan plan = TerrainWorldPlanner.CreateOpenWorldPlan(profile, Vector2.Zero, OpenWorldPlanWorldSize);
+        terrainWorld.OpenWorldPlanWorldSize = OpenWorldPlanWorldSize;
+        TerrainGenerationProfile profile = terrainWorld.Profile;
+        TerrainWorldPlan? currentPlan = terrainWorld.WorldPlan;
+        TerrainWorldPlan plan = currentPlan is not null && Mathf.IsEqualApprox(currentPlan.WorldSize, OpenWorldPlanWorldSize)
+            ? currentPlan
+            : terrainWorld.GenerateOpenWorldPlan(apply: true);
         TerrainWorldPlanningGateResult planningGate = TerrainWorldPlanner.ValidateOpenWorldPlanning(plan);
         TerrainQualityGateResult qualityGate = TerrainQualityAnalyzer.ValidateOpenWorldDefault(plan.QualityReport);
         TerrainExperienceGateResult experienceGate = TerrainExperienceAnalyzer.ValidateOpenWorldDefault(plan.ExperienceReport);
         string status = planningGate.Passed && qualityGate.Passed && experienceGate.Passed ? "PASS" : "FAIL";
-        terrainWorld.SetWorldPlan(plan);
 
         GD.Print(
             $"Open world terrain plan {status}: " +
