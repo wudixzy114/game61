@@ -550,7 +550,436 @@ AI/遭遇系统应该使用：
 - 采集状态。
 - 已破坏对象。
 
-## 9. 阶段路线图
+## 9. 商业级强化计划
+
+本节基于当前代码和验证结果补充更高标准的稳定化要求。当前 facade、验证工具和 runtime plan 已经可用，但如果要让任务、AI、资源、导航、存档、多人或内容管线长期依赖地形系统，下一阶段必须优先收紧公开数据边界、版本化、持久化、确定性和性能预算。
+
+### 9.1 合并策略
+
+本计划应作为唯一主计划继续维护，不建议再新建一份并行的优化计划。
+
+原因：
+
+- 当前文件已经定义了系统边界、API 分层、anchor 契约、模块对接和阶段路线图。
+- 新建文件会让“原计划”和“强化计划”分叉，后续执行时容易遗漏或互相矛盾。
+- 商业级要求不是独立主题，而是对现有计划的质量门槛升级。
+
+如果后续需要提交给团队审查，可以从本文件再拆出精简版 `TERRAIN_API_CONTRACT.md` 或里程碑 checklist，但主计划仍应以本文件为准。
+
+### 9.2 当前商业级判断
+
+当前系统可以定位为：
+
+> 可接入的开放世界地形基础设施 beta。
+
+已经具备：
+
+- 稳定的 `TerrainWorld` facade 查询入口。
+- 可异步生成和应用的 open world plan。
+- POI、route、settlement、scatter、landmark 的规划和 tile 实体化闭环。
+- runtime anchor 和 group/meta 对接入口。
+- CLI 验证工具，可覆盖默认 seed 的生成、规划、tile、artifact、runtime API 和 runtime world smoke。
+
+尚不能定位为完全生产级稳定层，主要缺口是：
+
+- `WorldPlan` 公开数据仍可能被外部修改。
+- debug overlay 与 gameplay anchor builder 尚未解耦。
+- plan 持久化 schema 尚未正式定义。
+- 确定性等级和 native/managed 差异边界尚未写入契约。
+- 性能预算尚未成为 CI 或发布门槛。
+- enum、meta、group、report、serializer 的迁移规则还不够严格。
+
+### 9.3 P0：公开数据不可变性
+
+这是下一阶段最高优先级。
+
+当前风险：
+
+- `TerrainWorld.WorldPlan` 直接返回内部 `TerrainWorldPlan`。
+- `TerrainWorldPlan` 的 `Regions`、`PointsOfInterest`、`Routes` 是数组属性。
+- `TerrainWorldRoute.Waypoints` 也是数组。
+- 虽然 `GetPointsOfInterest()` 和 `GetRoutes()` 已经返回快照，但调用方仍可通过 `WorldPlan` 修改内部数组。
+
+商业级要求：
+
+- 对普通玩法模块，`WorldPlan` 不应作为主要稳定入口。
+- 一级稳定入口应优先是 facade snapshot 方法。
+- 任何对外快照不得泄露内部可变数组。
+- route waypoint 必须深拷贝。
+
+建议改动：
+
+```csharp
+public TerrainWorldPlanSnapshot GetWorldPlanSnapshot();
+public bool TryGetWorldPlanSnapshot(out TerrainWorldPlanSnapshot snapshot);
+public TerrainWorldPointOfInterest[] GetPointsOfInterest();
+public TerrainWorldRoute[] GetRoutes();
+```
+
+候选策略：
+
+1. 保留 `WorldPlan` 但在文档中降级为半稳定调试/高级工具入口。
+2. 新增 `TerrainWorldPlanSnapshot`，作为普通模块的稳定只读入口。
+3. 长期把 `TerrainWorldPlan` 内部数组改为只读集合，或构造时复制并禁止外部修改。
+
+验收标准：
+
+- 外部修改 `GetPointsOfInterest()` 返回数组不会影响内部 plan。
+- 外部修改 `GetRoutes()` 返回数组和 waypoint 数组不会影响内部 plan。
+- 外部无法通过一级稳定 API 修改 `WorldPlan` 内部状态。
+- validation 增加 `WorldPlan` snapshot isolation smoke。
+
+### 9.4 P0：Anchor Builder 与 Debug Overlay 解耦
+
+当前风险：
+
+- `TerrainWorldPlanOverlay` 同时承担 debug 可视化和 gameplay anchor 输出。
+- 可视化开关、编辑器调试节点和 gameplay anchor 生命周期耦合。
+- 上层系统如果依赖 group/meta，不能被 debug overlay 是否启用影响。
+
+商业级要求：
+
+- gameplay anchor 是 runtime contract，不是 debug overlay 的副作用。
+- debug overlay 可以关闭，但 anchor builder 仍应可独立输出。
+- anchor group/meta 必须有 contract smoke。
+
+建议新增：
+
+```csharp
+[GlobalClass]
+public partial class TerrainWorldAnchorBuilder : Node3D
+{
+    [Export] public bool BuildOnReady { get; set; } = false;
+    [Export] public NodePath TerrainWorldPath { get; set; } = new();
+    [Export(PropertyHint.Range, "0,80,1")] public float AnchorHeightOffset { get; set; } = 3.0f;
+
+    public TerrainWorldPlan? Plan { get; private set; }
+
+    public void ApplyPlan(TerrainWorldPlan plan, TerrainGenerationProfile profile);
+    public void ClearAnchors();
+}
+```
+
+后续结构：
+
+| 类型                                | 职责                        |
+| ----------------------------------- | --------------------------- |
+| `TerrainWorldPlanOverlay`           | 只负责 debug 可视化         |
+| `TerrainWorldAnchorBuilder`         | 只负责生成 gameplay anchors |
+| `TerrainWorldPointOfInterestAnchor` | 稳定 POI 对接节点           |
+| `TerrainWorldRouteAnchor`           | 稳定 route 对接节点         |
+
+验收标准：
+
+- 不显示 overlay 时仍可生成 `terrain_poi` 和 `terrain_route` anchor。
+- POI anchor 数量等于 plan POI 数量。
+- route anchor 数量等于 plan route 数量。
+- 所有必需 group/meta key 都被验证工具检查。
+
+### 9.5 P0：Plan 持久化 Schema
+
+当前风险：
+
+- 报告中已有 API contract/version，但还没有正式 plan 数据格式。
+- 存档、内容烘焙、CI artifact 对比、bug 复现都需要稳定 plan schema。
+- 只靠 seed 重新生成，无法覆盖未来 generator 变更、版本迁移和玩家世界状态叠加。
+
+建议新增契约：
+
+```text
+terrain-plan-v1
+```
+
+建议 JSON 顶层字段：
+
+```json
+{
+  "contract": "terrain-plan-v1",
+  "apiContract": "terrain-api-v1",
+  "apiVersion": "1.0.0",
+  "generatorVersion": "1.0.0",
+  "seed": 613061,
+  "profileHash": "stable-hash",
+  "center": { "x": 0.0, "z": 0.0 },
+  "worldSize": 12288.0,
+  "gridResolution": 60,
+  "regions": [],
+  "pointsOfInterest": [],
+  "routes": [],
+  "reports": {}
+}
+```
+
+要求：
+
+- `Vector2` 统一序列化为 `{ "x": number, "z": number }`，避免 XZ/XY 混淆。
+- enum 序列化建议同时保留 string 和 int，迁移更安全。
+- route waypoint 必须序列化为独立数组，不共享内部引用。
+- schema version 和 API version 必须同时写入。
+- 初期可以只支持当前版本读取，但必须检测不兼容版本并返回明确错误。
+
+建议新增：
+
+```csharp
+public static class TerrainWorldPlanSerializer
+{
+    public static string ToJson(TerrainWorldPlan plan, TerrainGenerationProfile profile);
+    public static bool TryFromJson(string json, out TerrainWorldPlan? plan, out string error);
+    public static Error SaveJson(TerrainWorldPlan plan, TerrainGenerationProfile profile, string outputPath);
+    public static bool TryLoadJson(string inputPath, out TerrainWorldPlan? plan, out string error);
+}
+```
+
+验收标准：
+
+- plan 导出再导入后，POI 数、route 数、waypoint 数和关键 report 数据一致。
+- 导入 plan 可用于 `TerrainWorld.SetWorldPlan()`。
+- report 输出 plan contract、API contract、API version、profile hash。
+- validation 增加 serialization roundtrip smoke。
+
+### 9.6 P0：确定性等级契约
+
+当前风险：
+
+- 系统目标写了确定性生成，但 native sampler、managed fallback、浮点平台差异、Godot 版本差异都可能影响结果。
+- 如果任务、存档、多人同步依赖地形结果，需要明确哪些数据必须稳定，哪些只保证近似。
+
+建议把地形输出分为三类：
+
+#### Deterministic Contract
+
+必须在同一 API/generator/profile 版本内稳定：
+
+- `TerrainGenerationProfile` 参数。
+- `TerrainApiVersion`。
+- `TerrainWorldField` 的主要语义字段。
+- `TerrainWorldPlan` 拓扑：
+  - POI id、kind、position、settlement tier。
+  - route from/to、kind、waypoints。
+  - planning/quality/experience report 关键指标。
+
+#### Visual Approximation
+
+允许 epsilon 差异：
+
+- tile vertex normal。
+- vertex color。
+- scatter 精确位置。
+- primitive landmark 尺寸。
+- local water mesh 细节。
+
+#### Platform Dependent
+
+不承诺完全一致：
+
+- native sampler 的性能。
+- native/managed 的微小浮点误差。
+- 多线程任务完成顺序。
+- debug overlay 绘制顺序。
+
+建议新增：
+
+```csharp
+public static class TerrainDeterminismContract
+{
+    public const float HeightEpsilon = 0.05f;
+    public const float FieldEpsilon = 0.001f;
+    public const float PositionEpsilon = 0.10f;
+}
+```
+
+验收标准：
+
+- native parity smoke 使用明确 epsilon。
+- managed fallback 与 native 加速的差异被记录。
+- 任何影响 deterministic contract 的算法变更必须更新 generator version 或迁移说明。
+
+### 9.7 P0：Enum、Group、Meta、Report 的版本规则
+
+当前规则“只追加、不重排”正确，但商业级还需要固定数值和迁移纪律。
+
+要求：
+
+- public enum 必须显式指定数值。
+- enum 只能在末尾追加。
+- 删除 enum 值时必须保留 obsolete 占位，不能复用旧数值。
+- group 名称只能追加，不能重命名。
+- meta key 只能追加，不能重命名。
+- report 字段名和 section 名称如果被工具解析，也必须按 contract 管理。
+
+示例：
+
+```csharp
+public enum TerrainPointOfInterestKind
+{
+    SettlementCandidate = 0,
+    Vista = 1,
+    RiverCrossing = 2,
+    MountainPass = 3,
+    CoastalLanding = 4,
+    ResourceGrove = 5,
+    AncientSite = 6,
+    CanyonOverlook = 7,
+    Oasis = 8
+}
+```
+
+验收标准：
+
+- validation 检查核心 enum 数值未漂移。
+- validation 检查 group/meta key 完整。
+- contract 文档列出当前稳定 enum、group、meta。
+
+### 9.8 P1：Profile Hash 与内容身份
+
+当前风险：
+
+- seed 相同但 profile 不同会生成不同世界。
+- report、cache、plan、bug 复现、存档都需要一个稳定 profile 身份。
+
+建议新增：
+
+```csharp
+public string StableHash();
+```
+
+或：
+
+```csharp
+public static class TerrainProfileHash
+{
+    public static string Compute(TerrainGenerationProfile profile);
+}
+```
+
+要求：
+
+- hash 输入必须使用 invariant culture。
+- 浮点格式必须稳定。
+- hash 应写入 plan report、plan JSON、validation 输出。
+- tile cache key 当前可以继续使用 profile record，但导出和存档应使用 profile hash。
+
+验收标准：
+
+- 同一 profile 多次计算 hash 一致。
+- 任意公开 generation 参数变化会改变 hash。
+- report 和 plan JSON 都包含 hash。
+
+### 9.9 P1：性能预算契约
+
+当前验证工具已有 benchmark 选项，但还没有正式预算。
+
+建议新增性能门槛：
+
+| 项目                       | 初始建议门槛                 |
+| -------------------------- | ---------------------------- |
+| open world plan async P95  | 目标机器上不超过 1000 ms     |
+| tile build P95             | 目标机器上不超过 25 ms       |
+| main thread tile apply P95 | 单帧不超过 4 ms              |
+| completed tile apply count | 默认不超过 profile 配置上限  |
+| runtime facade sample      | 不触发分配，不触发 tile 生成 |
+| cache memory               | 有最大 tile 数和估算内存上限 |
+| cancellation latency       | plan/tile 取消可被 smoke 覆盖 |
+
+注意：
+
+- 初期目标机器可以先定义为当前开发机。
+- CI 可以先记录 benchmark，不立即 fail。
+- 一旦进入内容接入阶段，应将 P95/P99 门槛纳入发布检查。
+
+验收标准：
+
+- `--benchmark-tiles` 输出 P50/P95/P99。
+- benchmark report 写入 seed、profile hash、native/managed 模式。
+- 性能回归超过阈值时 CI 能失败或至少发出明确警告。
+
+### 9.10 P1：运行时查询 API 扩展
+
+当前 facade 已覆盖基础采样和 plan 快照。后续为了减少上层模块重复造轮子，应增加更语义化的查询接口。
+
+候选 API：
+
+```csharp
+public bool TryFindNearestPointOfInterest(
+    Vector2 world,
+    float radius,
+    TerrainPointOfInterestKind? kind,
+    out TerrainWorldPointOfInterest point);
+
+public TerrainWorldPointOfInterest[] QueryPointsOfInterest(
+    Rect2 worldBounds,
+    TerrainPointOfInterestKind? kind = null);
+
+public TerrainWorldRoute[] QueryRoutesNear(Vector2 world, float radius);
+
+public TerrainWaterState SampleWaterState(Vector2 world);
+
+public TerrainGameplayTags SampleGameplayTags(Vector2 world);
+```
+
+`SampleWaterState` 应补足 `IsAboveWater` 的不足：
+
+- `IsAboveWater` 只判断 sea level。
+- `SampleWaterState` 应区分 ocean、coast、lake、river、oasis、none。
+- 不处理动态水体和玩法水体，但要准确表达地形静态水语义。
+
+验收标准：
+
+- 查询不触发 tile 生成。
+- 查询不触发同步 plan 生成。
+- plan 未就绪时返回空集合或 false。
+- 查询复杂度和分配行为写入文档。
+
+### 9.11 P1：CI 分层
+
+建议把验证分为三档：
+
+#### PR 默认门槛
+
+```powershell
+dotnet build dao\dao.csproj
+dotnet run --project tools\TerrainValidation\TerrainValidation.csproj -- --seed 613061
+```
+
+#### Nightly 门槛
+
+```powershell
+dotnet run --project tools\TerrainValidation\TerrainValidation.csproj -- --seed-count 10 --smoke-all-seeds
+```
+
+#### Release 候选门槛
+
+```powershell
+dotnet run --project tools\TerrainValidation\TerrainValidation.csproj -- --seed-count 25 --smoke-all-seeds --native-smoke --benchmark-tiles
+```
+
+验收标准：
+
+- PR 默认门槛快速、稳定、低误报。
+- Nightly 覆盖多 seed 和所有 smoke。
+- Release 覆盖 native parity、benchmark、artifact、serialization。
+
+### 9.12 P2：资产、导航、存档对接扩展
+
+这些不应进入地形核心，但地形 API 需要为它们预留干净接口。
+
+建议只预留数据出口：
+
+- 资产系统：读取 scatter/landmark kind，自行映射 prefab。
+- 导航系统：读取 traversability、slope、route waypoints，自行生成 navmesh/graph。
+- 存档系统：保存 seed、profile hash、plan JSON、玩家改造 delta。
+- 任务系统：读取 POI/route snapshot 或 gameplay anchor。
+- AI/遭遇系统：读取 encounter/hazard/resource/traversability field。
+
+暂不做：
+
+- 真实资产选择。
+- navmesh bake。
+- 动态避障。
+- 存档文件系统。
+- 玩家地形改造长期状态。
+
+## 10. 阶段路线图
 
 ### 阶段 0：文档和边界冻结
 
@@ -735,23 +1164,27 @@ public partial class TerrainAssetMapping : Resource
 - 没有真实资产时，占位材质和 primitive mesh 继续可运行。
 - 有真实资产时，外部系统可替换表现。
 
-## 10. 优先级排序
+## 11. 优先级排序
 
 ### P0：必须优先
 
+- 收紧公开数据不可变性，避免 `WorldPlan` 内部数组被外部修改。
 - 确定 API 分层和契约文档。
-- 增加 `TerrainWorld` facade 查询方法。
-- 固定 group/meta 命名。
-- 增加 API/anchor contract smoke。
+- 固定 group/meta 命名，并加入 anchor contract smoke。
+- 拆分 gameplay anchor builder 和 debug overlay。
+- 定义 plan 持久化 schema。
+- 明确 deterministic contract、visual approximation、platform dependent 三类输出。
+- 固定 public enum 显式数值。
 - 保持 `TerrainValidation` 全部通过。
 
 ### P1：应尽快做
 
-- 拆分 `TerrainWorldAnchorBuilder`。
-- 增加 `TerrainApiVersion`。
-- 增加 plan JSON 保存/读取。
+- 增加 `TerrainWorld` 语义化查询扩展。
+- 增加 `TerrainApiVersion` 和 generator/profile hash 输出。
+- 实现 plan JSON 保存/读取。
 - 增加 CI 多 seed 校验。
 - 增加 Native parity 常规测试。
+- 增加 tile benchmark P50/P95/P99 报告。
 
 ### P2：后续做
 
@@ -760,6 +1193,7 @@ public partial class TerrainAssetMapping : Resource
 - 更多地图图层导出。
 - world origin / 大世界坐标策略。
 - tile 性能 benchmark 仪表盘。
+- 存档 delta、玩家改造和世界版本迁移方案。
 
 ### 暂不做
 
@@ -771,7 +1205,7 @@ public partial class TerrainAssetMapping : Resource
 - navmesh 烘焙。
 - 存档系统。
 
-## 11. 建议验收清单
+## 12. 建议验收清单
 
 每次地形系统核心改动后，至少检查：
 
@@ -788,6 +1222,10 @@ public partial class TerrainAssetMapping : Resource
 - artifact 导出成功。
 - runtime smoke 成功。
 - anchor group/meta 完整。
+- plan snapshot 不泄露内部可变数组。
+- plan JSON roundtrip 成功。
+- enum 数值 contract 未漂移。
+- report 包含 API contract、API version、profile hash。
 
 发布或阶段审查前，建议检查：
 
@@ -796,8 +1234,10 @@ public partial class TerrainAssetMapping : Resource
 - benchmark 通过。
 - plan 导出/导入通过。
 - API contract 文档更新。
+- anchor builder 可在 debug overlay 关闭时独立输出。
+- 性能预算没有明显回归。
 
-## 12. 计划结论
+## 13. 计划结论
 
 下一阶段的正确方向是收敛，而不是扩张。
 
@@ -813,11 +1253,11 @@ public partial class TerrainAssetMapping : Resource
 
 推荐执行顺序：
 
-1. 先冻结 API 契约。
-2. 再补 `TerrainWorld` 查询 facade。
-3. 再拆 gameplay anchor builder。
-4. 再补版本化和 contract smoke。
-5. 再做 plan 持久化。
-6. 最后预留资产映射层。
+1. 先收紧公开数据不可变性和 snapshot 契约。
+2. 再拆 gameplay anchor builder。
+3. 再定义 plan JSON schema、profile hash 和确定性等级。
+4. 再补 enum/group/meta/report contract smoke。
+5. 再补性能预算和 CI 分层。
+6. 最后扩展语义化查询和资产/导航/存档预留出口。
 
 按这个方向推进，系统会从“功能很多的 AI 生成原型”转变为“其他模块可以放心依赖的开放世界地形底座”。
