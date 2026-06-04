@@ -70,7 +70,8 @@ public static partial class TerrainTileBuilder
         bool placedNaturalScatter,
         List<TerrainScatterInstance> scatter)
     {
-        if (slope > 0.36f || field.Traversability < 0.18f)
+        bool isTidalMangroveFlat = IsMangroveTidalFlat(height, slope, field, profile);
+        if (slope > 0.36f || (!isTidalMangroveFlat && field.Traversability < 0.18f))
         {
             return;
         }
@@ -82,7 +83,23 @@ public static partial class TerrainTileBuilder
         Color tint;
         float baseScale;
 
-        if (field.BiomeKind is TerrainBiomeKind.Plains or TerrainBiomeKind.Grassland && slope < 0.20f && field.Moisture is > 0.28f and < 0.72f)
+        if (isTidalMangroveFlat)
+        {
+            float waterline = 1.0f - Mathf.Clamp(Mathf.Abs(height - (profile.SeaLevel + 3.0f)) / 38.0f, 0.0f, 1.0f);
+            float riverMouth = Mathf.SmoothStep(0.24f, 0.74f, field.River);
+            float suitability = Mathf.Clamp(
+                waterline * 0.42f +
+                field.Moisture * 0.30f +
+                riverMouth * 0.18f +
+                Mathf.Clamp(field.Temperature - 0.26f, 0.0f, 1.0f) * 0.20f,
+                0.0f,
+                1.0f);
+            kind = TerrainScatterKind.MangroveRoot;
+            probability = Mathf.Lerp(0.26f, 0.58f, suitability) * densityPenalty;
+            tint = new Color(0.18f, 0.25f, 0.14f).Lerp(new Color(0.36f, 0.44f, 0.22f), Mathf.Clamp(field.Moisture * 0.34f + riverMouth * 0.12f, 0.0f, 0.42f));
+            baseScale = 0.86f;
+        }
+        else if (field.BiomeKind is TerrainBiomeKind.Plains or TerrainBiomeKind.Grassland && slope < 0.20f && field.Moisture is > 0.28f and < 0.72f)
         {
             kind = TerrainScatterKind.GrassTuft;
             probability = Mathf.Lerp(0.10f, 0.32f, Mathf.Clamp(field.ResourcePotential, 0.0f, 1.0f)) * densityPenalty;
@@ -198,5 +215,27 @@ public static partial class TerrainTileBuilder
         float scale = baseScale + Hash01(coord.X, coord.Z, cellX * 6113 + cellZ * 6151, profile.Seed + 269) * baseScale * 0.86f;
         float rotation = Hash01(coord.X, coord.Z, cellX * 6173 + cellZ * 6197, profile.Seed + 271) * Mathf.Pi * 2.0f;
         scatter.Add(new TerrainScatterInstance(kind, new Vector3(localX, height, localZ), rotation, scale, tint));
+    }
+
+    private static bool IsMangroveTidalFlat(
+        float height,
+        float slope,
+        TerrainWorldField field,
+        TerrainGenerationProfile profile)
+    {
+        if (slope > 0.24f ||
+            height < profile.SeaLevel - 8.0f ||
+            height > profile.SeaLevel + 34.0f ||
+            field.Moisture < 0.50f ||
+            field.Temperature < 0.28f)
+        {
+            return false;
+        }
+
+        bool coastalOrWetland =
+            field.BiomeKind is TerrainBiomeKind.Coast or TerrainBiomeKind.Island or TerrainBiomeKind.Wetland ||
+            field.LandscapeKind is TerrainLandscapeKind.Coast or TerrainLandscapeKind.Wetland or TerrainLandscapeKind.RiverValley;
+        bool hasWaterSource = field.River > 0.26f || height < profile.SeaLevel + 12.0f;
+        return coastalOrWetland && hasWaterSource;
     }
 }

@@ -27,6 +27,7 @@ public static class TerrainSampler
             field.Continent,
             field.Mountains,
             field.River,
+            field.Lake,
             field.Moisture,
             field.Temperature,
             field.ScenicPotential,
@@ -113,6 +114,12 @@ public static class TerrainSampler
             return slope > 0.42f
                 ? dune.Lerp(Rock, Mathf.Clamp((slope - 0.42f) / 0.42f, 0.0f, 1.0f) * 0.52f)
                 : dune;
+        }
+
+        if (biome == TerrainBiomeKind.Snowfield)
+        {
+            float snowStrength = Mathf.Clamp((height - seaLevel - 260.0f) / 260.0f + (0.34f - temperature) * 1.20f, 0.0f, 1.0f);
+            return Rock.Lerp(Snow, snowStrength).Lerp(Colors.White, Mathf.Clamp((1.0f - slope) * 0.10f, 0.0f, 0.10f));
         }
 
         if (river > 0.62f && height < seaLevel + 360.0f)

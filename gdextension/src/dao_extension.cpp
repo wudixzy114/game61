@@ -34,6 +34,7 @@ struct NativeTerrainTerms {
 	double mountains = 0.0;
 	double broad_elevation = 0.0;
 	double river = 0.0;
+	double lake = 0.0;
 	double base_moisture = 0.0;
 	double base_temperature = 0.0;
 	double aridity = 0.0;
@@ -58,6 +59,7 @@ enum NativeTerrainLandscapeKind {
 	LANDSCAPE_MOUNTAIN_MASSIF = 8,
 	LANDSCAPE_SNOWFIELD = 9,
 	LANDSCAPE_VISTA_PLATEAU = 10,
+	LANDSCAPE_LAKE = 11,
 };
 
 enum NativeTerrainBiomeKind {
@@ -73,6 +75,7 @@ enum NativeTerrainBiomeKind {
 	BIOME_HILLS = 9,
 	BIOME_MOUNTAINS = 10,
 	BIOME_SNOWFIELD = 11,
+	BIOME_LAKE = 12,
 };
 
 struct NativeTerrainField {
@@ -83,6 +86,7 @@ struct NativeTerrainField {
 	double mountains = 0.0;
 	double broad_elevation = 0.0;
 	double river = 0.0;
+	double lake = 0.0;
 	double moisture = 0.0;
 	double temperature = 0.0;
 	double scenic_potential = 0.0;
@@ -315,9 +319,20 @@ double sample_height_unbalanced(
 			p_profile.seed + 317,
 			4);
 	const double base_temperature = clamp_value(1.0 - latitude + temperature_noise * 0.16 - 0.04, 0.0, 1.0);
-	const double aridity = (1.0 - smooth_step(0.30, 0.58, base_moisture)) *
+	const double rain_shadow_noise = ridged(
+			(climate_warp_x + 2281.0) / (p_profile.continent_scale * 0.64),
+			(climate_warp_z - 3167.0) / (p_profile.continent_scale * 0.64),
+			p_profile.seed + 389,
+			4);
+	const double rain_shadow_aridity =
+			smooth_step(0.50, 0.82, rain_shadow_noise) *
+			smooth_step(0.38, 0.78, base_temperature) *
+			smooth_step(0.34, 0.82, continent + island * 0.18) *
+			(1.0 - smooth_step(0.74, 0.94, base_moisture));
+	double aridity = (1.0 - smooth_step(0.30, 0.58, base_moisture)) *
 			smooth_step(0.52, 0.84, base_temperature) *
 			smooth_step(0.33, 0.78, continent + island * 0.22);
+	aridity = clamp_value(std::max(aridity, rain_shadow_aridity * 0.82), 0.0, 1.0);
 	const double lowland_mask = smooth_step(0.36, 0.72, continent + island * 0.25) *
 			(1.0 - smooth_step(0.22, 0.50, mountains));
 	const double plains = lowland_mask *
@@ -335,6 +350,33 @@ double sample_height_unbalanced(
 	const double alpine = smooth_step(0.48, 0.76, mountains) *
 			smooth_step(0.52, 0.86, continent + island * 0.12);
 	r_alpine = alpine;
+	const double lake_blob = fbm(
+								  (warped_x + 4211.0) / (p_profile.continent_scale * 0.31),
+								  (warped_z - 2753.0) / (p_profile.continent_scale * 0.31),
+								  p_profile.seed + 431,
+								  5) *
+					0.5 +
+			0.5;
+	const double lake_pocket = ridged(
+			(warped_x - 1487.0) / (p_profile.mountain_scale * 0.92),
+			(warped_z + 3191.0) / (p_profile.mountain_scale * 0.92),
+			p_profile.seed + 443,
+			4);
+	const double inland_water_mask = smooth_step(0.36, 0.74, continent + island * 0.16);
+	const double lowland_lake =
+			smooth_step(0.58, 0.79, lake_blob) *
+			smooth_step(0.42, 0.76, lake_pocket) *
+			inland_water_mask *
+			(1.0 - smooth_step(0.32, 0.62, mountains)) *
+			lerp_value(0.62, 1.18, clamp_value(base_moisture + river * 0.18 - aridity * 0.20, 0.0, 1.0));
+	const double alpine_lake =
+			smooth_step(0.34, 0.58, mountains) *
+			(1.0 - smooth_step(0.64, 0.84, mountains)) *
+			smooth_step(0.60, 0.83, lake_blob) *
+			smooth_step(0.54, 0.82, lake_pocket) *
+			inland_water_mask *
+			0.72;
+	const double lake = clamp_value(std::max(lowland_lake, alpine_lake), 0.0, 1.0);
 	const double dune_detail = ridged(
 			(p_x + 541.0) / 360.0,
 			(p_z - 877.0) / 360.0,
@@ -373,6 +415,9 @@ double sample_height_unbalanced(
 			(island * p_profile.height_scale * 0.25);
 	height = lerp_value(height, lowland_target, lowland_flatness * 0.62);
 	height += aridity * (dune_detail - 0.40) * p_profile.height_scale * 0.075;
+	height -= lake *
+			lerp_value(p_profile.height_scale * 0.030, p_profile.height_scale * 0.070, 1.0 - clamp_value(mountains, 0.0, 1.0)) *
+			(0.72 + wetland * 0.28);
 	height -= wetland *
 			smooth_step(0.26, 0.72, continent + island * 0.20) *
 			p_profile.height_scale *
@@ -392,6 +437,7 @@ double sample_height_unbalanced(
 		r_terms->mountains = mountains;
 		r_terms->broad_elevation = broad;
 		r_terms->river = river;
+		r_terms->lake = lake;
 		r_terms->base_moisture = base_moisture;
 		r_terms->base_temperature = base_temperature;
 		r_terms->aridity = aridity;
@@ -463,10 +509,15 @@ double compute_scenic_potential(
 			(1.0 - smooth_step(0.34, 0.64, p_terms.mountains));
 	const double island_vista = p_terms.island *
 			clamp_value(1.0 - std::abs(p_height - p_profile.sea_level - 58.0) / 260.0, 0.0, 1.0);
+	const double lake_vista = p_terms.lake *
+			smooth_step(p_profile.sea_level + 18.0, p_profile.sea_level + p_profile.height_scale * 0.32, p_height) *
+			(1.0 - smooth_step(p_profile.sea_level + p_profile.height_scale * 0.76, p_profile.sea_level + p_profile.height_scale * 0.96, p_height));
 
 	const double dominant_vista = std::max(
 			std::max(ridge_score * 0.92, river_contrast * 0.86),
-			std::max(std::max(coast_drama * 0.74, highland_score * 0.72), std::max(desert_vista * 0.54, island_vista * 0.64)));
+			std::max(
+					std::max(coast_drama * 0.74, highland_score * 0.72),
+					std::max(std::max(desert_vista * 0.54, island_vista * 0.64), lake_vista * 0.72)));
 
 	const double blended_vista =
 			ridge_score * 0.30 +
@@ -476,7 +527,8 @@ double compute_scenic_potential(
 			coast_drama * 0.10 +
 			biome_contrast * 0.06 +
 			desert_vista * 0.06 +
-			island_vista * 0.05;
+			island_vista * 0.05 +
+			lake_vista * 0.08;
 
 	return clamp_value(std::max(dominant_vista, blended_vista) * (0.94 + p_profile.vista_frequency * 0.12), 0.0, 1.0);
 }
@@ -489,7 +541,8 @@ double compute_traversability(
 	const double lowland_bonus = clamp_value(p_terms.plains * 0.18 + p_terms.aridity * 0.10 + p_terms.wetland * 0.04, 0.0, 0.24);
 	const double rugged_penalty = clamp_value(p_terms.mountains * 1.45 - lowland_bonus, 0.0, 0.82);
 	const double river_penalty = p_terms.river * 0.24;
-	return clamp_value(land * (1.0 - rugged_penalty) * (1.0 - river_penalty), 0.0, 1.0);
+	const double lake_penalty = p_terms.lake * 0.76;
+	return clamp_value(land * (1.0 - rugged_penalty) * (1.0 - river_penalty) * (1.0 - lake_penalty), 0.0, 1.0);
 }
 
 double compute_exposure(
@@ -501,12 +554,15 @@ double compute_exposure(
 	const double ridge = smooth_step(0.20, 0.64, p_terms.mountains);
 	const double plateau = smooth_step(0.34, 0.70, p_terms.shelf * p_terms.broad_elevation);
 	const double coastal = clamp_value(1.0 - std::abs(p_height - p_profile.sea_level - 18.0) / 210.0, 0.0, 1.0);
+	const double lake_shore = p_terms.lake *
+			smooth_step(p_profile.sea_level + 10.0, p_profile.sea_level + p_profile.height_scale * 0.36, p_height);
 
 	return clamp_value(
 			std::max(elevation * 0.58, ridge * 0.70) +
 					plateau * 0.16 +
 					p_scenic_potential * 0.18 +
-					coastal * 0.08,
+					coastal * 0.08 +
+					lake_shore * 0.06,
 			0.0,
 			1.0);
 }
@@ -516,14 +572,14 @@ double compute_resource_potential(
 		const NativeTerrainProfile &p_profile,
 		const NativeTerrainTerms &p_terms,
 		double p_moisture,
-		double p_temperature,
-		double p_traversability) {
+	double p_temperature,
+	double p_traversability) {
 	const double land = smooth_step(p_profile.sea_level + 8.0, p_profile.sea_level + 58.0, p_height);
-	const double water_access = smooth_step(0.18, 0.66, p_terms.river);
+	const double water_access = std::max(smooth_step(0.18, 0.66, p_terms.river), smooth_step(0.32, 0.72, p_terms.lake));
 	const double climate = clamp_value(1.0 - std::abs(p_temperature - 0.54) * 1.75, 0.0, 1.0);
 	const double low_elevation = 1.0 - smooth_step(p_profile.sea_level + 320.0, p_profile.sea_level + p_profile.height_scale * 0.92, p_height);
 	const double oasis = p_terms.aridity * smooth_step(0.38, 0.78, p_terms.river + p_moisture * 0.24);
-	const double arable_lowland = clamp_value(p_terms.plains * 0.12 + p_terms.wetland * 0.16 + oasis * 0.24, 0.0, 0.32);
+	const double arable_lowland = clamp_value(p_terms.plains * 0.12 + p_terms.wetland * 0.16 + p_terms.lake * 0.10 + oasis * 0.24, 0.0, 0.34);
 	const double soil = clamp_value(
 			p_moisture * 0.52 +
 					climate * 0.22 +
@@ -549,6 +605,8 @@ double compute_hazard_potential(
 	const double canyon = p_terms.river * smooth_step(0.05, 0.30, p_terms.mountains);
 	const double river_risk = smooth_step(0.66, 0.92, p_terms.river) *
 			smooth_step(p_profile.sea_level + 8.0, p_profile.sea_level + p_profile.height_scale * 0.48, p_height);
+	const double lake_risk = smooth_step(0.46, 0.86, p_terms.lake) *
+			smooth_step(p_profile.sea_level + 8.0, p_profile.sea_level + p_profile.height_scale * 0.42, p_height);
 	const double high_elevation = smooth_step(p_profile.sea_level + 260.0, p_profile.sea_level + p_profile.height_scale * 0.92, p_height);
 	const double exposed_ridge = smooth_step(0.16, 0.52, p_exposure);
 	const double snow = p_temperature < 0.22 ?
@@ -575,7 +633,7 @@ double compute_hazard_potential(
 
 	return clamp_value(
 			std::max(
-					std::max(std::max(rugged * 0.74, canyon * 0.82), river_risk * 0.50),
+					std::max(std::max(rugged * 0.74, canyon * 0.82), std::max(river_risk * 0.50, lake_risk * 0.42)),
 					std::max(
 							std::max(desert_exposure * 0.64, flood_risk * 0.62),
 							std::max(coastal_storm * 0.46, frontier_wildland * 0.48))) +
@@ -586,6 +644,7 @@ double compute_hazard_potential(
 					isolation * 0.16 +
 					heat_risk * 0.28 +
 					flood_risk * 0.18 +
+					lake_risk * 0.16 +
 					island_isolation * 0.20 +
 					coastal_storm * 0.10 +
 					frontier_wildland * 0.12,
@@ -611,6 +670,55 @@ double compute_encounter_potential(
 			1.0);
 }
 
+bool is_snowfield(
+		double p_height,
+		const NativeTerrainProfile &p_profile,
+		const NativeTerrainTerms &p_terms,
+		double p_temperature) {
+	const double normalized_temperature = clamp_value(p_temperature / 0.46, 0.0, 1.0);
+	const double climate_snow_line = p_profile.sea_level + p_profile.height_scale * lerp_value(0.30, 0.55, normalized_temperature);
+	const double alpine_lowering = p_profile.height_scale * clamp_value(p_terms.alpine * 0.16 + p_terms.mountains * 0.10 + p_terms.hills * 0.045, 0.0, 0.19);
+	const double snow_line = climate_snow_line - alpine_lowering;
+	const double minimum_elevation = p_profile.sea_level + p_profile.height_scale * 0.22;
+
+	return p_height > snow_line &&
+			p_height > minimum_elevation &&
+			(p_temperature < 0.45 || p_terms.alpine > 0.34 || p_terms.mountains > 0.28);
+}
+
+bool is_lake(
+		double p_height,
+		const NativeTerrainProfile &p_profile,
+		const NativeTerrainTerms &p_terms) {
+	return p_terms.lake > 0.46 &&
+			p_height > p_profile.sea_level + 8.0 &&
+			p_height < p_profile.sea_level + p_profile.height_scale * 0.68 &&
+			p_terms.continent + p_terms.island * 0.18 > 0.34;
+}
+
+bool is_desert_lowland(
+		double p_height,
+		const NativeTerrainProfile &p_profile,
+		const NativeTerrainTerms &p_terms,
+		double p_moisture,
+		double p_temperature) {
+	if (p_height < p_profile.sea_level + 12.0 ||
+			p_height > p_profile.sea_level + 460.0 ||
+			p_terms.mountains > 0.44 ||
+			p_terms.wetland > 0.42) {
+		return false;
+	}
+
+	const double warm_dryness =
+			(1.0 - smooth_step(0.44, 0.68, p_moisture)) *
+			smooth_step(0.38, 0.72, p_temperature);
+	const double arid_lowland = p_terms.aridity * 0.74 + warm_dryness * 0.26;
+	const bool core_desert = p_terms.aridity > 0.44 && p_moisture < 0.62;
+	const bool dry_plain = arid_lowland > 0.36 && p_moisture < 0.58 && p_temperature > 0.34 && p_terms.forest < 0.62;
+
+	return core_desert || dry_plain;
+}
+
 int classify_biome(
 		double p_height,
 		const NativeTerrainProfile &p_profile,
@@ -625,7 +733,11 @@ int classify_biome(
 		return BIOME_COAST;
 	}
 
-	if (p_height > p_profile.sea_level + 680.0 || (p_temperature < 0.20 && p_height > p_profile.sea_level + 360.0)) {
+	if (is_lake(p_height, p_profile, p_terms)) {
+		return BIOME_LAKE;
+	}
+
+	if (is_snowfield(p_height, p_profile, p_terms, p_temperature)) {
 		return BIOME_SNOWFIELD;
 	}
 
@@ -640,9 +752,7 @@ int classify_biome(
 		return BIOME_OASIS;
 	}
 
-	if (p_terms.aridity > 0.48 &&
-			p_moisture < 0.56 &&
-			p_height < p_profile.sea_level + 460.0) {
+	if (is_desert_lowland(p_height, p_profile, p_terms, p_moisture, p_temperature)) {
 		return BIOME_DESERT;
 	}
 
@@ -687,7 +797,11 @@ int classify_landscape(
 		return LANDSCAPE_COAST;
 	}
 
-	if (p_height > p_profile.sea_level + 680.0 || (p_temperature < 0.20 && p_height > p_profile.sea_level + 360.0)) {
+	if (is_lake(p_height, p_profile, p_terms)) {
+		return LANDSCAPE_LAKE;
+	}
+
+	if (is_snowfield(p_height, p_profile, p_terms, p_temperature)) {
 		return LANDSCAPE_SNOWFIELD;
 	}
 
@@ -735,8 +849,9 @@ NativeTerrainField build_field_native(double p_height, const NativeTerrainProfil
 	field.mountains = p_terms.mountains;
 	field.broad_elevation = p_terms.broad_elevation;
 	field.river = p_terms.river;
+	field.lake = p_terms.lake;
 	field.moisture = clamp_value(
-			p_terms.base_moisture + p_terms.river * 0.45 - p_terms.aridity * 0.22 + p_terms.wetland * 0.16,
+			p_terms.base_moisture + p_terms.river * 0.45 + p_terms.lake * 0.52 - p_terms.aridity * 0.22 + p_terms.wetland * 0.16,
 			0.0,
 			1.0);
 	field.temperature = clamp_value(
@@ -1036,7 +1151,7 @@ int write_field_grid_native(
 		const NativeTerrainProfile &p_profile,
 		float *r_output_samples,
 		int32_t p_output_sample_float_count) {
-	constexpr int stride = 17;
+	constexpr int stride = 18;
 	const int resolution = std::max(1, std::min(512, p_resolution));
 	const int width = resolution + 1;
 	const int required_count = width * width * stride;
@@ -1063,16 +1178,17 @@ int write_field_grid_native(
 			r_output_samples[offset + 4] = static_cast<float>(terms.mountains);
 			r_output_samples[offset + 5] = static_cast<float>(terms.broad_elevation);
 			r_output_samples[offset + 6] = static_cast<float>(terms.river);
-			r_output_samples[offset + 7] = static_cast<float>(terms.base_moisture);
-			r_output_samples[offset + 8] = static_cast<float>(terms.base_temperature);
-			r_output_samples[offset + 9] = static_cast<float>(terms.aridity);
-			r_output_samples[offset + 10] = static_cast<float>(terms.plains);
-			r_output_samples[offset + 11] = static_cast<float>(terms.wetland);
-			r_output_samples[offset + 12] = static_cast<float>(terms.forest);
-			r_output_samples[offset + 13] = static_cast<float>(terms.hills);
-			r_output_samples[offset + 14] = static_cast<float>(terms.alpine);
-			r_output_samples[offset + 15] = static_cast<float>(terms.island);
-			r_output_samples[offset + 16] = static_cast<float>(terms.dune_detail);
+			r_output_samples[offset + 7] = static_cast<float>(terms.lake);
+			r_output_samples[offset + 8] = static_cast<float>(terms.base_moisture);
+			r_output_samples[offset + 9] = static_cast<float>(terms.base_temperature);
+			r_output_samples[offset + 10] = static_cast<float>(terms.aridity);
+			r_output_samples[offset + 11] = static_cast<float>(terms.plains);
+			r_output_samples[offset + 12] = static_cast<float>(terms.wetland);
+			r_output_samples[offset + 13] = static_cast<float>(terms.forest);
+			r_output_samples[offset + 14] = static_cast<float>(terms.hills);
+			r_output_samples[offset + 15] = static_cast<float>(terms.alpine);
+			r_output_samples[offset + 16] = static_cast<float>(terms.island);
+			r_output_samples[offset + 17] = static_cast<float>(terms.dune_detail);
 		}
 	}
 
@@ -1087,7 +1203,7 @@ int write_derived_field_grid_native(
 		const NativeTerrainProfile &p_profile,
 		float *r_output_samples,
 		int32_t p_output_sample_float_count) {
-	constexpr int stride = 17;
+	constexpr int stride = 18;
 	const int resolution = std::max(1, std::min(512, p_resolution));
 	const int width = resolution + 1;
 	const int required_count = width * width * stride;
@@ -1115,16 +1231,17 @@ int write_derived_field_grid_native(
 			r_output_samples[offset + 4] = static_cast<float>(field.mountains);
 			r_output_samples[offset + 5] = static_cast<float>(field.broad_elevation);
 			r_output_samples[offset + 6] = static_cast<float>(field.river);
-			r_output_samples[offset + 7] = static_cast<float>(field.moisture);
-			r_output_samples[offset + 8] = static_cast<float>(field.temperature);
-			r_output_samples[offset + 9] = static_cast<float>(field.scenic_potential);
-			r_output_samples[offset + 10] = static_cast<float>(field.traversability);
-			r_output_samples[offset + 11] = static_cast<float>(field.exposure);
-			r_output_samples[offset + 12] = static_cast<float>(field.resource_potential);
-			r_output_samples[offset + 13] = static_cast<float>(field.hazard_potential);
-			r_output_samples[offset + 14] = static_cast<float>(field.encounter_potential);
-			r_output_samples[offset + 15] = static_cast<float>(field.biome_kind);
-			r_output_samples[offset + 16] = static_cast<float>(field.landscape_kind);
+			r_output_samples[offset + 7] = static_cast<float>(field.lake);
+			r_output_samples[offset + 8] = static_cast<float>(field.moisture);
+			r_output_samples[offset + 9] = static_cast<float>(field.temperature);
+			r_output_samples[offset + 10] = static_cast<float>(field.scenic_potential);
+			r_output_samples[offset + 11] = static_cast<float>(field.traversability);
+			r_output_samples[offset + 12] = static_cast<float>(field.exposure);
+			r_output_samples[offset + 13] = static_cast<float>(field.resource_potential);
+			r_output_samples[offset + 14] = static_cast<float>(field.hazard_potential);
+			r_output_samples[offset + 15] = static_cast<float>(field.encounter_potential);
+			r_output_samples[offset + 16] = static_cast<float>(field.biome_kind);
+			r_output_samples[offset + 17] = static_cast<float>(field.landscape_kind);
 		}
 	}
 

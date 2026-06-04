@@ -18,9 +18,12 @@ bool skipPoiTileSmoke = HasFlag(args, "--skip-poi-tile-smoke");
 bool skipGameplayScatterSmoke = HasFlag(args, "--skip-gameplay-scatter-smoke");
 bool skipBiomeScatterSmoke = HasFlag(args, "--skip-biome-scatter-smoke");
 bool skipScenicLandmarkSmoke = HasFlag(args, "--skip-scenic-landmark-smoke");
+bool skipArtifactSmoke = HasFlag(args, "--skip-artifact-smoke");
 bool nativeSmoke = HasFlag(args, "--native-smoke");
 bool benchmarkTiles = HasFlag(args, "--benchmark-tiles");
 int benchmarkTileCount = Math.Max(1, GetIntArg(args, "--benchmark-tile-count", 48));
+int artifactImageSize = Math.Clamp(GetIntArg(args, "--artifact-image-size", 256), 64, 2048);
+string artifactOutputDirectory = GetArg(args, "--artifact-output-dir") ?? DefaultArtifactOutputDirectory(seed);
 
 int failures = 0;
 TerrainValidationAggregate aggregate = new();
@@ -30,6 +33,7 @@ TerrainPoiTileSmokeReport? poiTileSmokeReport = null;
 TerrainGameplayScatterSmokeReport? gameplayScatterSmokeReport = null;
 TerrainBiomeScatterSmokeReport? biomeScatterSmokeReport = null;
 TerrainScenicLandmarkSmokeReport? scenicLandmarkSmokeReport = null;
+TerrainArtifactSmokeReport? artifactSmokeReport = null;
 TerrainNativeSamplerSmokeReport? nativeSmokeReport = null;
 TerrainTileBenchmarkReport? tileBenchmarkReport = null;
 TerrainGenerationProfile benchmarkProfile = profile with { Seed = seed };
@@ -114,6 +118,16 @@ for (int i = 0; i < seedCount; i++)
             failures++;
         }
     }
+
+    if (i == 0 && !skipArtifactSmoke)
+    {
+        artifactSmokeReport = ValidateOpenWorldArtifactExport(seedProfile, result.Plan, artifactOutputDirectory, artifactImageSize);
+        PrintArtifactSmoke(artifactSmokeReport.Value);
+        if (!artifactSmokeReport.Value.Passed)
+        {
+            failures++;
+        }
+    }
 }
 
 if (nativeSmoke)
@@ -146,6 +160,7 @@ PrintAggregate(
     gameplayScatterSmokeReport,
     biomeScatterSmokeReport,
     scenicLandmarkSmokeReport,
+    artifactSmokeReport,
     nativeSmokeReport,
     tileBenchmarkReport);
 return failures == 0 ? 0 : 1;
@@ -1189,6 +1204,168 @@ static void PrintScenicLandmarkSmoke(TerrainScenicLandmarkSmokeReport report)
         $"distinct {report.DistinctGeneratedKindCount}, scenic landmarks {report.ScenicLandmarkCount} ({report.Reason})");
 }
 
+static TerrainArtifactSmokeReport ValidateOpenWorldArtifactExport(
+    TerrainGenerationProfile profile,
+    TerrainWorldPlan plan,
+    string outputDirectory,
+    int imageSize)
+{
+    TerrainMapRaster baseMap = TerrainMapExporter.CreateRaster(profile, plan.Center, plan.WorldSize, imageSize, TerrainMapLayer.Biome);
+    TerrainMapRaster planMap = TerrainWorldPlanExporter.CreatePlanRaster(plan, profile, imageSize, TerrainMapLayer.Biome);
+    AnalyzeArtifactMap(baseMap, planMap, out int distinctColorBuckets, out int nonDarkSampleCount, out int overlayChangedPixels, out float maxOverlayColorDelta);
+
+    TerrainWorldPlanArtifactResult export = TerrainWorldPlanExporter.SaveOpenWorldArtifacts(
+        plan,
+        profile,
+        imageSize,
+        outputDirectory,
+        TerrainMapLayer.Biome);
+
+    string mapFilePath = FileSystemPath(export.MapPath);
+    string reportFilePath = FileSystemPath(export.ReportPath);
+    bool mapExists = System.IO.File.Exists(mapFilePath);
+    bool reportExists = System.IO.File.Exists(reportFilePath);
+    long mapBytes = mapExists ? new System.IO.FileInfo(mapFilePath).Length : 0L;
+    long reportBytes = reportExists ? new System.IO.FileInfo(reportFilePath).Length : 0L;
+    string reportText = reportExists ? System.IO.File.ReadAllText(reportFilePath) : string.Empty;
+    bool reportContainsRequiredSections = ReportContainsRequiredArtifactSections(reportText);
+
+    bool mapHasContent =
+        distinctColorBuckets >= 24 &&
+        nonDarkSampleCount >= 512 &&
+        overlayChangedPixels >= Mathf.Max(256, imageSize) &&
+        maxOverlayColorDelta >= 0.04f;
+    bool filesLookValid =
+        export.MapSaveError == Error.Ok &&
+        export.ReportSaveError == Error.Ok &&
+        mapExists &&
+        reportExists &&
+        mapBytes >= 4096 &&
+        reportBytes >= 2048;
+    bool passed =
+        export.Passed &&
+        filesLookValid &&
+        mapHasContent &&
+        reportContainsRequiredSections;
+    string reason = passed
+        ? "open world map and report artifacts exported with visible terrain, routes, and POI overlays"
+        : ArtifactFailureReason(export, filesLookValid, mapHasContent, reportContainsRequiredSections);
+
+    return new TerrainArtifactSmokeReport(
+        passed,
+        outputDirectory,
+        export.MapPath,
+        export.ReportPath,
+        mapBytes,
+        reportBytes,
+        imageSize,
+        distinctColorBuckets,
+        nonDarkSampleCount,
+        overlayChangedPixels,
+        maxOverlayColorDelta,
+        reportContainsRequiredSections,
+        reason);
+}
+
+static void AnalyzeArtifactMap(
+    TerrainMapRaster baseMap,
+    TerrainMapRaster planMap,
+    out int distinctColorBuckets,
+    out int nonDarkSampleCount,
+    out int overlayChangedPixels,
+    out float maxOverlayColorDelta)
+{
+    int width = planMap.Width;
+    int height = planMap.Height;
+    var colorBuckets = new HashSet<int>();
+    distinctColorBuckets = 0;
+    nonDarkSampleCount = 0;
+    overlayChangedPixels = 0;
+    maxOverlayColorDelta = 0.0f;
+
+    for (int y = 0; y < height; y++)
+    {
+        for (int x = 0; x < width; x++)
+        {
+            Color planColor = planMap.GetPixel(x, y);
+            colorBuckets.Add(QuantizedColorKey(planColor));
+            float brightness = (planColor.R + planColor.G + planColor.B) / 3.0f;
+            if (brightness > 0.08f)
+            {
+                nonDarkSampleCount++;
+            }
+
+            float overlayDelta = ColorDistance(planColor, baseMap.GetPixel(x, y));
+            if (overlayDelta > 0.015f)
+            {
+                overlayChangedPixels++;
+                maxOverlayColorDelta = Mathf.Max(maxOverlayColorDelta, overlayDelta);
+            }
+        }
+    }
+
+    distinctColorBuckets = colorBuckets.Count;
+}
+
+static int QuantizedColorKey(Color color)
+{
+    int r = Mathf.Clamp(Mathf.RoundToInt(color.R * 15.0f), 0, 15);
+    int g = Mathf.Clamp(Mathf.RoundToInt(color.G * 15.0f), 0, 15);
+    int b = Mathf.Clamp(Mathf.RoundToInt(color.B * 15.0f), 0, 15);
+    return (r << 8) | (g << 4) | b;
+}
+
+static bool ReportContainsRequiredArtifactSections(string reportText)
+{
+    return reportText.Contains("Open World Terrain Plan", StringComparison.Ordinal) &&
+        reportText.Contains("Terrain Quality Gate", StringComparison.Ordinal) &&
+        reportText.Contains("Open World Planning Gate", StringComparison.Ordinal) &&
+        reportText.Contains("Open World Experience Gate", StringComparison.Ordinal) &&
+        reportText.Contains("Settlement Development", StringComparison.Ordinal) &&
+        reportText.Contains("Biome Counts", StringComparison.Ordinal) &&
+        reportText.Contains("Route Counts", StringComparison.Ordinal) &&
+        reportText.Contains("Top Points Of Interest", StringComparison.Ordinal);
+}
+
+static string ArtifactFailureReason(
+    TerrainWorldPlanArtifactResult export,
+    bool filesLookValid,
+    bool mapHasContent,
+    bool reportContainsRequiredSections)
+{
+    if (!export.PlanningGate.Passed || !export.QualityGate.Passed || !export.ExperienceGate.Passed)
+    {
+        return "artifact export plan gates did not pass";
+    }
+
+    if (!filesLookValid)
+    {
+        return $"artifact files were not written correctly ({export.MapSaveError}/{export.ReportSaveError})";
+    }
+
+    if (!mapHasContent)
+    {
+        return "artifact map did not contain enough terrain color variety or route/POI overlay pixels";
+    }
+
+    if (!reportContainsRequiredSections)
+    {
+        return "artifact report did not include all required open world sections";
+    }
+
+    return "artifact export failed";
+}
+
+static void PrintArtifactSmoke(TerrainArtifactSmokeReport report)
+{
+    Console.WriteLine(
+        $"Open world artifact smoke: {(report.Passed ? "PASS" : "FAIL")} " +
+        $"image {report.ImageSize} px, map {report.MapBytes / 1024.0:0.0} KB, report {report.ReportBytes / 1024.0:0.0} KB, " +
+        $"colors {report.DistinctColorBuckets}, overlay pixels {report.OverlayChangedPixels}, " +
+        $"max overlay delta {report.MaxOverlayColorDelta:0.000}, sections {(report.ReportContainsRequiredSections ? "yes" : "no")} ({report.Reason})");
+    Console.WriteLine($"Artifact paths: {report.MapPath}, {report.ReportPath}");
+}
+
 static int CountPositive(params int[] values)
 {
     int count = 0;
@@ -1843,6 +2020,7 @@ static void PrintAggregate(
     TerrainGameplayScatterSmokeReport? gameplayScatterSmokeReport,
     TerrainBiomeScatterSmokeReport? biomeScatterSmokeReport,
     TerrainScenicLandmarkSmokeReport? scenicLandmarkSmokeReport,
+    TerrainArtifactSmokeReport? artifactSmokeReport,
     TerrainNativeSamplerSmokeReport? nativeSmokeReport,
     TerrainTileBenchmarkReport? tileBenchmarkReport)
 {
@@ -1889,6 +2067,10 @@ static void PrintAggregate(
     if (scenicLandmarkSmokeReport is not null)
     {
         Console.WriteLine($"Scenic landmark smoke: {(scenicLandmarkSmokeReport.Value.Passed ? "PASS" : "FAIL")}");
+    }
+    if (artifactSmokeReport is not null)
+    {
+        Console.WriteLine($"Open world artifact smoke: {(artifactSmokeReport.Value.Passed ? "PASS" : "FAIL")}");
     }
     if (nativeSmokeReport is not null)
     {
@@ -1966,6 +2148,21 @@ static bool HasFlag(string[] args, string name)
     }
 
     return false;
+}
+
+static string DefaultArtifactOutputDirectory(int seed)
+{
+    return System.IO.Path.Combine(System.IO.Path.GetTempPath(), "dao_terrain_validation", $"seed_{seed}");
+}
+
+static string FileSystemPath(string path)
+{
+    if (path.Contains("://", StringComparison.Ordinal))
+    {
+        return ProjectSettings.GlobalizePath(path);
+    }
+
+    return System.IO.Path.GetFullPath(path);
 }
 
 static float ColorDistance(Color a, Color b)
@@ -2091,6 +2288,22 @@ internal readonly record struct TerrainScenicLandmarkSmokeReport(
     int GlacialRidgeCount,
     int DistinctGeneratedKindCount,
     int ScenicLandmarkCount,
+    string Reason);
+
+/// <summary>Reports whether open-world map and text artifacts are exported and contain meaningful terrain, routes, and POI overlays.</summary>
+internal readonly record struct TerrainArtifactSmokeReport(
+    bool Passed,
+    string OutputDirectory,
+    string MapPath,
+    string ReportPath,
+    long MapBytes,
+    long ReportBytes,
+    int ImageSize,
+    int DistinctColorBuckets,
+    int NonDarkSampleCount,
+    int OverlayChangedPixels,
+    float MaxOverlayColorDelta,
+    bool ReportContainsRequiredSections,
     string Reason);
 
 /// <summary>Pairs a world position with a score for sorting scatter candidate regions.</summary>
