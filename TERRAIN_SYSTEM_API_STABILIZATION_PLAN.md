@@ -905,14 +905,18 @@ public static class TerrainProfileHash
 
 ### 9.9 P1：性能预算契约
 
-当前验证工具已有 benchmark 选项，但还没有正式预算。
+当前验证工具已有可执行的 tile benchmark 预算。`--benchmark-tiles` 会输出 seed、profile hash、managed/native backend mode、总 ms/tile、单 tile P50/P95/P99、分配量、代表性覆盖、native speedup 和 native parity，并在超过当前阈值时失败。
 
-建议新增性能门槛：
+当前初始门槛：
 
 | 项目                       | 初始建议门槛                 |
 | -------------------------- | ---------------------------- |
 | open world plan async P95  | 目标机器上不超过 1000 ms     |
-| tile build P95             | 目标机器上不超过 25 ms       |
+| managed tile build average | 不超过 24 ms/tile            |
+| native tile build average  | 不超过 8 ms/tile             |
+| tile build 分配            | 不超过 2048 KB/tile          |
+| native speedup             | 不低于 1.00x                 |
+| tile build P50/P95/P99     | 已输出，暂不作为硬阈值       |
 | main thread tile apply P95 | 单帧不超过 4 ms              |
 | completed tile apply count | 默认不超过 profile 配置上限  |
 | runtime facade sample      | 不触发分配，不触发 tile 生成 |
@@ -921,15 +925,15 @@ public static class TerrainProfileHash
 
 注意：
 
-- 初期目标机器可以先定义为当前开发机。
-- CI 可以先记录 benchmark，不立即 fail。
+- 初期目标机器仍需要团队确认；当前阈值是当前开发机上的可执行回归门槛。
+- 当前分配预算测的是完整 `TerrainTileData` 构建路径分配，不等价于最终运行时常驻内存预算。
 - 一旦进入内容接入阶段，应将 P95/P99 门槛纳入发布检查。
 
 验收标准：
 
 - `--benchmark-tiles` 输出 P50/P95/P99。
 - benchmark report 写入 seed、profile hash、native/managed 模式。
-- 性能回归超过阈值时 CI 能失败或至少发出明确警告。
+- 性能回归超过阈值时 validation 会失败。
 
 ### 9.10 P1：运行时查询和诊断 API 扩展
 
@@ -1263,12 +1267,13 @@ public partial class TerrainAssetMapping : Resource
 - 收紧 `TerrainWorldPlan`、`WorldPlan`、`TryGetWorldPlan(...)` 和 `SetWorldPlan(...)` 的复制/隔离契约，防止外部修改内部 plan 数组。
 - 增加 `TerrainWorld` 语义化查询扩展，并纳入 runtime API smoke。
 - 增加 `TerrainWorld` 运行时流送诊断快照，并纳入 runtime API smoke 的 `streaming pass`。
+- 增加 tile benchmark seed/profile/backend 身份输出和 P50/P95/P99 报告，并校准初始 average/alloc 回归阈值。
 
 ### P1：应尽快做
 
 - 增加 CI 多 seed 校验。
 - 增加 Native parity 常规测试。
-- 增加 tile benchmark P50/P95/P99 报告。
+- 将 tile benchmark P50/P95/P99 从记录项升级为目标硬件硬阈值。
 
 ### P2：后续做
 
@@ -1309,7 +1314,7 @@ public partial class TerrainAssetMapping : Resource
 - plan snapshot 不泄露内部可变数组。
 - plan JSON roundtrip 成功。
 - enum 数值 contract 未漂移。
-- report 包含 API contract、API version、profile hash。
+- report 包含 API contract/version、plan contract、generator version、determinism contract 和 profile hash。
 
 发布或阶段审查前，建议检查：
 

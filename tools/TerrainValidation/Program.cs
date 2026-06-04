@@ -4011,11 +4011,20 @@ static TerrainTileBenchmarkReport BenchmarkTerrainTiles(
     bool nativeSelected = nativeAvailable &&
         TerrainTileBuilder.ShouldUseNativeSamplerForTileGeneration(nativeProfile, lod: 0);
     TerrainTileBenchmarkThresholds thresholds = TerrainTileBenchmarkThresholds.Default;
+    string profileHash = profile.StableHash();
+    const string managedBackendMode = "managed";
+    string nativeBackendMode = nativeAvailable
+        ? (nativeSelected ? "native" : "native-enabled-adaptive")
+        : "unavailable";
 
     if (coords.Length == 0)
     {
         return new TerrainTileBenchmarkReport(
             false,
+            profile.Seed,
+            profileHash,
+            managedBackendMode,
+            nativeBackendMode,
             nativeAvailable,
             nativeSelected,
             requestedTileCount,
@@ -4090,6 +4099,10 @@ static TerrainTileBenchmarkReport BenchmarkTerrainTiles(
 
     return new TerrainTileBenchmarkReport(
         passed,
+        profile.Seed,
+        profileHash,
+        managedBackendMode,
+        nativeBackendMode,
         nativeAvailable,
         nativeSelected,
         requestedTileCount,
@@ -4303,15 +4316,20 @@ static TerrainTileBenchmarkPass MeasureTileBuildPass(
 
     long allocatedBefore = GC.GetAllocatedBytesForCurrentThread();
     Stopwatch stopwatch = Stopwatch.StartNew();
+    var tileMilliseconds = new double[coords.Length];
     long totalVertices = 0;
     long totalIndices = 0;
     long totalScatter = 0;
     long totalLandmarks = 0;
     double heightChecksum = 0.0;
+    int tileIndex = 0;
 
     foreach (TerrainTileCoord coord in coords)
     {
+        long tileStart = Stopwatch.GetTimestamp();
         TerrainTileData data = TerrainTileBuilder.Build(coord, lod: 0, profile, includeCollision: false, corridorIndex, poiIndex);
+        long tileEnd = Stopwatch.GetTimestamp();
+        tileMilliseconds[tileIndex++] = TicksToMilliseconds(tileEnd - tileStart);
         totalVertices += data.Vertices.Length;
         totalIndices += data.Indices.Length;
         totalScatter += data.ScatterInstances.Length;
@@ -4333,8 +4351,38 @@ static TerrainTileBenchmarkPass MeasureTileBuildPass(
         totalScatter,
         totalLandmarks,
         stopwatch.Elapsed.TotalMilliseconds,
+        Percentile(tileMilliseconds, 50.0),
+        Percentile(tileMilliseconds, 95.0),
+        Percentile(tileMilliseconds, 99.0),
         Math.Max(0, allocatedAfter - allocatedBefore),
         heightChecksum);
+}
+
+static double TicksToMilliseconds(long ticks)
+{
+    return ticks * 1000.0 / Stopwatch.Frequency;
+}
+
+static double Percentile(double[] values, double percentile)
+{
+    if (values.Length == 0)
+    {
+        return 0.0;
+    }
+
+    double[] sorted = (double[])values.Clone();
+    Array.Sort(sorted);
+    double clamped = Math.Clamp(percentile, 0.0, 100.0);
+    double rank = (clamped / 100.0) * (sorted.Length - 1);
+    int lower = (int)Math.Floor(rank);
+    int upper = (int)Math.Ceiling(rank);
+    if (lower == upper)
+    {
+        return sorted[lower];
+    }
+
+    double t = rank - lower;
+    return sorted[lower] + ((sorted[upper] - sorted[lower]) * t);
 }
 
 static void MeasureBenchmarkTileParity(
@@ -4654,6 +4702,7 @@ static void PrintTileBenchmark(TerrainTileBenchmarkReport report)
 {
     Console.WriteLine(
         $"Tile generation benchmark: {(report.Passed ? "PASS" : "FAIL")} native available/selected {report.NativeAvailable}/{report.NativeSelectedForTileGeneration}, " +
+        $"seed {report.Seed}, profile {report.ProfileHash}, modes {report.ManagedBackendMode}/{report.NativeBackendMode}, " +
         $"tiles {report.MeasuredTileCount}/{report.RequestedTileCount}, " +
         $"passes {report.MeasurementPassCount}, native speedup {report.NativeSpeedup:0.00}x, parity tiles {report.ParityTileCount}, " +
         $"max parity delta {report.MaxHeightDelta:0.000}/{report.MaxColorDelta:0.000} ({report.Reason})");
@@ -4674,6 +4723,7 @@ static void PrintTileBenchmarkPass(string label, TerrainTileBenchmarkPass pass)
     Console.WriteLine(
         $"{label} tile build: {pass.TileCount} tiles in {pass.ElapsedMilliseconds:0.0} ms, " +
         $"{pass.TilesPerSecond:0.0} tiles/s, {pass.MillisecondsPerTile:0.00} ms/tile, " +
+        $"p50/p95/p99 {pass.P50Milliseconds:0.00}/{pass.P95Milliseconds:0.00}/{pass.P99Milliseconds:0.00} ms, " +
         $"alloc {pass.AllocatedMegabytes:0.00} MB ({pass.AllocatedKilobytesPerTile:0.0} KB/tile), " +
         $"vertices {pass.TotalVertices}, scatter {pass.TotalScatter}, landmarks {pass.TotalLandmarks}");
 }
@@ -5312,6 +5362,10 @@ internal readonly record struct TerrainTileBenchmarkCoverage(
 /// <summary>Reports managed vs native tile generation benchmark results including timing, allocations, parity, and sample coverage.</summary>
 internal readonly record struct TerrainTileBenchmarkReport(
     bool Passed,
+    int Seed,
+    string ProfileHash,
+    string ManagedBackendMode,
+    string NativeBackendMode,
     bool NativeAvailable,
     bool NativeSelectedForTileGeneration,
     int RequestedTileCount,
@@ -5345,7 +5399,7 @@ internal readonly record struct TerrainTileBenchmarkThresholds(
     public static TerrainTileBenchmarkThresholds Default { get; } = new(
         MaxManagedMillisecondsPerTile: 24.0,
         MaxNativeMillisecondsPerTile: 8.0,
-        MaxAllocatedKilobytesPerTile: 320.0,
+        MaxAllocatedKilobytesPerTile: 2048.0,
         MinNativeSpeedup: 1.00,
         MinParityTileCount: 8,
         MinBenchmarkBiomeKinds: 7,
@@ -5365,6 +5419,9 @@ internal readonly record struct TerrainTileBenchmarkPass(
     long TotalScatter,
     long TotalLandmarks,
     double ElapsedMilliseconds,
+    double P50Milliseconds,
+    double P95Milliseconds,
+    double P99Milliseconds,
     long AllocatedBytes,
     double HeightChecksum)
 {

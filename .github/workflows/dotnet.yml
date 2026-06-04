@@ -71,7 +71,7 @@ jobs:
         shell: bash
 
       - name: Validate terrain generation
-        run: dotnet run --project tools/TerrainValidation/TerrainValidation.csproj --configuration ${{ env.CONFIGURATION }} --no-build -- --seed-count 3
+        run: dotnet run --project tools/TerrainValidation/TerrainValidation.csproj --configuration ${{ env.CONFIGURATION }} --no-build -- --validation-tier pr
 
       - name: Benchmark managed terrain tiles
         run: >
