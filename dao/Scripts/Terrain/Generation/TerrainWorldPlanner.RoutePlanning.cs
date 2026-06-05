@@ -91,6 +91,7 @@ public static partial class TerrainWorldPlanner
             return;
         }
 
+        TerrainSecondaryRoutePolicy rules = TerrainWorldPlannerRules.SecondaryRoutes;
         var existingEdges = new HashSet<long>();
         var routeDegree = new int[points.Length];
         foreach (TerrainWorldRoute route in routes)
@@ -114,9 +115,9 @@ public static partial class TerrainWorldPlanner
         }
 
         var candidates = new List<SecondaryRouteCandidate>(points.Length * 4);
-        float minDistance = profile.ChunkSize * 2.0f;
-        float idealDistance = profile.ChunkSize * 18.0f;
-        float maxDistance = profile.ChunkSize * 42.0f;
+        float minDistance = profile.ChunkSize * rules.MinDistanceChunks;
+        float idealDistance = profile.ChunkSize * rules.IdealDistanceChunks;
+        float maxDistance = profile.ChunkSize * rules.MaxDistanceChunks;
 
         for (int from = 0; from < points.Length - 1; from++)
         {
@@ -148,7 +149,7 @@ public static partial class TerrainWorldPlanner
         candidates.Sort((a, b) => b.Score.CompareTo(a.Score));
 
         int testedCandidates = 0;
-        int maxCandidateTests = Mathf.Max(64, (maxRoutes - routes.Count) * 10);
+        int maxCandidateTests = Mathf.Max(rules.MinCandidateTests, (maxRoutes - routes.Count) * rules.CandidateTestMultiplier);
         foreach (SecondaryRouteCandidate candidate in candidates)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -197,6 +198,7 @@ public static partial class TerrainWorldPlanner
             return;
         }
 
+        TerrainSecondaryRoutePolicy rules = TerrainWorldPlannerRules.SettlementRoutes;
         int settlementRouteCount = CountSettlementRoutes(points, routes);
         int targetSettlementRoutes = Mathf.Min(maxRoutes, Mathf.Max(8, settlementCount - 1));
         if (settlementRouteCount >= targetSettlementRoutes)
@@ -205,9 +207,9 @@ public static partial class TerrainWorldPlanner
         }
 
         var candidates = new List<SecondaryRouteCandidate>(settlementCount * settlementCount);
-        float minDistance = profile.ChunkSize * 1.5f;
-        float idealDistance = profile.ChunkSize * 14.0f;
-        float maxDistance = profile.ChunkSize * 38.0f;
+        float minDistance = profile.ChunkSize * rules.MinDistanceChunks;
+        float idealDistance = profile.ChunkSize * rules.IdealDistanceChunks;
+        float maxDistance = profile.ChunkSize * rules.MaxDistanceChunks;
 
         for (int from = 0; from < points.Length - 1; from++)
         {
@@ -249,7 +251,7 @@ public static partial class TerrainWorldPlanner
         candidates.Sort((a, b) => b.Score.CompareTo(a.Score));
 
         int testedCandidates = 0;
-        int maxCandidateTests = Mathf.Max(32, (targetSettlementRoutes - settlementRouteCount) * 8);
+        int maxCandidateTests = Mathf.Max(rules.MinCandidateTests, (targetSettlementRoutes - settlementRouteCount) * rules.CandidateTestMultiplier);
         foreach (SecondaryRouteCandidate candidate in candidates)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -291,6 +293,7 @@ public static partial class TerrainWorldPlanner
         float distance,
         float idealDistance)
     {
+        TerrainRouteScoreWeights weights = TerrainWorldPlannerRules.SettlementRouteScoring;
         float endpointScore = (from.Score + to.Score) * 0.5f;
         float traversalScore = (from.Traversability + to.Traversability) * 0.5f;
         int fromDegree = (uint)from.Id < (uint)routeDegree.Length ? routeDegree[from.Id] : 0;
@@ -301,12 +304,12 @@ public static partial class TerrainWorldPlanner
         float distanceScore = 1.0f - Mathf.Clamp(Mathf.Abs(distance - idealDistance) / Mathf.Max(1.0f, idealDistance), 0.0f, 1.0f);
 
         return
-            endpointScore * 0.22f +
-            traversalScore * 0.18f +
-            underConnectedScore * 0.24f +
-            tierImportance * 0.20f +
-            tierVariety * 0.08f +
-            distanceScore * 0.08f;
+            endpointScore * weights.Endpoint +
+            traversalScore * weights.Traversal +
+            underConnectedScore * weights.UnderConnected +
+            tierImportance * weights.TierImportance +
+            tierVariety * weights.TierVariety +
+            distanceScore * weights.Distance;
     }
 
     private static float ScoreSecondaryRouteCandidate(
@@ -316,6 +319,7 @@ public static partial class TerrainWorldPlanner
         float distance,
         float idealDistance)
     {
+        TerrainRouteScoreWeights weights = TerrainWorldPlannerRules.SecondaryRouteScoring;
         float endpointScore = (from.Score + to.Score) * 0.5f;
         float scenicScore = (from.ScenicPotential + to.ScenicPotential) * 0.5f;
         float traversalScore = (from.Traversability + to.Traversability) * 0.5f;
@@ -327,13 +331,13 @@ public static partial class TerrainWorldPlanner
         float distanceScore = 1.0f - Mathf.Clamp(Mathf.Abs(distance - idealDistance) / Mathf.Max(1.0f, idealDistance), 0.0f, 1.0f);
 
         return
-            endpointScore * 0.28f +
-            scenicScore * 0.26f +
-            traversalScore * 0.16f +
-            underConnectedScore * 0.18f +
-            kindVariety * 0.06f +
-            distanceScore * 0.06f +
-            settlementBonus;
+            endpointScore * weights.Endpoint +
+            scenicScore * weights.Scenic +
+            traversalScore * weights.Traversal +
+            underConnectedScore * weights.UnderConnected +
+            kindVariety * weights.KindVariety +
+            distanceScore * weights.Distance +
+            settlementBonus * weights.SettlementBonus;
     }
 
     private static TerrainWorldRoute? TryBuildRoute(

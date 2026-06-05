@@ -14,6 +14,7 @@ public static partial class TerrainWorldPlanner
         int gridX,
         int gridY)
     {
+        TerrainPoiThresholds thresholds = TerrainWorldPlannerRules.PoiThresholds;
         if (field.Height < profile.SeaLevel - 4.0f)
         {
             return;
@@ -34,16 +35,16 @@ public static partial class TerrainWorldPlanner
             Mathf.SmoothStep(0.18f, 0.62f, field.River) * 0.09f +
             field.ScenicPotential * 0.12f +
             settlementBiomeBonus;
-        AddCandidateIfStrong(candidates, TerrainPointOfInterestKind.SettlementCandidate, settlementScore, 0.58f, field, gridX, gridY, rarity);
+        AddCandidateIfStrong(candidates, TerrainPointOfInterestKind.SettlementCandidate, settlementScore, thresholds.SettlementCandidate, field, gridX, gridY, rarity);
 
         float vistaScore = field.ScenicPotential * 0.82f + elevation * 0.14f + rarity * 0.04f;
-        AddCandidateIfStrong(candidates, TerrainPointOfInterestKind.Vista, vistaScore, 0.64f, field, gridX, gridY, rarity);
+        AddCandidateIfStrong(candidates, TerrainPointOfInterestKind.Vista, vistaScore, thresholds.Vista, field, gridX, gridY, rarity);
 
         float crossingScore =
             Mathf.SmoothStep(0.50f, 0.82f, field.River) * 0.55f +
             field.Traversability * 0.30f +
             land * 0.15f;
-        AddCandidateIfStrong(candidates, TerrainPointOfInterestKind.RiverCrossing, crossingScore, 0.62f, field, gridX, gridY, rarity);
+        AddCandidateIfStrong(candidates, TerrainPointOfInterestKind.RiverCrossing, crossingScore, thresholds.RiverCrossing, field, gridX, gridY, rarity);
 
         float passScore = 0.0f;
         if (field.LandscapeKind is TerrainLandscapeKind.Highlands or TerrainLandscapeKind.MountainMassif or TerrainLandscapeKind.VistaPlateau)
@@ -51,7 +52,7 @@ public static partial class TerrainWorldPlanner
             passScore = elevation * 0.30f + field.Traversability * 0.36f + field.ScenicPotential * 0.28f + rarity * 0.06f;
         }
 
-        AddCandidateIfStrong(candidates, TerrainPointOfInterestKind.MountainPass, passScore, 0.54f, field, gridX, gridY, rarity);
+        AddCandidateIfStrong(candidates, TerrainPointOfInterestKind.MountainPass, passScore, thresholds.MountainPass, field, gridX, gridY, rarity);
 
         float coastScore = 0.0f;
         if (field.LandscapeKind == TerrainLandscapeKind.Coast || Mathf.Abs(field.Height - profile.SeaLevel) < 30.0f)
@@ -59,7 +60,7 @@ public static partial class TerrainWorldPlanner
             coastScore = land * 0.30f + field.Traversability * 0.30f + field.ScenicPotential * 0.28f + rarity * 0.12f;
         }
 
-        AddCandidateIfStrong(candidates, TerrainPointOfInterestKind.CoastalLanding, coastScore, 0.50f, field, gridX, gridY, rarity);
+        AddCandidateIfStrong(candidates, TerrainPointOfInterestKind.CoastalLanding, coastScore, thresholds.CoastalLanding, field, gridX, gridY, rarity);
 
         float resourceScore = 0.0f;
         if (field.LandscapeKind is TerrainLandscapeKind.ForestBasin or TerrainLandscapeKind.Wetland or TerrainLandscapeKind.RiverValley ||
@@ -68,15 +69,15 @@ public static partial class TerrainWorldPlanner
             resourceScore = field.Moisture * 0.34f + field.Traversability * 0.24f + (1.0f - elevation) * 0.16f + field.River * 0.12f + rarity * 0.14f;
         }
 
-        AddCandidateIfStrong(candidates, TerrainPointOfInterestKind.ResourceGrove, resourceScore, 0.58f, field, gridX, gridY, rarity);
+        AddCandidateIfStrong(candidates, TerrainPointOfInterestKind.ResourceGrove, resourceScore, thresholds.ResourceGrove, field, gridX, gridY, rarity);
 
         float ancientScore = field.ScenicPotential * 0.50f + elevation * 0.18f + stableFlatLand * 0.16f + rarity * 0.16f;
-        AddCandidateIfStrong(candidates, TerrainPointOfInterestKind.AncientSite, ancientScore, 0.70f, field, gridX, gridY, rarity);
+        AddCandidateIfStrong(candidates, TerrainPointOfInterestKind.AncientSite, ancientScore, thresholds.AncientSite, field, gridX, gridY, rarity);
 
         float canyonScore = field.LandscapeKind == TerrainLandscapeKind.Canyon
             ? field.ScenicPotential * 0.50f + field.River * 0.26f + elevation * 0.12f + rarity * 0.12f
             : 0.0f;
-        AddCandidateIfStrong(candidates, TerrainPointOfInterestKind.CanyonOverlook, canyonScore, 0.58f, field, gridX, gridY, rarity);
+        AddCandidateIfStrong(candidates, TerrainPointOfInterestKind.CanyonOverlook, canyonScore, thresholds.CanyonOverlook, field, gridX, gridY, rarity);
 
         bool naturalOasis = field.BiomeKind == TerrainBiomeKind.Oasis;
         float warmDryWaterAccess =
@@ -96,7 +97,7 @@ public static partial class TerrainWorldPlanner
             : strategicOasisSite
             ? warmDryWaterAccess * 0.30f + field.ResourcePotential * 0.26f + field.Traversability * 0.18f + field.ScenicPotential * 0.12f + rarity * 0.14f
             : 0.0f;
-        AddCandidateIfStrong(candidates, TerrainPointOfInterestKind.Oasis, oasisScore, 0.54f, field, gridX, gridY, rarity);
+        AddCandidateIfStrong(candidates, TerrainPointOfInterestKind.Oasis, oasisScore, thresholds.Oasis, field, gridX, gridY, rarity);
     }
 
     private static void AddCandidateIfStrong(
@@ -139,11 +140,14 @@ public static partial class TerrainWorldPlanner
     {
         cancellationToken.ThrowIfCancellationRequested();
 
+        TerrainPoiSelectionPolicy rules = TerrainWorldPlannerRules.PoiSelection;
         candidates.Sort((a, b) => b.Score.CompareTo(a.Score));
         var selected = new List<TerrainWorldPointOfInterest>(maxPoints);
         var kindCounts = new Dictionary<TerrainPointOfInterestKind, int>();
-        int perKindLimit = Mathf.Max(3, Mathf.CeilToInt(maxPoints * 0.28f));
-        float minDistanceSquared = Mathf.Pow(Mathf.Max(cellSize * 2.2f, profile.ChunkSize * 0.70f), 2.0f);
+        int perKindLimit = Mathf.Max(rules.MinPerKindLimit, Mathf.CeilToInt(maxPoints * rules.PerKindLimitRatio));
+        float minDistanceSquared = Mathf.Pow(
+            Mathf.Max(cellSize * rules.MinDistanceCellMultiplier, profile.ChunkSize * rules.MinDistanceChunkMultiplier),
+            2.0f);
 
         SelectRequiredPointKind(
             candidates,
@@ -152,7 +156,7 @@ public static partial class TerrainWorldPlanner
             TerrainPointOfInterestKind.Oasis,
             maxPoints,
             perKindLimit,
-            minDistanceSquared * 0.36f,
+            minDistanceSquared * rules.RequiredKindDistanceFactor,
             cancellationToken);
 
         foreach (TerrainPointOfInterestKind kind in Enum.GetValues<TerrainPointOfInterestKind>())
@@ -174,7 +178,7 @@ public static partial class TerrainWorldPlanner
                     candidate,
                     maxPoints,
                     perKindLimit,
-                    minDistanceSquared * 0.48f,
+                    minDistanceSquared * rules.KindSweepDistanceFactor,
                     enforcePerKindLimit: false))
                 {
                     break;
@@ -190,6 +194,7 @@ public static partial class TerrainWorldPlanner
             perKindLimit,
             minDistanceSquared,
             worldSize,
+            rules,
             cancellationToken);
 
         foreach (PoiCandidate candidate in candidates)
@@ -256,9 +261,10 @@ public static partial class TerrainWorldPlanner
         int perKindLimit,
         float minDistanceSquared,
         float worldSize,
+        TerrainPoiSelectionPolicy rules,
         CancellationToken cancellationToken)
     {
-        int targetCount = Mathf.Clamp(Mathf.CeilToInt(maxPoints * 0.44f), selected.Count, maxPoints);
+        int targetCount = Mathf.Clamp(Mathf.CeilToInt(maxPoints * rules.CoverageAnchorTargetRatio), selected.Count, maxPoints);
         while (selected.Count < targetCount)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -284,7 +290,7 @@ public static partial class TerrainWorldPlanner
                     continue;
                 }
 
-                float score = ScoreCoverageAnchor(candidate, selected, worldSize, currentCoverage);
+                float score = ScoreCoverageAnchor(candidate, selected, worldSize, currentCoverage, rules);
                 if (score <= bestScore)
                 {
                     continue;
@@ -314,7 +320,8 @@ public static partial class TerrainWorldPlanner
         PoiCandidate candidate,
         List<TerrainWorldPointOfInterest> selected,
         float worldSize,
-        float currentCoverage)
+        float currentCoverage,
+        TerrainPoiSelectionPolicy rules)
     {
         if (selected.Count == 0)
         {
@@ -324,10 +331,13 @@ public static partial class TerrainWorldPlanner
         float coverageGain = ComputeCoverageWithCandidate(selected, candidate.WorldPosition, worldSize) - currentCoverage;
         float distanceNovelty = ComputeNearestPointDistanceRatio(candidate.WorldPosition, selected, worldSize);
         float biomeBonus = candidate.BiomeKind is TerrainBiomeKind.Island or TerrainBiomeKind.Desert or TerrainBiomeKind.Oasis
-            ? 0.08f
+            ? rules.ExoticBiomeBonus
             : 0.0f;
 
-        return coverageGain * 12.0f + distanceNovelty * 0.42f + candidate.Score * 0.30f + biomeBonus;
+        return coverageGain * rules.CoverageGainWeight +
+            distanceNovelty * rules.DistanceNoveltyWeight +
+            candidate.Score * rules.CandidateScoreWeight +
+            biomeBonus;
     }
 
     private static bool CanSelectPoint(
