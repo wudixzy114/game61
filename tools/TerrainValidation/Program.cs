@@ -72,6 +72,7 @@ TerrainScenicLandmarkSmokeReport? scenicLandmarkSmokeReport = null;
 TerrainArtifactSmokeReport? artifactSmokeReport = null;
 TerrainPlanJsonSmokeReport? planJsonSmokeReport = null;
 TerrainEnumContractSmokeReport? enumContractSmokeReport = null;
+TerrainPublicApiShapeSmokeReport? publicApiShapeSmokeReport = null;
 TerrainValidationCliContractSmokeReport? validationCliContractSmokeReport = null;
 TerrainRuntimeApiSmokeReport? runtimeApiSmokeReport = null;
 TerrainAnchorContractSmokeReport? anchorSmokeReport = null;
@@ -192,6 +193,10 @@ if (!skipEnumContractSmoke)
     enumContractSmokeReport = ValidateTerrainEnumContracts();
     PrintEnumContractSmoke(enumContractSmokeReport.Value);
     RecordAuxiliaryCheck(enumContractSmokeReport.Value.Passed, ref totalFailures, ref auxiliaryCheckCount, ref auxiliaryFailureCount);
+
+    publicApiShapeSmokeReport = ValidateTerrainPublicApiShapeContracts();
+    PrintPublicApiShapeSmoke(publicApiShapeSmokeReport.Value);
+    RecordAuxiliaryCheck(publicApiShapeSmokeReport.Value.Passed, ref totalFailures, ref auxiliaryCheckCount, ref auxiliaryFailureCount);
 }
 
 validationCliContractSmokeReport = ValidateValidationCliContract();
@@ -228,6 +233,7 @@ PrintAggregate(
     artifactSmokeReport,
     planJsonSmokeReport,
     enumContractSmokeReport,
+    publicApiShapeSmokeReport,
     validationCliContractSmokeReport,
     runtimeApiSmokeReport,
     anchorSmokeReport,
@@ -2022,6 +2028,7 @@ static TerrainPlanJsonSmokeReport ValidateTerrainPlanJsonRoundtrip(
         string json = TerrainWorldPlanSerializer.ToJson(plan, profile);
         JsonObject? root = JsonNode.Parse(json) as JsonObject;
         bool metadataPassed = root is not null && PlanJsonMetadataMatches(root, profile, plan);
+        bool schemaShapePassed = root is not null && PlanJsonSchemaShapeMatches(root, plan);
 
         bool stringLoadPassed = TerrainWorldPlanSerializer.TryFromJson(
             json,
@@ -2080,6 +2087,7 @@ static TerrainPlanJsonSmokeReport ValidateTerrainPlanJsonRoundtrip(
 
         bool passed =
             metadataPassed &&
+            schemaShapePassed &&
             stringLoadPassed &&
             stringRoundtripMatches &&
             roundtripIsolationPassed &&
@@ -2097,6 +2105,7 @@ static TerrainPlanJsonSmokeReport ValidateTerrainPlanJsonRoundtrip(
             ? "plan JSON schema roundtrips through string and file persistence with version/profile/enum drift checks"
             : PlanJsonFailureReason(
                 metadataPassed,
+                schemaShapePassed,
                 stringLoadPassed,
                 stringRoundtripMatches,
                 roundtripIsolationPassed,
@@ -2117,6 +2126,7 @@ static TerrainPlanJsonSmokeReport ValidateTerrainPlanJsonRoundtrip(
         return new TerrainPlanJsonSmokeReport(
             passed,
             metadataPassed,
+            schemaShapePassed,
             stringLoadPassed,
             stringRoundtripMatches,
             fileLoadPassed,
@@ -2137,6 +2147,7 @@ static TerrainPlanJsonSmokeReport ValidateTerrainPlanJsonRoundtrip(
     catch (Exception ex)
     {
         return new TerrainPlanJsonSmokeReport(
+            false,
             false,
             false,
             false,
@@ -2180,6 +2191,53 @@ static bool PlanJsonMetadataMatches(JsonObject root, TerrainGenerationProfile pr
         HasEnumNode(root, "routes", "kind");
 }
 
+static bool PlanJsonSchemaShapeMatches(JsonObject root, TerrainWorldPlan plan)
+{
+    if (!VectorNodeUsesXz(root["center"] as JsonObject))
+    {
+        return false;
+    }
+
+    JsonObject? firstRegionWorld = FirstObjectProperty(root, "regions", "world");
+    if (plan.Regions.Length > 0 && !VectorNodeUsesXz(firstRegionWorld))
+    {
+        return false;
+    }
+
+    JsonObject? firstPointWorld = FirstObjectProperty(root, "pointsOfInterest", "world");
+    if (plan.PointsOfInterest.Length > 0 && !VectorNodeUsesXz(firstPointWorld))
+    {
+        return false;
+    }
+
+    JsonObject? firstRoute = FirstArrayObject(root, "routes");
+    if (plan.Routes.Length == 0)
+    {
+        return firstRoute is null;
+    }
+
+    if (firstRoute is null || firstRoute["waypoints"] is not JsonArray waypoints)
+    {
+        return false;
+    }
+
+    if (plan.Routes[0].Waypoints.Length == 0)
+    {
+        return waypoints.Count == 0;
+    }
+
+    return waypoints.Count == plan.Routes[0].Waypoints.Length &&
+        VectorNodeUsesXz(waypoints[0] as JsonObject);
+}
+
+static bool VectorNodeUsesXz(JsonObject? node)
+{
+    return node is not null &&
+        node["x"] is not null &&
+        node["z"] is not null &&
+        node["y"] is null;
+}
+
 static bool JsonStringEquals(JsonObject root, string propertyName, string expected)
 {
     return root.TryGetPropertyValue(propertyName, out JsonNode? node) &&
@@ -2211,12 +2269,18 @@ static bool HasEnumNode(JsonObject root, string arrayName, string propertyName)
 
 static JsonObject? FirstObjectProperty(JsonObject root, string arrayName, string propertyName)
 {
+    JsonObject? firstObject = FirstArrayObject(root, arrayName);
+    return firstObject?[propertyName] as JsonObject;
+}
+
+static JsonObject? FirstArrayObject(JsonObject root, string arrayName)
+{
     if (root[arrayName] is not JsonArray array || array.Count == 0)
     {
         return null;
     }
 
-    return array[0]?[propertyName] as JsonObject;
+    return array[0] as JsonObject;
 }
 
 static bool RejectsEnumNameDrift(string json, TerrainGenerationProfile profile)
@@ -2488,6 +2552,7 @@ static bool ContractPositionEquals(Vector2 expected, Vector2 actual)
 
 static string PlanJsonFailureReason(
     bool metadataPassed,
+    bool schemaShapePassed,
     bool stringLoadPassed,
     bool stringRoundtripMatches,
     bool roundtripIsolationPassed,
@@ -2508,6 +2573,11 @@ static string PlanJsonFailureReason(
     if (!metadataPassed)
     {
         return "plan JSON metadata or required schema nodes did not match the contract";
+    }
+
+    if (!schemaShapePassed)
+    {
+        return "plan JSON vector schema did not use stable x/z coordinate nodes or route waypoint arrays";
     }
 
     if (!stringLoadPassed)
@@ -2583,7 +2653,7 @@ static void PrintPlanJsonSmoke(TerrainPlanJsonSmokeReport report)
     Console.WriteLine(
         $"Plan JSON roundtrip smoke: {(report.Passed ? "PASS" : "FAIL")} " +
         $"json {report.JsonBytes / 1024.0:0.0} KB, file {report.FileBytes / 1024.0:0.0} KB, " +
-        $"metadata {(report.MetadataPassed ? "pass" : "fail")}, " +
+        $"metadata/schema {(report.MetadataPassed ? "pass" : "fail")}/{(report.SchemaShapePassed ? "pass" : "fail")}, " +
         $"string/file {(report.StringLoadPassed && report.StringRoundtripMatches ? "pass" : "fail")}/{(report.FileLoadPassed && report.FileRoundtripMatches ? "pass" : "fail")}, " +
         $"compat api 1.0/1.1 {(report.LegacyApiVersionAccepted ? "pass" : "fail")}/{(report.PreviousApiVersionAccepted ? "pass" : "fail")}, " +
         $"drift seed/hash/version/enum {(report.SeedMismatchRejected ? "pass" : "fail")}/{(report.ProfileHashMismatchRejected ? "pass" : "fail")}/{(report.VersionDriftRejected ? "pass" : "fail")}/{(report.EnumNameDriftRejected && report.EnumValueDriftRejected ? "pass" : "fail")}, " +
@@ -2888,6 +2958,461 @@ static void PrintEnumContractSmoke(TerrainEnumContractSmokeReport report)
     Console.WriteLine(
         $"Terrain enum contract smoke: {(report.Passed ? "PASS" : "FAIL")} " +
         $"types {report.CheckedTypeCount}, values {report.CheckedValueCount} ({report.Reason})");
+}
+
+static TerrainPublicApiShapeSmokeReport ValidateTerrainPublicApiShapeContracts()
+{
+    try
+    {
+        int checkedTypeCount = 0;
+        int checkedMemberCount = 0;
+        string? failureReason = null;
+
+        bool passed =
+            CheckPublicShape<TerrainTileCoord>(
+                [
+                    ("X", typeof(int)),
+                    ("Z", typeof(int))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicShape<TerrainSample>(
+                [
+                    ("Height", typeof(float)),
+                    ("Continental", typeof(float)),
+                    ("Mountain", typeof(float)),
+                    ("River", typeof(float)),
+                    ("Lake", typeof(float)),
+                    ("Moisture", typeof(float)),
+                    ("Temperature", typeof(float)),
+                    ("ScenicPotential", typeof(float)),
+                    ("Traversability", typeof(float)),
+                    ("BiomeKind", typeof(TerrainBiomeKind)),
+                    ("LandscapeKind", typeof(TerrainLandscapeKind)),
+                    ("Slope", typeof(float)),
+                    ("Color", typeof(Color))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicShape<TerrainWorldField>(
+                [
+                    ("WorldPosition", typeof(Vector2)),
+                    ("Height", typeof(float)),
+                    ("Continent", typeof(float)),
+                    ("Basin", typeof(float)),
+                    ("Shelf", typeof(float)),
+                    ("Mountains", typeof(float)),
+                    ("BroadElevation", typeof(float)),
+                    ("River", typeof(float)),
+                    ("Lake", typeof(float)),
+                    ("Moisture", typeof(float)),
+                    ("Temperature", typeof(float)),
+                    ("ScenicPotential", typeof(float)),
+                    ("Traversability", typeof(float)),
+                    ("Exposure", typeof(float)),
+                    ("ResourcePotential", typeof(float)),
+                    ("HazardPotential", typeof(float)),
+                    ("EncounterPotential", typeof(float)),
+                    ("BiomeKind", typeof(TerrainBiomeKind)),
+                    ("LandscapeKind", typeof(TerrainLandscapeKind))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicShape<TerrainWorldRegion>(
+                [
+                    ("GridX", typeof(int)),
+                    ("GridY", typeof(int)),
+                    ("WorldPosition", typeof(Vector2)),
+                    ("Height", typeof(float)),
+                    ("River", typeof(float)),
+                    ("ScenicPotential", typeof(float)),
+                    ("Traversability", typeof(float)),
+                    ("Exposure", typeof(float)),
+                    ("ResourcePotential", typeof(float)),
+                    ("HazardPotential", typeof(float)),
+                    ("EncounterPotential", typeof(float)),
+                    ("BiomeKind", typeof(TerrainBiomeKind)),
+                    ("LandscapeKind", typeof(TerrainLandscapeKind)),
+                    ("RegionKind", typeof(TerrainWorldRegionKind))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicShape<TerrainWorldPointOfInterest>(
+                [
+                    ("Id", typeof(int)),
+                    ("Kind", typeof(TerrainPointOfInterestKind)),
+                    ("WorldPosition", typeof(Vector2)),
+                    ("GridX", typeof(int)),
+                    ("GridY", typeof(int)),
+                    ("Score", typeof(float)),
+                    ("Height", typeof(float)),
+                    ("ScenicPotential", typeof(float)),
+                    ("Traversability", typeof(float)),
+                    ("BiomeKind", typeof(TerrainBiomeKind)),
+                    ("LandscapeKind", typeof(TerrainLandscapeKind)),
+                    ("SettlementTier", typeof(TerrainSettlementTier)),
+                    ("DebugName", typeof(string))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicShape<TerrainWorldRoute>(
+                [
+                    ("FromPointId", typeof(int)),
+                    ("ToPointId", typeof(int)),
+                    ("Kind", typeof(TerrainRouteKind)),
+                    ("Cost", typeof(float)),
+                    ("AverageScenicPotential", typeof(float)),
+                    ("AverageTraversability", typeof(float)),
+                    ("Waypoints", typeof(Vector2[]))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicShape<TerrainWorldPlan>(
+                [
+                    ("Center", typeof(Vector2)),
+                    ("WorldSize", typeof(float)),
+                    ("GridResolution", typeof(int)),
+                    ("Regions", typeof(TerrainWorldRegion[])),
+                    ("PointsOfInterest", typeof(TerrainWorldPointOfInterest[])),
+                    ("Routes", typeof(TerrainWorldRoute[])),
+                    ("QualityReport", typeof(TerrainQualityReport)),
+                    ("PlanningReport", typeof(TerrainWorldPlanningReport)),
+                    ("ExperienceReport", typeof(TerrainExperienceReport))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicShape<TerrainWorldPlanSnapshot>(
+                [
+                    ("Center", typeof(Vector2)),
+                    ("WorldSize", typeof(float)),
+                    ("GridResolution", typeof(int)),
+                    ("Regions", typeof(TerrainWorldRegion[])),
+                    ("PointsOfInterest", typeof(TerrainWorldPointOfInterest[])),
+                    ("Routes", typeof(TerrainWorldRoute[])),
+                    ("QualityReport", typeof(TerrainQualityReport)),
+                    ("PlanningReport", typeof(TerrainWorldPlanningReport)),
+                    ("ExperienceReport", typeof(TerrainExperienceReport))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicShape<TerrainWaterState>(
+                [
+                    ("WorldPosition", typeof(Vector2)),
+                    ("Kind", typeof(TerrainWaterKind)),
+                    ("SurfaceHeight", typeof(float)),
+                    ("Depth", typeof(float)),
+                    ("Strength", typeof(float)),
+                    ("BiomeKind", typeof(TerrainBiomeKind)),
+                    ("LandscapeKind", typeof(TerrainLandscapeKind)),
+                    ("HasWater", typeof(bool)),
+                    ("IsOceanic", typeof(bool))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicShape<TerrainGameplayTags>(
+                [
+                    ("WorldPosition", typeof(Vector2)),
+                    ("Flags", typeof(TerrainGameplayTag)),
+                    ("BiomeKind", typeof(TerrainBiomeKind)),
+                    ("LandscapeKind", typeof(TerrainLandscapeKind)),
+                    ("WaterKind", typeof(TerrainWaterKind)),
+                    ("Traversability", typeof(float)),
+                    ("ScenicPotential", typeof(float)),
+                    ("ResourcePotential", typeof(float)),
+                    ("HazardPotential", typeof(float)),
+                    ("EncounterPotential", typeof(float)),
+                    ("IsTraversable", typeof(bool)),
+                    ("IsScenic", typeof(bool)),
+                    ("IsResourceRich", typeof(bool)),
+                    ("IsHazardous", typeof(bool)),
+                    ("IsEncounterRich", typeof(bool)),
+                    ("HasWaterAccess", typeof(bool))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicShape<TerrainTraversalCost>(
+                [
+                    ("WorldPosition", typeof(Vector2)),
+                    ("IsBlocked", typeof(bool)),
+                    ("Cost", typeof(float)),
+                    ("Traversability", typeof(float)),
+                    ("Slope", typeof(float)),
+                    ("HazardPotential", typeof(float)),
+                    ("WaterKind", typeof(TerrainWaterKind)),
+                    ("BiomeKind", typeof(TerrainBiomeKind)),
+                    ("LandscapeKind", typeof(TerrainLandscapeKind)),
+                    ("IsPreferred", typeof(bool)),
+                    ("IsDifficult", typeof(bool))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicShape<TerrainWorldStreamingSnapshot>(
+                [
+                    ("Profile", typeof(TerrainGenerationProfile)),
+                    ("HasFocus", typeof(bool)),
+                    ("FocusPosition", typeof(Vector3)),
+                    ("FocusCoord", typeof(TerrainTileCoord)),
+                    ("StreamRadiusChunks", typeof(int)),
+                    ("DesiredChunkCount", typeof(int)),
+                    ("DesiredChunks", typeof(TerrainTileCoord[])),
+                    ("LoadedChunkCount", typeof(int)),
+                    ("LoadedChunks", typeof(TerrainTileCoord[])),
+                    ("QueuedTileJobCount", typeof(int)),
+                    ("QueuedTileJobs", typeof(TerrainTileCoord[])),
+                    ("RetiredTileJobCount", typeof(int)),
+                    ("TileCacheCount", typeof(int)),
+                    ("TileCacheLimit", typeof(int)),
+                    ("MaxQueuedTileJobs", typeof(int)),
+                    ("MaxCompletedTilesPerFrame", typeof(int)),
+                    ("HasWorldPlan", typeof(bool)),
+                    ("IsWorldPlanGenerationPending", typeof(bool)),
+                    ("StreamTerrainBeforeOpenWorldPlanReady", typeof(bool)),
+                    ("TileCacheWithinLimit", typeof(bool)),
+                    ("TileJobQueueWithinLimit", typeof(bool)),
+                    ("CanStreamTerrain", typeof(bool)),
+                    ("FocusTileLoaded", typeof(bool)),
+                    ("DesiredChunksLoaded", typeof(bool)),
+                    ("FocusAreaReady", typeof(bool))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicShape<TerrainWorldPointOfInterestAnchorDescriptor>(
+                [
+                    ("Name", typeof(string)),
+                    ("GroupName", typeof(string)),
+                    ("GameplayTagGroup", typeof(string)),
+                    ("Id", typeof(int)),
+                    ("Kind", typeof(TerrainPointOfInterestKind)),
+                    ("WorldPosition2D", typeof(Vector2)),
+                    ("Score", typeof(float)),
+                    ("Height", typeof(float)),
+                    ("ScenicPotential", typeof(float)),
+                    ("Traversability", typeof(float)),
+                    ("SettlementTier", typeof(TerrainSettlementTier)),
+                    ("LandscapeKind", typeof(TerrainLandscapeKind)),
+                    ("VisualKind", typeof(TerrainPointOfInterestVisualKind)),
+                    ("GameplayTag", typeof(string)),
+                    ("InteractionRadius", typeof(float)),
+                    ("EncounterBudget", typeof(int))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicShape<TerrainWorldRouteAnchorDescriptor>(
+                [
+                    ("Name", typeof(string)),
+                    ("GroupName", typeof(string)),
+                    ("FromPointId", typeof(int)),
+                    ("ToPointId", typeof(int)),
+                    ("Kind", typeof(TerrainRouteKind)),
+                    ("Cost", typeof(float)),
+                    ("AverageScenicPotential", typeof(float)),
+                    ("AverageTraversability", typeof(float)),
+                    ("WorldMidpoint2D", typeof(Vector2)),
+                    ("WaypointCount", typeof(int)),
+                    ("Waypoints", typeof(Vector2[]))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicMethods(
+                typeof(TerrainWorld),
+                [
+                    new("SetFocus", false, typeof(void), [typeof(Node3D)]),
+                    new("SetWorldPlan", false, typeof(void), [typeof(TerrainWorldPlan)]),
+                    new("Regenerate", false, typeof(void), []),
+                    new("GenerateOpenWorldPlan", false, typeof(TerrainWorldPlan), [typeof(bool)]),
+                    new("SampleField", false, typeof(TerrainWorldField), [typeof(Vector2)]),
+                    new("SampleSurface", false, typeof(TerrainSample), [typeof(Vector2), typeof(float)]),
+                    new("SurfacePositionAt", false, typeof(Vector3), [typeof(Vector2), typeof(float)]),
+                    new("TryGetWorldPlan", false, typeof(bool), [typeof(TerrainWorldPlan).MakeByRefType()]),
+                    new("GetWorldPlanSnapshot", false, typeof(TerrainWorldPlanSnapshot), []),
+                    new("TryGetWorldPlanSnapshot", false, typeof(bool), [typeof(TerrainWorldPlanSnapshot).MakeByRefType()]),
+                    new("GetPointsOfInterest", false, typeof(TerrainWorldPointOfInterest[]), []),
+                    new("GetRoutes", false, typeof(TerrainWorldRoute[]), []),
+                    new("GetStreamingSnapshot", false, typeof(TerrainWorldStreamingSnapshot), []),
+                    new("TryFindNearestPointOfInterest", false, typeof(bool), [typeof(Vector2), typeof(float), typeof(TerrainPointOfInterestKind?), typeof(TerrainWorldPointOfInterest).MakeByRefType()]),
+                    new("QueryPointsOfInterest", false, typeof(TerrainWorldPointOfInterest[]), [typeof(Rect2), typeof(TerrainPointOfInterestKind?)]),
+                    new("QueryRoutesNear", false, typeof(TerrainWorldRoute[]), [typeof(Vector2), typeof(float)]),
+                    new("SampleRouteCorridor", false, typeof(TerrainRouteCorridorSample), [typeof(Vector2)]),
+                    new("SampleWaterState", false, typeof(TerrainWaterState), [typeof(Vector2)]),
+                    new("SampleGameplayTags", false, typeof(TerrainGameplayTags), [typeof(Vector2)]),
+                    new("SampleTraversalCost", false, typeof(TerrainTraversalCost), [typeof(Vector2), typeof(float)]),
+                    new("IsTraversable", false, typeof(bool), [typeof(Vector2), typeof(float)]),
+                    new("IsAboveWater", false, typeof(bool), [typeof(Vector2), typeof(float)]),
+                    new("CreateRuntimeOpenWorldPlan", true, typeof(TerrainWorldPlan), [typeof(TerrainGenerationProfile), typeof(float), typeof(CancellationToken)]),
+                    new("CreateRuntimeOpenWorldPlan", true, typeof(TerrainWorldPlan), [typeof(TerrainGenerationProfile), typeof(Vector2), typeof(float), typeof(CancellationToken)]),
+                    new("CreateRuntimeOpenWorldPlanAsync", true, typeof(Task<TerrainWorldPlan>), [typeof(TerrainGenerationProfile), typeof(float), typeof(CancellationToken)]),
+                    new("CreateRuntimeOpenWorldPlanAsync", true, typeof(Task<TerrainWorldPlan>), [typeof(TerrainGenerationProfile), typeof(Vector2), typeof(float), typeof(CancellationToken)])
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicMethods(
+                typeof(TerrainWorldPlanSerializer),
+                [
+                    new("ToJson", true, typeof(string), [typeof(TerrainWorldPlan), typeof(TerrainGenerationProfile)]),
+                    new("TryFromJson", true, typeof(bool), [typeof(string), typeof(TerrainWorldPlan).MakeByRefType(), typeof(string).MakeByRefType()]),
+                    new("TryFromJson", true, typeof(bool), [typeof(string), typeof(TerrainGenerationProfile), typeof(TerrainWorldPlan).MakeByRefType(), typeof(string).MakeByRefType()]),
+                    new("SaveJson", true, typeof(Error), [typeof(TerrainWorldPlan), typeof(TerrainGenerationProfile), typeof(string)]),
+                    new("TryLoadJson", true, typeof(bool), [typeof(string), typeof(TerrainWorldPlan).MakeByRefType(), typeof(string).MakeByRefType()]),
+                    new("TryLoadJson", true, typeof(bool), [typeof(string), typeof(TerrainGenerationProfile), typeof(TerrainWorldPlan).MakeByRefType(), typeof(string).MakeByRefType()])
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicMethods(
+                typeof(TerrainMapExporter),
+                [
+                    new("SampleWorld", true, typeof(TerrainMapSample), [typeof(Vector2), typeof(TerrainGenerationProfile)]),
+                    new("CreateBiomeMap", true, typeof(Image), [typeof(TerrainGenerationProfile), typeof(Vector2), typeof(float), typeof(int)]),
+                    new("CreateMap", true, typeof(Image), [typeof(TerrainGenerationProfile), typeof(Vector2), typeof(float), typeof(int), typeof(TerrainMapLayer)]),
+                    new("CreateRaster", true, typeof(TerrainMapRaster), [typeof(TerrainGenerationProfile), typeof(Vector2), typeof(float), typeof(int), typeof(TerrainMapLayer)]),
+                    new("CreateTraversalCostGrid", true, typeof(TerrainTraversalCostGrid), [typeof(TerrainGenerationProfile), typeof(Vector2), typeof(float), typeof(int), typeof(float)]),
+                    new("CreateImage", true, typeof(Image), [typeof(TerrainMapRaster)]),
+                    new("SaveBiomeMap", true, typeof(Error), [typeof(TerrainGenerationProfile), typeof(Vector2), typeof(float), typeof(int), typeof(string)]),
+                    new("SaveMap", true, typeof(Error), [typeof(TerrainGenerationProfile), typeof(Vector2), typeof(float), typeof(int), typeof(TerrainMapLayer), typeof(string)]),
+                    new("SaveRasterPng", true, typeof(Error), [typeof(TerrainMapRaster), typeof(string)])
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason);
+
+        return new TerrainPublicApiShapeSmokeReport(
+            passed,
+            checkedTypeCount,
+            checkedMemberCount,
+            passed
+                ? "public terrain data carrier shapes and facade method signatures match the stable runtime contract"
+                : failureReason ?? "terrain public API shape contract failed");
+    }
+    catch (Exception ex)
+    {
+        return new TerrainPublicApiShapeSmokeReport(
+            false,
+            0,
+            0,
+            $"terrain public API shape smoke threw {ex.GetType().Name}: {ex.Message}");
+    }
+}
+
+static bool CheckPublicShape<T>(
+    (string Name, Type Type)[] expected,
+    ref int checkedTypeCount,
+    ref int checkedMemberCount,
+    out string? failureReason)
+{
+    Type type = typeof(T);
+    PropertyInfo[] properties = type.GetProperties(BindingFlags.Instance | BindingFlags.Public);
+    if (properties.Length != expected.Length)
+    {
+        failureReason = $"{type.Name} public property count changed ({properties.Length}/{expected.Length})";
+        return false;
+    }
+
+    for (int i = 0; i < expected.Length; i++)
+    {
+        PropertyInfo property = properties[i];
+        if (!string.Equals(property.Name, expected[i].Name, StringComparison.Ordinal) ||
+            property.PropertyType != expected[i].Type)
+        {
+            failureReason =
+                $"{type.Name} property drift at index {i}: actual {property.Name}:{property.PropertyType.Name}, " +
+                $"expected {expected[i].Name}:{expected[i].Type.Name}";
+            return false;
+        }
+    }
+
+    checkedTypeCount++;
+    checkedMemberCount += expected.Length;
+    failureReason = null;
+    return true;
+}
+
+static bool CheckPublicMethods(
+    Type type,
+    PublicMethodContract[] expected,
+    ref int checkedTypeCount,
+    ref int checkedMemberCount,
+    out string? failureReason)
+{
+    foreach (PublicMethodContract contract in expected)
+    {
+        if (!TryFindPublicMethod(type, contract, out MethodInfo? method))
+        {
+            failureReason = $"{type.Name}.{contract.Name} method signature drifted or disappeared";
+            return false;
+        }
+
+        if (method!.ReturnType != contract.ReturnType)
+        {
+            failureReason =
+                $"{type.Name}.{contract.Name} return type drifted: actual {method.ReturnType.Name}, expected {contract.ReturnType.Name}";
+            return false;
+        }
+
+        checkedMemberCount++;
+    }
+
+    checkedTypeCount++;
+    failureReason = null;
+    return true;
+}
+
+static bool TryFindPublicMethod(Type type, PublicMethodContract contract, out MethodInfo? method)
+{
+    BindingFlags flags = BindingFlags.Public | (contract.IsStatic ? BindingFlags.Static : BindingFlags.Instance);
+    foreach (MethodInfo candidate in type.GetMethods(flags))
+    {
+        if (!string.Equals(candidate.Name, contract.Name, StringComparison.Ordinal))
+        {
+            continue;
+        }
+
+        ParameterInfo[] parameters = candidate.GetParameters();
+        if (parameters.Length != contract.ParameterTypes.Length)
+        {
+            continue;
+        }
+
+        bool parametersMatch = true;
+        for (int i = 0; i < parameters.Length; i++)
+        {
+            if (parameters[i].ParameterType != contract.ParameterTypes[i])
+            {
+                parametersMatch = false;
+                break;
+            }
+        }
+
+        if (parametersMatch)
+        {
+            method = candidate;
+            return true;
+        }
+    }
+
+    method = null;
+    return false;
+}
+
+static void PrintPublicApiShapeSmoke(TerrainPublicApiShapeSmokeReport report)
+{
+    Console.WriteLine(
+        $"Terrain public API shape smoke: {(report.Passed ? "PASS" : "FAIL")} " +
+        $"types {report.CheckedTypeCount}, members {report.CheckedMemberCount} ({report.Reason})");
 }
 
 static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
@@ -4097,6 +4622,7 @@ static TerrainAnchorContractSmokeReport ValidateTerrainAnchorContract(
         bool routeWaypointSnapshotPassed = RouteDescriptorWaypointsAreIsolated(routes, plan);
         bool builderPlanSnapshotPassed = AnchorBuilderPlanSnapshotIsolated(plan);
         bool overlayPlanSnapshotPassed = PlanOverlaySnapshotIsolated(plan);
+        bool metaKeySnapshotPassed = AnchorMetaKeySnapshotsAreIsolated();
 
         bool passed =
             poiContractNamesPassed &&
@@ -4109,7 +4635,8 @@ static TerrainAnchorContractSmokeReport ValidateTerrainAnchorContract(
             routeWaypointSnapshotPassed &&
             descriptorRebuildPassed &&
             builderPlanSnapshotPassed &&
-            overlayPlanSnapshotPassed;
+            overlayPlanSnapshotPassed &&
+            metaKeySnapshotPassed;
         string reason = passed
             ? "anchor descriptors expose stable gameplay anchor group/meta contracts without requiring debug overlay nodes"
             : AnchorContractFailureReason(
@@ -4124,6 +4651,7 @@ static TerrainAnchorContractSmokeReport ValidateTerrainAnchorContract(
                 descriptorRebuildPassed,
                 builderPlanSnapshotPassed,
                 overlayPlanSnapshotPassed,
+                metaKeySnapshotPassed,
                 points.Length,
                 plan.PointsOfInterest.Length,
                 routes.Length,
@@ -4141,6 +4669,7 @@ static TerrainAnchorContractSmokeReport ValidateTerrainAnchorContract(
             descriptorRebuildPassed,
             builderPlanSnapshotPassed,
             overlayPlanSnapshotPassed,
+            metaKeySnapshotPassed,
             anchorNodeConstantsPassed,
             points.Length,
             routes.Length,
@@ -4149,6 +4678,7 @@ static TerrainAnchorContractSmokeReport ValidateTerrainAnchorContract(
     catch (Exception ex)
     {
         return new TerrainAnchorContractSmokeReport(
+            false,
             false,
             false,
             false,
@@ -4183,6 +4713,30 @@ static bool RequiredKeysMatch(string[] actual, string[] expected)
     }
 
     return true;
+}
+
+static bool AnchorMetaKeySnapshotsAreIsolated()
+{
+    string[] pointKeys = TerrainWorldAnchorContract.GetPointOfInterestRequiredMetaKeys();
+    string[] routeKeys = TerrainWorldAnchorContract.GetRouteRequiredMetaKeys();
+
+    if (pointKeys.Length == 0 || routeKeys.Length == 0)
+    {
+        return false;
+    }
+
+    string originalPointKey = pointKeys[0];
+    string originalRouteKey = routeKeys[0];
+    pointKeys[0] = "__mutated_poi_meta_key__";
+    routeKeys[0] = "__mutated_route_meta_key__";
+
+    string[] secondPointRead = TerrainWorldAnchorContract.GetPointOfInterestRequiredMetaKeys();
+    string[] secondRouteRead = TerrainWorldAnchorContract.GetRouteRequiredMetaKeys();
+    return
+        secondPointRead.Length == pointKeys.Length &&
+        secondRouteRead.Length == routeKeys.Length &&
+        string.Equals(secondPointRead[0], originalPointKey, StringComparison.Ordinal) &&
+        string.Equals(secondRouteRead[0], originalRouteKey, StringComparison.Ordinal);
 }
 
 static bool AnchorNodeConstantsMatchContract()
@@ -4510,6 +5064,7 @@ static string AnchorContractFailureReason(
     bool descriptorRebuildPassed,
     bool builderPlanSnapshotPassed,
     bool overlayPlanSnapshotPassed,
+    bool metaKeySnapshotPassed,
     int pointCount,
     int expectedPointCount,
     int routeCount,
@@ -4565,6 +5120,11 @@ static string AnchorContractFailureReason(
         return "TerrainWorldPlanOverlay.Plan exposed mutable plan array state";
     }
 
+    if (!metaKeySnapshotPassed)
+    {
+        return "TerrainWorldAnchorContract required meta key arrays exposed mutable static state";
+    }
+
     return "terrain anchor contract failed";
 }
 
@@ -4576,7 +5136,7 @@ static void PrintAnchorContractSmoke(TerrainAnchorContractSmokeReport report)
         $"counts {(report.PointCountPassed ? "pass" : "fail")}/{(report.RouteCountPassed ? "pass" : "fail")}, " +
         $"groups/meta {(report.PoiGroupMetaPassed ? "pass" : "fail")}/{(report.RouteGroupMetaPassed ? "pass" : "fail")}, " +
         $"names {(report.PoiContractNamesPassed ? "pass" : "fail")}/{(report.RouteContractNamesPassed ? "pass" : "fail")}, " +
-        $"waypoints/rebuild/builder/overlay/constants {(report.RouteWaypointSnapshotPassed ? "pass" : "fail")}/{(report.DescriptorRebuildPassed ? "pass" : "fail")}/{(report.BuilderPlanSnapshotPassed ? "pass" : "fail")}/{(report.OverlayPlanSnapshotPassed ? "pass" : "fail")}/{(report.AnchorNodeConstantsPassed ? "pass" : "fail")} " +
+        $"waypoints/rebuild/builder/overlay/meta-keys/constants {(report.RouteWaypointSnapshotPassed ? "pass" : "fail")}/{(report.DescriptorRebuildPassed ? "pass" : "fail")}/{(report.BuilderPlanSnapshotPassed ? "pass" : "fail")}/{(report.OverlayPlanSnapshotPassed ? "pass" : "fail")}/{(report.MetaKeySnapshotPassed ? "pass" : "fail")}/{(report.AnchorNodeConstantsPassed ? "pass" : "fail")} " +
         $"({report.Reason})");
 }
 
@@ -6045,6 +6605,7 @@ static void PrintAggregate(
     TerrainArtifactSmokeReport? artifactSmokeReport,
     TerrainPlanJsonSmokeReport? planJsonSmokeReport,
     TerrainEnumContractSmokeReport? enumContractSmokeReport,
+    TerrainPublicApiShapeSmokeReport? publicApiShapeSmokeReport,
     TerrainValidationCliContractSmokeReport? validationCliContractSmokeReport,
     TerrainRuntimeApiSmokeReport? runtimeApiSmokeReport,
     TerrainAnchorContractSmokeReport? anchorSmokeReport,
@@ -6115,6 +6676,10 @@ static void PrintAggregate(
     if (enumContractSmokeReport is not null)
     {
         Console.WriteLine($"Terrain enum contract smoke: {(enumContractSmokeReport.Value.Passed ? "PASS" : "FAIL")}");
+    }
+    if (publicApiShapeSmokeReport is not null)
+    {
+        Console.WriteLine($"Terrain public API shape smoke: {(publicApiShapeSmokeReport.Value.Passed ? "PASS" : "FAIL")}");
     }
     if (validationCliContractSmokeReport is not null)
     {
@@ -6568,6 +7133,7 @@ internal readonly record struct TerrainArtifactSmokeReport(
 internal readonly record struct TerrainPlanJsonSmokeReport(
     bool Passed,
     bool MetadataPassed,
+    bool SchemaShapePassed,
     bool StringLoadPassed,
     bool StringRoundtripMatches,
     bool FileLoadPassed,
@@ -6591,6 +7157,20 @@ internal readonly record struct TerrainEnumContractSmokeReport(
     int CheckedTypeCount,
     int CheckedValueCount,
     string Reason);
+
+/// <summary>Reports whether stable public terrain data carriers kept their property names and types.</summary>
+internal readonly record struct TerrainPublicApiShapeSmokeReport(
+    bool Passed,
+    int CheckedTypeCount,
+    int CheckedMemberCount,
+    string Reason);
+
+/// <summary>Stable method signature expected by public API shape validation.</summary>
+internal readonly record struct PublicMethodContract(
+    string Name,
+    bool IsStatic,
+    Type ReturnType,
+    Type[] ParameterTypes);
 
 /// <summary>Reports whether TerrainWorld's public runtime query facade matches the underlying samplers and exposes isolated plan snapshots.</summary>
 internal readonly record struct TerrainRuntimeApiSmokeReport(
@@ -6634,6 +7214,7 @@ internal readonly record struct TerrainAnchorContractSmokeReport(
     bool DescriptorRebuildPassed,
     bool BuilderPlanSnapshotPassed,
     bool OverlayPlanSnapshotPassed,
+    bool MetaKeySnapshotPassed,
     bool AnchorNodeConstantsPassed,
     int PointAnchorCount,
     int RouteAnchorCount,
