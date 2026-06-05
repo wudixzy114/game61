@@ -73,6 +73,7 @@ TerrainArtifactSmokeReport? artifactSmokeReport = null;
 TerrainPlanJsonSmokeReport? planJsonSmokeReport = null;
 TerrainEnumContractSmokeReport? enumContractSmokeReport = null;
 TerrainPublicApiShapeSmokeReport? publicApiShapeSmokeReport = null;
+TerrainProfileHashSmokeReport? profileHashSmokeReport = null;
 TerrainValidationCliContractSmokeReport? validationCliContractSmokeReport = null;
 TerrainRuntimeApiSmokeReport? runtimeApiSmokeReport = null;
 TerrainAnchorContractSmokeReport? anchorSmokeReport = null;
@@ -199,6 +200,10 @@ if (!skipEnumContractSmoke)
     RecordAuxiliaryCheck(publicApiShapeSmokeReport.Value.Passed, ref totalFailures, ref auxiliaryCheckCount, ref auxiliaryFailureCount);
 }
 
+profileHashSmokeReport = ValidateTerrainProfileHashContract(profile);
+PrintProfileHashSmoke(profileHashSmokeReport.Value);
+RecordAuxiliaryCheck(profileHashSmokeReport.Value.Passed, ref totalFailures, ref auxiliaryCheckCount, ref auxiliaryFailureCount);
+
 validationCliContractSmokeReport = ValidateValidationCliContract();
 PrintValidationCliContractSmoke(validationCliContractSmokeReport.Value);
 RecordAuxiliaryCheck(validationCliContractSmokeReport.Value.Passed, ref totalFailures, ref auxiliaryCheckCount, ref auxiliaryFailureCount);
@@ -234,6 +239,7 @@ PrintAggregate(
     planJsonSmokeReport,
     enumContractSmokeReport,
     publicApiShapeSmokeReport,
+    profileHashSmokeReport,
     validationCliContractSmokeReport,
     runtimeApiSmokeReport,
     anchorSmokeReport,
@@ -2969,6 +2975,35 @@ static TerrainPublicApiShapeSmokeReport ValidateTerrainPublicApiShapeContracts()
         string? failureReason = null;
 
         bool passed =
+            CheckPublicShape<TerrainGenerationProfile>(
+                [
+                    ("Seed", typeof(int)),
+                    ("ChunkSize", typeof(float)),
+                    ("BaseResolution", typeof(int)),
+                    ("StreamRadiusChunks", typeof(int)),
+                    ("CollisionRadiusChunks", typeof(int)),
+                    ("MaxLod", typeof(int)),
+                    ("HeightScale", typeof(float)),
+                    ("SeaLevel", typeof(float)),
+                    ("ContinentScale", typeof(float)),
+                    ("MountainScale", typeof(float)),
+                    ("MountainWeight", typeof(float)),
+                    ("ValleyWeight", typeof(float)),
+                    ("DetailWeight", typeof(float)),
+                    ("VistaFrequency", typeof(float)),
+                    ("RiverStrength", typeof(float)),
+                    ("RiverCarveDepth", typeof(float)),
+                    ("TerraceStrength", typeof(float)),
+                    ("SkirtDepth", typeof(float)),
+                    ("MaxCompletedTilesPerFrame", typeof(int)),
+                    ("MaxQueuedTileJobs", typeof(int)),
+                    ("MaxCachedTileData", typeof(int)),
+                    ("GenerateCollision", typeof(bool)),
+                    ("UseNativeSamplerWhenAvailable", typeof(bool))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
             CheckPublicShape<TerrainTileCoord>(
                 [
                     ("X", typeof(int)),
@@ -3228,6 +3263,23 @@ static TerrainPublicApiShapeSmokeReport ValidateTerrainPublicApiShapeContracts()
                 ref checkedMemberCount,
                 out failureReason) &&
             CheckPublicMethods(
+                typeof(TerrainGenerationProfile),
+                [
+                    new("StableHash", false, typeof(string), []),
+                    new("ResolutionForLod", false, typeof(int), [typeof(int)])
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicMethods(
+                typeof(TerrainSettings),
+                [
+                    new("Snapshot", false, typeof(TerrainGenerationProfile), [])
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicMethods(
                 typeof(TerrainWorld),
                 [
                     new("SetFocus", false, typeof(void), [typeof(Node3D)]),
@@ -3288,6 +3340,84 @@ static TerrainPublicApiShapeSmokeReport ValidateTerrainPublicApiShapeContracts()
                 ],
                 ref checkedTypeCount,
                 ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicMethods(
+                typeof(TerrainWorldFieldSampler),
+                [
+                    new("Sample", true, typeof(TerrainWorldField), [typeof(Vector2), typeof(TerrainGenerationProfile)]),
+                    new("Sample", true, typeof(TerrainWorldField), [typeof(Vector2), typeof(TerrainGenerationProfile), typeof(float)]),
+                    new("SampleKnownHeight", true, typeof(TerrainWorldField), [typeof(Vector2), typeof(TerrainGenerationProfile), typeof(float)]),
+                    new("SampleNativeFieldGrid", true, typeof(TerrainWorldField), [typeof(Vector2), typeof(TerrainGenerationProfile), typeof(float[]), typeof(int)]),
+                    new("SampleNativeFieldGrid", true, typeof(TerrainWorldField), [typeof(Vector2), typeof(TerrainGenerationProfile), typeof(float[]), typeof(int), typeof(bool)])
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicMethods(
+                typeof(TerrainSampler),
+                [
+                    new("Sample", true, typeof(TerrainSample), [typeof(Vector2), typeof(TerrainGenerationProfile)]),
+                    new("SampleWithSlope", true, typeof(TerrainSample), [typeof(Vector2), typeof(TerrainGenerationProfile), typeof(float)]),
+                    new("NormalAt", true, typeof(Vector3), [typeof(Vector2), typeof(TerrainGenerationProfile), typeof(float)]),
+                    new("ColorForSurface", true, typeof(Color), [typeof(Vector2), typeof(TerrainGenerationProfile), typeof(float), typeof(float)]),
+                    new("ColorForSurface", true, typeof(Color), [typeof(TerrainWorldField), typeof(TerrainGenerationProfile), typeof(float)])
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicMethods(
+                typeof(TerrainWorldPlanner),
+                [
+                    new("CreateOpenWorldPlan", true, typeof(TerrainWorldPlan), [typeof(TerrainGenerationProfile), typeof(Vector2), typeof(float), typeof(CancellationToken)]),
+                    new("AnalyzePlanning", true, typeof(TerrainWorldPlanningReport), [typeof(TerrainWorldPlan)]),
+                    new("ValidateOpenWorldPlanning", true, typeof(TerrainWorldPlanningGateResult), [typeof(TerrainWorldPlan)]),
+                    new("ValidateOpenWorldPlanning", true, typeof(TerrainWorldPlanningGateResult), [typeof(TerrainGenerationProfile), typeof(Vector2), typeof(float), typeof(CancellationToken)])
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicMethods(
+                typeof(TerrainQualityAnalyzer),
+                [
+                    new("ValidateOpenWorldDefault", true, typeof(TerrainQualityGateResult), [typeof(TerrainQualityReport)]),
+                    new("ValidateOpenWorldDefault", true, typeof(TerrainQualityGateResult), [typeof(TerrainGenerationProfile), typeof(Vector2), typeof(float), typeof(int), typeof(CancellationToken)])
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicMethods(
+                typeof(TerrainExperienceAnalyzer),
+                [
+                    new("ValidateOpenWorldDefault", true, typeof(TerrainExperienceGateResult), [typeof(TerrainWorldPlan), typeof(CancellationToken)]),
+                    new("ValidateOpenWorldDefault", true, typeof(TerrainExperienceGateResult), [typeof(TerrainExperienceReport)])
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicMethods(
+                typeof(TerrainWorldPlanExporter),
+                [
+                    new("SaveOpenWorldArtifacts", true, typeof(TerrainWorldPlanArtifactResult), [typeof(TerrainGenerationProfile), typeof(Vector2), typeof(float), typeof(int), typeof(string), typeof(TerrainMapLayer)]),
+                    new("SaveOpenWorldArtifacts", true, typeof(TerrainWorldPlanArtifactResult), [typeof(TerrainWorldPlan), typeof(TerrainGenerationProfile), typeof(int), typeof(string), typeof(TerrainMapLayer)]),
+                    new("SavePlanMap", true, typeof(Error), [typeof(TerrainWorldPlan), typeof(TerrainGenerationProfile), typeof(int), typeof(TerrainMapLayer), typeof(string)]),
+                    new("CreatePlanMap", true, typeof(Image), [typeof(TerrainWorldPlan), typeof(TerrainGenerationProfile), typeof(int), typeof(TerrainMapLayer)]),
+                    new("CreatePlanRaster", true, typeof(TerrainMapRaster), [typeof(TerrainWorldPlan), typeof(TerrainGenerationProfile), typeof(int), typeof(TerrainMapLayer)]),
+                    new("CreateTextReport", true, typeof(string), [typeof(TerrainWorldPlan), typeof(TerrainWorldPlanningGateResult), typeof(TerrainQualityGateResult), typeof(TerrainExperienceGateResult), typeof(string)]),
+                    new("CreateTextReport", true, typeof(string), [typeof(TerrainWorldPlan), typeof(TerrainGenerationProfile), typeof(TerrainWorldPlanningGateResult), typeof(TerrainQualityGateResult), typeof(TerrainExperienceGateResult), typeof(string)]),
+                    new("SaveTextReport", true, typeof(Error), [typeof(TerrainWorldPlan), typeof(TerrainWorldPlanningGateResult), typeof(TerrainQualityGateResult), typeof(TerrainExperienceGateResult), typeof(string), typeof(string)]),
+                    new("SaveTextReport", true, typeof(Error), [typeof(TerrainWorldPlan), typeof(TerrainGenerationProfile), typeof(TerrainWorldPlanningGateResult), typeof(TerrainQualityGateResult), typeof(TerrainExperienceGateResult), typeof(string), typeof(string)])
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicMethods(
+                typeof(TerrainWorldPlanOverlay),
+                [
+                    new("ApplyPlan", false, typeof(void), [typeof(TerrainWorldPlan), typeof(TerrainGenerationProfile)]),
+                    new("ClearPlan", false, typeof(void), [])
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
                 out failureReason);
 
         return new TerrainPublicApiShapeSmokeReport(
@@ -3315,7 +3445,7 @@ static bool CheckPublicShape<T>(
     out string? failureReason)
 {
     Type type = typeof(T);
-    PropertyInfo[] properties = type.GetProperties(BindingFlags.Instance | BindingFlags.Public);
+    PropertyInfo[] properties = type.GetProperties(BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly);
     if (properties.Length != expected.Length)
     {
         failureReason = $"{type.Name} public property count changed ({properties.Length}/{expected.Length})";
@@ -3413,6 +3543,122 @@ static void PrintPublicApiShapeSmoke(TerrainPublicApiShapeSmokeReport report)
     Console.WriteLine(
         $"Terrain public API shape smoke: {(report.Passed ? "PASS" : "FAIL")} " +
         $"types {report.CheckedTypeCount}, members {report.CheckedMemberCount} ({report.Reason})");
+}
+
+static TerrainProfileHashSmokeReport ValidateTerrainProfileHashContract(TerrainGenerationProfile profile)
+{
+    const string ExpectedDemoProfileHash = "ac345f3689fb64c811213a6294375db7e6ff80e10cd3cfe64c5dca1c669668d2";
+    string hash = profile.StableHash();
+    bool formatPassed =
+        hash.Length == 64 &&
+        string.Equals(hash, hash.ToLowerInvariant(), StringComparison.Ordinal) &&
+        HashContainsOnlyHex(hash);
+    bool expectedHashPassed = string.Equals(hash, ExpectedDemoProfileHash, StringComparison.Ordinal);
+
+    (string Name, TerrainGenerationProfile Profile)[] variants =
+    [
+        ("Seed", profile with { Seed = profile.Seed + 1 }),
+        ("ChunkSize", profile with { ChunkSize = profile.ChunkSize + 1.0f }),
+        ("BaseResolution", profile with { BaseResolution = profile.BaseResolution + 1 }),
+        ("StreamRadiusChunks", profile with { StreamRadiusChunks = profile.StreamRadiusChunks + 1 }),
+        ("CollisionRadiusChunks", profile with { CollisionRadiusChunks = profile.CollisionRadiusChunks + 1 }),
+        ("MaxLod", profile with { MaxLod = profile.MaxLod + 1 }),
+        ("HeightScale", profile with { HeightScale = profile.HeightScale + 1.0f }),
+        ("SeaLevel", profile with { SeaLevel = profile.SeaLevel + 1.0f }),
+        ("ContinentScale", profile with { ContinentScale = profile.ContinentScale + 1.0f }),
+        ("MountainScale", profile with { MountainScale = profile.MountainScale + 1.0f }),
+        ("MountainWeight", profile with { MountainWeight = profile.MountainWeight + 0.01f }),
+        ("ValleyWeight", profile with { ValleyWeight = profile.ValleyWeight + 0.01f }),
+        ("DetailWeight", profile with { DetailWeight = profile.DetailWeight + 0.01f }),
+        ("VistaFrequency", profile with { VistaFrequency = profile.VistaFrequency + 0.01f }),
+        ("RiverStrength", profile with { RiverStrength = profile.RiverStrength + 0.01f }),
+        ("RiverCarveDepth", profile with { RiverCarveDepth = profile.RiverCarveDepth + 1.0f }),
+        ("TerraceStrength", profile with { TerraceStrength = profile.TerraceStrength + 1.0f }),
+        ("SkirtDepth", profile with { SkirtDepth = profile.SkirtDepth + 1.0f }),
+        ("MaxCompletedTilesPerFrame", profile with { MaxCompletedTilesPerFrame = profile.MaxCompletedTilesPerFrame + 1 }),
+        ("MaxQueuedTileJobs", profile with { MaxQueuedTileJobs = profile.MaxQueuedTileJobs + 1 }),
+        ("MaxCachedTileData", profile with { MaxCachedTileData = profile.MaxCachedTileData + 1 }),
+        ("GenerateCollision", profile with { GenerateCollision = !profile.GenerateCollision }),
+        ("UseNativeSamplerWhenAvailable", profile with { UseNativeSamplerWhenAvailable = !profile.UseNativeSamplerWhenAvailable })
+    ];
+
+    int sensitiveFieldCount = 0;
+    string? insensitiveField = null;
+    foreach ((string name, TerrainGenerationProfile variant) in variants)
+    {
+        if (string.Equals(hash, variant.StableHash(), StringComparison.Ordinal))
+        {
+            insensitiveField = name;
+            break;
+        }
+
+        sensitiveFieldCount++;
+    }
+
+    bool fieldSensitivityPassed = sensitiveFieldCount == variants.Length;
+    bool passed = formatPassed && expectedHashPassed && fieldSensitivityPassed;
+    string reason = passed
+        ? "terrain generation profile hash is stable, formatted, and sensitive to every profile field"
+        : ProfileHashFailureReason(formatPassed, expectedHashPassed, fieldSensitivityPassed, insensitiveField);
+
+    return new TerrainProfileHashSmokeReport(
+        passed,
+        hash,
+        ExpectedDemoProfileHash,
+        formatPassed,
+        expectedHashPassed,
+        fieldSensitivityPassed,
+        sensitiveFieldCount,
+        variants.Length,
+        reason);
+}
+
+static bool HashContainsOnlyHex(string hash)
+{
+    for (int i = 0; i < hash.Length; i++)
+    {
+        char c = hash[i];
+        bool hex = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
+        if (!hex)
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+static string ProfileHashFailureReason(
+    bool formatPassed,
+    bool expectedHashPassed,
+    bool fieldSensitivityPassed,
+    string? insensitiveField)
+{
+    if (!formatPassed)
+    {
+        return "terrain profile hash was not a 64-character lowercase hex SHA-256 string";
+    }
+
+    if (!expectedHashPassed)
+    {
+        return "terrain demo profile hash drifted from the stable content identity contract";
+    }
+
+    if (!fieldSensitivityPassed)
+    {
+        return $"terrain profile hash did not change when field '{insensitiveField}' changed";
+    }
+
+    return "terrain profile hash contract failed";
+}
+
+static void PrintProfileHashSmoke(TerrainProfileHashSmokeReport report)
+{
+    Console.WriteLine(
+        $"Terrain profile hash smoke: {(report.Passed ? "PASS" : "FAIL")} " +
+        $"hash {report.Hash}, format {(report.FormatPassed ? "pass" : "fail")}, " +
+        $"expected {(report.ExpectedHashPassed ? "pass" : "fail")}, " +
+        $"fields {report.SensitiveFieldCount}/{report.ExpectedFieldCount} ({report.Reason})");
 }
 
 static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
@@ -6606,6 +6852,7 @@ static void PrintAggregate(
     TerrainPlanJsonSmokeReport? planJsonSmokeReport,
     TerrainEnumContractSmokeReport? enumContractSmokeReport,
     TerrainPublicApiShapeSmokeReport? publicApiShapeSmokeReport,
+    TerrainProfileHashSmokeReport? profileHashSmokeReport,
     TerrainValidationCliContractSmokeReport? validationCliContractSmokeReport,
     TerrainRuntimeApiSmokeReport? runtimeApiSmokeReport,
     TerrainAnchorContractSmokeReport? anchorSmokeReport,
@@ -6680,6 +6927,10 @@ static void PrintAggregate(
     if (publicApiShapeSmokeReport is not null)
     {
         Console.WriteLine($"Terrain public API shape smoke: {(publicApiShapeSmokeReport.Value.Passed ? "PASS" : "FAIL")}");
+    }
+    if (profileHashSmokeReport is not null)
+    {
+        Console.WriteLine($"Terrain profile hash smoke: {(profileHashSmokeReport.Value.Passed ? "PASS" : "FAIL")}");
     }
     if (validationCliContractSmokeReport is not null)
     {
@@ -7163,6 +7414,18 @@ internal readonly record struct TerrainPublicApiShapeSmokeReport(
     bool Passed,
     int CheckedTypeCount,
     int CheckedMemberCount,
+    string Reason);
+
+/// <summary>Reports whether generation profile hashing remains stable and field-sensitive.</summary>
+internal readonly record struct TerrainProfileHashSmokeReport(
+    bool Passed,
+    string Hash,
+    string ExpectedHash,
+    bool FormatPassed,
+    bool ExpectedHashPassed,
+    bool FieldSensitivityPassed,
+    int SensitiveFieldCount,
+    int ExpectedFieldCount,
     string Reason);
 
 /// <summary>Stable method signature expected by public API shape validation.</summary>
