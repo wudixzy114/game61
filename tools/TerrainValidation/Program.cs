@@ -9,6 +9,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Dao.Terrain;
 using Dao.Terrain.Generation;
+using Dao.Terrain.Rendering;
 using Dao.Terrain.Runtime;
 using Dao.Terrain.Streaming;
 using Godot;
@@ -76,6 +77,7 @@ TerrainEnumContractSmokeReport? enumContractSmokeReport = null;
 TerrainPublicApiShapeSmokeReport? publicApiShapeSmokeReport = null;
 TerrainProfileHashSmokeReport? profileHashSmokeReport = null;
 TerrainValidationCliContractSmokeReport? validationCliContractSmokeReport = null;
+TerrainThresholdContractSmokeReport? thresholdContractSmokeReport = null;
 TerrainRuntimeApiSmokeReport? runtimeApiSmokeReport = null;
 TerrainAnchorContractSmokeReport? anchorSmokeReport = null;
 TerrainRuntimeWorldSmokeReport? runtimeWorldSmokeReport = null;
@@ -209,6 +211,10 @@ validationCliContractSmokeReport = ValidateValidationCliContract();
 PrintValidationCliContractSmoke(validationCliContractSmokeReport.Value);
 RecordAuxiliaryCheck(validationCliContractSmokeReport.Value.Passed, ref totalFailures, ref auxiliaryCheckCount, ref auxiliaryFailureCount);
 
+thresholdContractSmokeReport = ValidateTerrainDefaultThresholdContracts();
+PrintThresholdContractSmoke(thresholdContractSmokeReport.Value);
+RecordAuxiliaryCheck(thresholdContractSmokeReport.Value.Passed, ref totalFailures, ref auxiliaryCheckCount, ref auxiliaryFailureCount);
+
 if (nativeSmoke)
 {
     nativeSmokeReport = ValidateNativeSamplerParity(benchmarkProfile);
@@ -242,6 +248,7 @@ PrintAggregate(
     publicApiShapeSmokeReport,
     profileHashSmokeReport,
     validationCliContractSmokeReport,
+    thresholdContractSmokeReport,
     runtimeApiSmokeReport,
     anchorSmokeReport,
     runtimeWorldSmokeReport,
@@ -3150,6 +3157,191 @@ static TerrainPublicApiShapeSmokeReport ValidateTerrainPublicApiShapeContracts()
                 ref checkedTypeCount,
                 ref checkedMemberCount,
                 out failureReason) &&
+            CheckPublicShape<TerrainWorldPlanningThresholds>(
+                [
+                    ("MinPointsOfInterest", typeof(int)),
+                    ("MinPointOfInterestKinds", typeof(int)),
+                    ("MinRoutes", typeof(int)),
+                    ("MinRouteKinds", typeof(int)),
+                    ("MinConnectedPointRatio", typeof(float)),
+                    ("MinConnectedSettlementRatio", typeof(float)),
+                    ("MinSettlementRoutes", typeof(int)),
+                    ("MinPointOfInterestWorldCoverage", typeof(float)),
+                    ("MinRouteWorldCoverage", typeof(float)),
+                    ("MinAverageRouteTraversability", typeof(float)),
+                    ("MinAverageRouteScenicPotential", typeof(float)),
+                    ("MinVillages", typeof(int)),
+                    ("MinTowns", typeof(int)),
+                    ("MinOasisHubs", typeof(int))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicShape<TerrainWorldPlanningReport>(
+                [
+                    ("PointOfInterestCount", typeof(int)),
+                    ("DistinctPointOfInterestKinds", typeof(int)),
+                    ("RouteCount", typeof(int)),
+                    ("DistinctRouteKinds", typeof(int)),
+                    ("ConnectedPointRatio", typeof(float)),
+                    ("ConnectedSettlementRatio", typeof(float)),
+                    ("SettlementRouteCount", typeof(int)),
+                    ("PointOfInterestWorldCoverage", typeof(float)),
+                    ("RouteWorldCoverage", typeof(float)),
+                    ("AveragePointScore", typeof(float)),
+                    ("AverageRouteCost", typeof(float)),
+                    ("AverageRouteScenicPotential", typeof(float)),
+                    ("AverageRouteTraversability", typeof(float)),
+                    ("SettlementCandidateCount", typeof(int)),
+                    ("VistaCount", typeof(int)),
+                    ("RiverCrossingCount", typeof(int)),
+                    ("MountainPassCount", typeof(int)),
+                    ("CoastalLandingCount", typeof(int)),
+                    ("ResourceGroveCount", typeof(int)),
+                    ("AncientSiteCount", typeof(int)),
+                    ("CanyonOverlookCount", typeof(int)),
+                    ("OasisCount", typeof(int)),
+                    ("VillageCount", typeof(int)),
+                    ("TownCount", typeof(int)),
+                    ("OasisHubCount", typeof(int)),
+                    ("PrimaryTrailCount", typeof(int)),
+                    ("RiverRoadCount", typeof(int)),
+                    ("RidgePassCount", typeof(int)),
+                    ("CoastalPathCount", typeof(int)),
+                    ("ScenicTrailCount", typeof(int))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicShape<TerrainWorldPlanningGateResult>(
+                [
+                    ("Passed", typeof(bool)),
+                    ("Report", typeof(TerrainWorldPlanningReport)),
+                    ("Summary", typeof(string))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicShape<TerrainQualityThresholds>(
+                [
+                    ("MinLandRatio", typeof(float)),
+                    ("MaxLandRatio", typeof(float)),
+                    ("MinRiverRatio", typeof(float)),
+                    ("MinScenicRatio", typeof(float)),
+                    ("MinTraversableLandRatio", typeof(float)),
+                    ("MinDistinctLandscapeKinds", typeof(int)),
+                    ("MinDistinctBiomeKinds", typeof(int)),
+                    ("MinPlainsGrasslandRatio", typeof(float)),
+                    ("MinDesertOasisRatio", typeof(float)),
+                    ("MinIslandCoastRatio", typeof(float)),
+                    ("MinHillMountainRatio", typeof(float)),
+                    ("MinSnowRatio", typeof(float)),
+                    ("MinLakeRatio", typeof(float))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicShape<TerrainQualityReport>(
+                [
+                    ("SampleCount", typeof(int)),
+                    ("WorldSize", typeof(float)),
+                    ("MinHeight", typeof(float)),
+                    ("MaxHeight", typeof(float)),
+                    ("AverageHeight", typeof(float)),
+                    ("LandRatio", typeof(float)),
+                    ("OceanRatio", typeof(float)),
+                    ("CoastRatio", typeof(float)),
+                    ("RiverRatio", typeof(float)),
+                    ("ScenicRatio", typeof(float)),
+                    ("TraversableLandRatio", typeof(float)),
+                    ("DistinctLandscapeKinds", typeof(int)),
+                    ("DistinctBiomeKinds", typeof(int)),
+                    ("OceanCount", typeof(int)),
+                    ("CoastCount", typeof(int)),
+                    ("LowlandCount", typeof(int)),
+                    ("WetlandCount", typeof(int)),
+                    ("ForestBasinCount", typeof(int)),
+                    ("RiverValleyCount", typeof(int)),
+                    ("CanyonCount", typeof(int)),
+                    ("HighlandsCount", typeof(int)),
+                    ("MountainMassifCount", typeof(int)),
+                    ("SnowfieldCount", typeof(int)),
+                    ("VistaPlateauCount", typeof(int)),
+                    ("LakeCount", typeof(int)),
+                    ("BiomeOceanCount", typeof(int)),
+                    ("BiomeCoastCount", typeof(int)),
+                    ("IslandCount", typeof(int)),
+                    ("PlainsCount", typeof(int)),
+                    ("GrasslandCount", typeof(int)),
+                    ("DesertCount", typeof(int)),
+                    ("OasisCount", typeof(int)),
+                    ("ForestCount", typeof(int)),
+                    ("BiomeWetlandCount", typeof(int)),
+                    ("HillsCount", typeof(int)),
+                    ("MountainsCount", typeof(int)),
+                    ("BiomeSnowfieldCount", typeof(int)),
+                    ("BiomeLakeCount", typeof(int)),
+                    ("PlainsGrasslandRatio", typeof(float)),
+                    ("DesertOasisRatio", typeof(float)),
+                    ("IslandCoastRatio", typeof(float)),
+                    ("HillMountainRatio", typeof(float)),
+                    ("SnowRatio", typeof(float)),
+                    ("LakeRatio", typeof(float))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicShape<TerrainQualityGateResult>(
+                [
+                    ("Passed", typeof(bool)),
+                    ("Report", typeof(TerrainQualityReport)),
+                    ("Summary", typeof(string))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicShape<TerrainExperienceThresholds>(
+                [
+                    ("MinEncounterRichRegionRatio", typeof(float)),
+                    ("MinResourceRichRegionRatio", typeof(float)),
+                    ("MinHazardRichRegionRatio", typeof(float)),
+                    ("MinAverageEncounterPotential", typeof(float)),
+                    ("MinAverageResourcePotential", typeof(float)),
+                    ("MinRouteRhythmScore", typeof(float)),
+                    ("MinPointOfInterestValue", typeof(float)),
+                    ("MinRiskRewardBalance", typeof(float)),
+                    ("MinScenicAnchorRatio", typeof(float))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicShape<TerrainExperienceReport>(
+                [
+                    ("RegionCount", typeof(int)),
+                    ("EncounterRichRegionRatio", typeof(float)),
+                    ("ResourceRichRegionRatio", typeof(float)),
+                    ("HazardRichRegionRatio", typeof(float)),
+                    ("AverageExposure", typeof(float)),
+                    ("AverageResourcePotential", typeof(float)),
+                    ("AverageHazardPotential", typeof(float)),
+                    ("AverageEncounterPotential", typeof(float)),
+                    ("RouteRhythmScore", typeof(float)),
+                    ("PointOfInterestValue", typeof(float)),
+                    ("RiskRewardBalance", typeof(float)),
+                    ("ScenicAnchorRatio", typeof(float))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicShape<TerrainExperienceGateResult>(
+                [
+                    ("Passed", typeof(bool)),
+                    ("Report", typeof(TerrainExperienceReport)),
+                    ("Summary", typeof(string))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
             CheckPublicShape<TerrainWaterState>(
                 [
                     ("WorldPosition", typeof(Vector2)),
@@ -3274,6 +3466,162 @@ static TerrainPublicApiShapeSmokeReport ValidateTerrainPublicApiShapeContracts()
                 ref checkedTypeCount,
                 ref checkedMemberCount,
                 out failureReason) &&
+            CheckPublicShape<TerrainRouteCorridorSample>(
+                [
+                    ("HasInfluence", typeof(bool)),
+                    ("Kind", typeof(TerrainRouteKind)),
+                    ("Influence", typeof(float)),
+                    ("CoreStrength", typeof(float)),
+                    ("Distance", typeof(float)),
+                    ("TargetHeight", typeof(float)),
+                    ("ScenicPotential", typeof(float)),
+                    ("Traversability", typeof(float)),
+                    ("Direction", typeof(Vector2))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicShape<TerrainRouteCorridorSegment>(
+                [
+                    ("From", typeof(Vector2)),
+                    ("To", typeof(Vector2)),
+                    ("Delta", typeof(Vector2)),
+                    ("Direction", typeof(Vector2)),
+                    ("LengthSquared", typeof(float)),
+                    ("FromHeight", typeof(float)),
+                    ("ToHeight", typeof(float)),
+                    ("Kind", typeof(TerrainRouteKind)),
+                    ("CoreWidth", typeof(float)),
+                    ("ShoulderWidth", typeof(float)),
+                    ("CoreInnerWidth", typeof(float)),
+                    ("ShoulderWidthSquared", typeof(float)),
+                    ("ScenicPotential", typeof(float)),
+                    ("Traversability", typeof(float))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicShape<TerrainRouteCorridorIndex>(
+                [
+                    ("CacheKey", typeof(int)),
+                    ("HasSegments", typeof(bool))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicShape<TerrainPointOfInterestIndex>(
+                [
+                    ("CacheKey", typeof(int)),
+                    ("HasPoints", typeof(bool))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicShape<TerrainWaterSurfaceData>(
+                [
+                    ("Vertices", typeof(Vector3[])),
+                    ("Normals", typeof(Vector3[])),
+                    ("Uvs", typeof(Vector2[])),
+                    ("Colors", typeof(Color[])),
+                    ("Indices", typeof(int[])),
+                    ("LakeCellCount", typeof(int)),
+                    ("RiverCellCount", typeof(int)),
+                    ("OasisCellCount", typeof(int)),
+                    ("MinHeight", typeof(float)),
+                    ("MaxHeight", typeof(float)),
+                    ("HasSurface", typeof(bool)),
+                    ("CellCount", typeof(int))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicShape<TerrainTileData>(
+                [
+                    ("Coord", typeof(TerrainTileCoord)),
+                    ("Lod", typeof(int)),
+                    ("Resolution", typeof(int)),
+                    ("ChunkSize", typeof(float)),
+                    ("Origin", typeof(Vector2)),
+                    ("Vertices", typeof(Vector3[])),
+                    ("Normals", typeof(Vector3[])),
+                    ("Uvs", typeof(Vector2[])),
+                    ("Colors", typeof(Color[])),
+                    ("Indices", typeof(int[])),
+                    ("WaterSurface", typeof(TerrainWaterSurfaceData)),
+                    ("CollisionFaces", typeof(Vector3[])),
+                    ("ScatterInstances", typeof(TerrainScatterInstance[])),
+                    ("Landmarks", typeof(TerrainLandmarkData[])),
+                    ("MinHeight", typeof(float)),
+                    ("MaxHeight", typeof(float))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicShape<TerrainScatterInstance>(
+                [
+                    ("Kind", typeof(TerrainScatterKind)),
+                    ("LocalPosition", typeof(Vector3)),
+                    ("RotationY", typeof(float)),
+                    ("UniformScale", typeof(float)),
+                    ("Color", typeof(Color)),
+                    ("LandmarkKind", typeof(TerrainLandmarkKind))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicShape<TerrainLandmarkData>(
+                [
+                    ("Kind", typeof(TerrainLandmarkKind)),
+                    ("LocalPosition", typeof(Vector3)),
+                    ("Score", typeof(float)),
+                    ("DebugName", typeof(string))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicShape<TerrainPointOfInterestArchetype>(
+                [
+                    ("Kind", typeof(TerrainPointOfInterestKind)),
+                    ("VisualKind", typeof(TerrainPointOfInterestVisualKind)),
+                    ("GameplayTag", typeof(string)),
+                    ("DisplayName", typeof(string)),
+                    ("VisualScale", typeof(float)),
+                    ("VerticalOffset", typeof(float)),
+                    ("InteractionRadius", typeof(float)),
+                    ("EncounterBudget", typeof(int)),
+                    ("Color", typeof(Color))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicShape<TerrainPointOfInterestArchetypeValidationReport>(
+                [
+                    ("Passed", typeof(bool)),
+                    ("DefinedArchetypeCount", typeof(int)),
+                    ("ExpectedArchetypeCount", typeof(int)),
+                    ("MissingArchetypeCount", typeof(int)),
+                    ("PlanPointCount", typeof(int)),
+                    ("PlanPointsWithArchetypes", typeof(int)),
+                    ("Summary", typeof(string))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicShape<TerrainWorldPlanArtifactResult>(
+                [
+                    ("Plan", typeof(TerrainWorldPlan)),
+                    ("PlanningGate", typeof(TerrainWorldPlanningGateResult)),
+                    ("QualityGate", typeof(TerrainQualityGateResult)),
+                    ("ExperienceGate", typeof(TerrainExperienceGateResult)),
+                    ("MapPath", typeof(string)),
+                    ("ReportPath", typeof(string)),
+                    ("MapSaveError", typeof(Error)),
+                    ("ReportSaveError", typeof(Error)),
+                    ("Passed", typeof(bool))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
             CheckPublicMethods(
                 typeof(TerrainGenerationProfile),
                 [
@@ -3358,6 +3706,49 @@ static TerrainPublicApiShapeSmokeReport ValidateTerrainPublicApiShapeContracts()
                 ref checkedTypeCount,
                 ref checkedMemberCount,
                 out failureReason) &&
+            CheckPublicStaticProperties(
+                typeof(NativeTerrainBridge),
+                [
+                    ("IsAvailable", typeof(bool)),
+                    ("SupportsFieldGridSampler", typeof(bool)),
+                    ("SupportsDerivedFieldGridSampler", typeof(bool)),
+                    ("SupportsHeightGridSampler", typeof(bool))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicStaticProperties(
+                typeof(TerrainPointOfInterestArchetypeCatalog),
+                [
+                    ("All", typeof(ReadOnlySpan<TerrainPointOfInterestArchetype>))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicStaticProperties(
+                typeof(TerrainWorldPlanningThresholds),
+                [
+                    ("OpenWorldDefault", typeof(TerrainWorldPlanningThresholds))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicStaticProperties(
+                typeof(TerrainQualityThresholds),
+                [
+                    ("OpenWorldDefault", typeof(TerrainQualityThresholds))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicStaticProperties(
+                typeof(TerrainExperienceThresholds),
+                [
+                    ("OpenWorldDefault", typeof(TerrainExperienceThresholds))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
             CheckPublicMethods(
                 typeof(TerrainWorld),
                 [
@@ -3400,6 +3791,70 @@ static TerrainPublicApiShapeSmokeReport ValidateTerrainPublicApiShapeContracts()
                     new("SaveJson", true, typeof(Error), [typeof(TerrainWorldPlan), typeof(TerrainGenerationProfile), typeof(string)]),
                     new("TryLoadJson", true, typeof(bool), [typeof(string), typeof(TerrainWorldPlan).MakeByRefType(), typeof(string).MakeByRefType()]),
                     new("TryLoadJson", true, typeof(bool), [typeof(string), typeof(TerrainGenerationProfile), typeof(TerrainWorldPlan).MakeByRefType(), typeof(string).MakeByRefType()])
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicMethods(
+                typeof(TerrainTileBuilder),
+                [
+                    new("Build", true, typeof(TerrainTileData), [typeof(TerrainTileCoord), typeof(int), typeof(TerrainGenerationProfile), typeof(bool), typeof(CancellationToken)]),
+                    new("Build", true, typeof(TerrainTileData), [typeof(TerrainTileCoord), typeof(int), typeof(TerrainGenerationProfile), typeof(bool), typeof(TerrainRouteCorridorIndex), typeof(CancellationToken)]),
+                    new("Build", true, typeof(TerrainTileData), [typeof(TerrainTileCoord), typeof(int), typeof(TerrainGenerationProfile), typeof(bool), typeof(TerrainRouteCorridorIndex), typeof(TerrainPointOfInterestIndex), typeof(CancellationToken)]),
+                    new("ShouldUseNativeSamplerForTileGeneration", true, typeof(bool), [typeof(TerrainGenerationProfile), typeof(int)])
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicMethods(
+                typeof(TerrainMeshBuilder),
+                [
+                    new("CreateMesh", true, typeof(ArrayMesh), [typeof(TerrainTileData)]),
+                    new("CreateWaterMesh", true, typeof(ArrayMesh), [typeof(TerrainTileData)])
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicMethods(
+                typeof(TerrainRouteCorridorIndex),
+                [
+                    new("FromPlan", true, typeof(TerrainRouteCorridorIndex), [typeof(TerrainWorldPlan), typeof(TerrainGenerationProfile)]),
+                    new("GetSegments", false, typeof(TerrainRouteCorridorSegment[]), [typeof(TerrainTileCoord)]),
+                    new("Sample", false, typeof(TerrainRouteCorridorSample), [typeof(Vector2), typeof(TerrainTileCoord)]),
+                    new("Sample", false, typeof(TerrainRouteCorridorSample), [typeof(Vector2), typeof(TerrainRouteCorridorSegment[])])
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicMethods(
+                typeof(TerrainPointOfInterestIndex),
+                [
+                    new("FromPlan", true, typeof(TerrainPointOfInterestIndex), [typeof(TerrainWorldPlan), typeof(TerrainGenerationProfile)]),
+                    new("GetPoints", false, typeof(TerrainWorldPointOfInterest[]), [typeof(TerrainTileCoord)]),
+                    new("FootprintRadiusFor", true, typeof(float), [typeof(TerrainWorldPointOfInterest), typeof(TerrainGenerationProfile)])
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicMethods(
+                typeof(NativeTerrainBridge),
+                [
+                    new("TrySampleHeightGrid", true, typeof(bool), [typeof(TerrainTileCoord), typeof(int), typeof(TerrainGenerationProfile), typeof(float[]).MakeByRefType()]),
+                    new("TrySampleFieldGrid", true, typeof(bool), [typeof(TerrainTileCoord), typeof(int), typeof(TerrainGenerationProfile), typeof(float[]).MakeByRefType()]),
+                    new("TrySampleFieldGrid", true, typeof(bool), [typeof(TerrainTileCoord), typeof(int), typeof(TerrainGenerationProfile), typeof(float[]), typeof(int)]),
+                    new("TrySampleFieldGrid", true, typeof(bool), [typeof(TerrainTileCoord), typeof(int), typeof(TerrainGenerationProfile), typeof(float[]), typeof(int), typeof(bool).MakeByRefType()]),
+                    new("EnsureInitialized", true, typeof(void), [])
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicMethods(
+                typeof(TerrainPointOfInterestArchetypeCatalog),
+                [
+                    new("Get", true, typeof(TerrainPointOfInterestArchetype), [typeof(TerrainPointOfInterestKind)]),
+                    new("TryGet", true, typeof(bool), [typeof(TerrainPointOfInterestKind), typeof(TerrainPointOfInterestArchetype).MakeByRefType()]),
+                    new("VisualKindFor", true, typeof(TerrainPointOfInterestVisualKind), [typeof(TerrainWorldPointOfInterest)]),
+                    new("ValidatePlanReadiness", true, typeof(TerrainPointOfInterestArchetypeValidationReport), [typeof(TerrainWorldPlan)])
                 ],
                 ref checkedTypeCount,
                 ref checkedMemberCount,
@@ -3761,6 +4216,39 @@ static bool CheckPublicStaticFields(
         {
             failureReason =
                 $"{type.Name} static field drift at index {i}: actual {field.Name}:{field.FieldType.Name}, " +
+                $"expected {expected[i].Name}:{expected[i].Type.Name}";
+            return false;
+        }
+    }
+
+    checkedTypeCount++;
+    checkedMemberCount += expected.Length;
+    failureReason = null;
+    return true;
+}
+
+static bool CheckPublicStaticProperties(
+    Type type,
+    (string Name, Type Type)[] expected,
+    ref int checkedTypeCount,
+    ref int checkedMemberCount,
+    out string? failureReason)
+{
+    PropertyInfo[] properties = type.GetProperties(BindingFlags.Public | BindingFlags.Static | BindingFlags.DeclaredOnly);
+    if (properties.Length != expected.Length)
+    {
+        failureReason = $"{type.Name} public static property count changed ({properties.Length}/{expected.Length})";
+        return false;
+    }
+
+    for (int i = 0; i < expected.Length; i++)
+    {
+        PropertyInfo property = properties[i];
+        if (!string.Equals(property.Name, expected[i].Name, StringComparison.Ordinal) ||
+            property.PropertyType != expected[i].Type)
+        {
+            failureReason =
+                $"{type.Name} static property drift at index {i}: actual {property.Name}:{property.PropertyType.Name}, " +
                 $"expected {expected[i].Name}:{expected[i].Type.Name}";
             return false;
         }
@@ -7099,6 +7587,97 @@ static void PrintValidationCliContractSmoke(TerrainValidationCliContractSmokeRep
         $"({report.Reason})");
 }
 
+static TerrainThresholdContractSmokeReport ValidateTerrainDefaultThresholdContracts()
+{
+    TerrainWorldPlanningThresholds planning = TerrainWorldPlanningThresholds.OpenWorldDefault;
+    bool planningPassed =
+        planning.MinPointsOfInterest == 18 &&
+        planning.MinPointOfInterestKinds == 5 &&
+        planning.MinRoutes == 48 &&
+        planning.MinRouteKinds == 3 &&
+        ExactFloatEquals(planning.MinConnectedPointRatio, 0.95f) &&
+        ExactFloatEquals(planning.MinConnectedSettlementRatio, 0.95f) &&
+        planning.MinSettlementRoutes == 8 &&
+        ExactFloatEquals(planning.MinPointOfInterestWorldCoverage, 0.70f) &&
+        ExactFloatEquals(planning.MinRouteWorldCoverage, 0.70f) &&
+        ExactFloatEquals(planning.MinAverageRouteTraversability, 0.34f) &&
+        ExactFloatEquals(planning.MinAverageRouteScenicPotential, 0.20f) &&
+        planning.MinVillages == 2 &&
+        planning.MinTowns == 2 &&
+        planning.MinOasisHubs == 1;
+
+    TerrainQualityThresholds quality = TerrainQualityThresholds.OpenWorldDefault;
+    bool qualityPassed =
+        ExactFloatEquals(quality.MinLandRatio, 0.38f) &&
+        ExactFloatEquals(quality.MaxLandRatio, 0.82f) &&
+        ExactFloatEquals(quality.MinRiverRatio, 0.035f) &&
+        ExactFloatEquals(quality.MinScenicRatio, 0.045f) &&
+        ExactFloatEquals(quality.MinTraversableLandRatio, 0.28f) &&
+        quality.MinDistinctLandscapeKinds == 6 &&
+        quality.MinDistinctBiomeKinds == 7 &&
+        ExactFloatEquals(quality.MinPlainsGrasslandRatio, 0.10f) &&
+        ExactFloatEquals(quality.MinDesertOasisRatio, 0.005f) &&
+        ExactFloatEquals(quality.MinIslandCoastRatio, 0.015f) &&
+        ExactFloatEquals(quality.MinHillMountainRatio, 0.004f) &&
+        ExactFloatEquals(quality.MinSnowRatio, 0.002f) &&
+        ExactFloatEquals(quality.MinLakeRatio, 0.002f);
+
+    TerrainExperienceThresholds experience = TerrainExperienceThresholds.OpenWorldDefault;
+    bool experiencePassed =
+        ExactFloatEquals(experience.MinEncounterRichRegionRatio, 0.22f) &&
+        ExactFloatEquals(experience.MinResourceRichRegionRatio, 0.18f) &&
+        ExactFloatEquals(experience.MinHazardRichRegionRatio, 0.12f) &&
+        ExactFloatEquals(experience.MinAverageEncounterPotential, 0.34f) &&
+        ExactFloatEquals(experience.MinAverageResourcePotential, 0.30f) &&
+        ExactFloatEquals(experience.MinRouteRhythmScore, 0.46f) &&
+        ExactFloatEquals(experience.MinPointOfInterestValue, 0.58f) &&
+        ExactFloatEquals(experience.MinRiskRewardBalance, 0.42f) &&
+        ExactFloatEquals(experience.MinScenicAnchorRatio, 0.28f);
+
+    bool passed = planningPassed && qualityPassed && experiencePassed;
+    string reason = passed
+        ? "default planning, quality, and experience gate thresholds match the stable open-world contract"
+        : ThresholdContractFailureReason(planningPassed, qualityPassed, experiencePassed);
+
+    return new TerrainThresholdContractSmokeReport(
+        passed,
+        planningPassed,
+        qualityPassed,
+        experiencePassed,
+        reason);
+}
+
+static string ThresholdContractFailureReason(
+    bool planningPassed,
+    bool qualityPassed,
+    bool experiencePassed)
+{
+    if (!planningPassed)
+    {
+        return "TerrainWorldPlanningThresholds.OpenWorldDefault drifted";
+    }
+
+    if (!qualityPassed)
+    {
+        return "TerrainQualityThresholds.OpenWorldDefault drifted";
+    }
+
+    if (!experiencePassed)
+    {
+        return "TerrainExperienceThresholds.OpenWorldDefault drifted";
+    }
+
+    return "default terrain threshold contract failed";
+}
+
+static void PrintThresholdContractSmoke(TerrainThresholdContractSmokeReport report)
+{
+    Console.WriteLine(
+        $"Terrain threshold contract smoke: {(report.Passed ? "PASS" : "FAIL")} " +
+        $"planning/quality/experience {report.PlanningThresholdsPassed}/{report.QualityThresholdsPassed}/{report.ExperienceThresholdsPassed} " +
+        $"({report.Reason})");
+}
+
 static void PrintAggregate(
     TerrainValidationAggregate aggregate,
     int seedCount,
@@ -7118,6 +7697,7 @@ static void PrintAggregate(
     TerrainPublicApiShapeSmokeReport? publicApiShapeSmokeReport,
     TerrainProfileHashSmokeReport? profileHashSmokeReport,
     TerrainValidationCliContractSmokeReport? validationCliContractSmokeReport,
+    TerrainThresholdContractSmokeReport? thresholdContractSmokeReport,
     TerrainRuntimeApiSmokeReport? runtimeApiSmokeReport,
     TerrainAnchorContractSmokeReport? anchorSmokeReport,
     TerrainRuntimeWorldSmokeReport? runtimeWorldSmokeReport,
@@ -7199,6 +7779,10 @@ static void PrintAggregate(
     if (validationCliContractSmokeReport is not null)
     {
         Console.WriteLine($"Validation CLI contract smoke: {(validationCliContractSmokeReport.Value.Passed ? "PASS" : "FAIL")}");
+    }
+    if (thresholdContractSmokeReport is not null)
+    {
+        Console.WriteLine($"Terrain threshold contract smoke: {(thresholdContractSmokeReport.Value.Passed ? "PASS" : "FAIL")}");
     }
     if (runtimeApiSmokeReport is not null)
     {
@@ -7690,6 +8274,14 @@ internal readonly record struct TerrainProfileHashSmokeReport(
     bool FieldSensitivityPassed,
     int SensitiveFieldCount,
     int ExpectedFieldCount,
+    string Reason);
+
+/// <summary>Reports whether default planning, quality, and experience gate thresholds match the stable open-world contract.</summary>
+internal readonly record struct TerrainThresholdContractSmokeReport(
+    bool Passed,
+    bool PlanningThresholdsPassed,
+    bool QualityThresholdsPassed,
+    bool ExperienceThresholdsPassed,
     string Reason);
 
 /// <summary>Stable method signature expected by public API shape validation.</summary>

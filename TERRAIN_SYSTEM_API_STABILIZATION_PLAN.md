@@ -164,6 +164,12 @@
 | `TerrainPointOfInterestIndex.GetPoints(...)`                      | `dao/Scripts/Terrain/Generation/TerrainPointOfInterestIndex.cs` | 查询 tile 关联 POI      |
 | `NativeTerrainBridge`                                             | `dao/Scripts/Terrain/Generation/NativeTerrainBridge.cs`         | Native sampler 桥接     |
 
+当前 validation 约束：
+
+- `Terrain public API shape smoke` 已锁定上述二级 API 的公开方法签名，以及关键数据载体/返回类型成员形状。
+- 这层检查的目标是防止工具层和验证层长期依赖的公共入口无意漂移，不表示这些类型已经升级为一级 gameplay-facing 稳定 API。
+- 若二级 API 需要破坏性调整，应同步更新稳定化计划、验证工具和相关调用点，而不是只改实现。
+
 ### 4.3 内部实现，不建议外部依赖
 
 以下内容可以继续重构和优化，不建议承诺外部兼容：
@@ -1249,6 +1255,7 @@ public static class TerrainWorldPlanSerializer
 - anchor contract smoke。
 - facade query smoke。
 - plan serialization smoke。
+- threshold contract smoke。
 - artifact smoke 中的 plan map、report、traversal cost map layer、raster 像素快照隔离和结构化 traversal cost grid。
 - `--validation-tier pr/nightly/release` 固定 CI 分层门槛。
 

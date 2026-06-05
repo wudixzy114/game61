@@ -361,6 +361,8 @@ Terrain anchor contract smoke: PASS
 - `TerrainDeterminismContract` 为 `terrain-determinism-v1`，关键 epsilon 未漂移。
 - `TerrainPerformanceContract` 为 `terrain-performance-v1`，shared benchmark baseline 和关键门槛未漂移。
 - `Terrain public API shape smoke` 还会锁定当前 `Dao.Terrain*` 导出的 public 类型集合，防止无意新增公开类型绕过契约评审。
+- 对稳定化计划中列为“二级半稳定 API”的公共入口，`Terrain public API shape smoke` 也会锁定关键方法签名和返回数据成员形状。
+- `Terrain threshold contract smoke` 会显式锁定默认 planning/quality/experience gate threshold，防止验证门槛被静默放宽或收紧。
 - plan 空态返回 false 和空集合。
 - plan 就绪态返回 POI/route 数量正确。
 - `WorldPlan`、`TryGetWorldPlan`、`SetWorldPlan` 输入和 plan facade 返回值不会泄露内部可变状态。
