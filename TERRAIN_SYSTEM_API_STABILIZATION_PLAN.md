@@ -956,6 +956,8 @@ public TerrainWorldPointOfInterest[] QueryPointsOfInterest(
 
 public TerrainWorldRoute[] QueryRoutesNear(Vector2 world, float radius);
 
+public TerrainRouteCorridorSample SampleRouteCorridor(Vector2 world);
+
 public TerrainWaterState SampleWaterState(Vector2 world);
 
 public TerrainGameplayTags SampleGameplayTags(Vector2 world);
@@ -981,11 +983,18 @@ public TerrainGameplayTags SampleGameplayTags(Vector2 world);
 - `SampleWaterState` 应区分 ocean、coast、lake、river、oasis、none。
 - 不处理动态水体和玩法水体，但要准确表达地形静态水语义。
 
+`SampleRouteCorridor` 应补足 route 数组查询的不足：
+
+- `QueryRoutesNear` 返回 route 快照，适合读取路线本身。
+- `SampleRouteCorridor` 返回当前位置受规划路线 corridor 影响的语义样本，适合导航、AI、任务和调试系统做局部判断。
+- 该入口不等价于 navmesh、A* 或角色级寻路；它只表达地形规划路线语义。
+
 复杂度和分配约定：
 
 - `TryFindNearestPointOfInterest` 为 POI 数量线性扫描，不分配数组。
 - `QueryPointsOfInterest` 为 POI 数量线性扫描，返回新的数组。
 - `QueryRoutesNear` 为 route 数量乘以 waypoint 段数扫描，返回新的 route 数组，并深拷贝 route waypoint。
+- `SampleRouteCorridor` 使用当前 plan 的 route corridor 索引，不触发 tile 生成，不分配数组，plan 未就绪时返回 `TerrainRouteCorridorSample.None`。
 - `SampleWaterState` 和 `SampleGameplayTags` 是纯采样，不依赖 plan。
 - `GetStreamingSnapshot` 返回新的坐标数组，不暴露内部 set、dictionary 或 LRU 状态。
 
@@ -997,7 +1006,7 @@ public TerrainGameplayTags SampleGameplayTags(Vector2 world);
 - 诊断快照不触发 tile/job/cache 状态变化。
 - 诊断快照数组隔离，且 cache/job 上限判断被验证工具覆盖。
 - 查询复杂度和分配行为写入文档。
-- 默认验证输出 `Runtime TerrainWorld API smoke: PASS`，其中 `semantic POI/route/water/tags pass/pass/pass/pass` 且 `streaming pass`。
+- 默认验证输出 `Runtime TerrainWorld API smoke: PASS`，其中 `semantic POI/route/corridor/water/tags pass/pass/pass/pass/pass` 且 `streaming pass`。
 
 ### 9.11 P1：CI 分层
 

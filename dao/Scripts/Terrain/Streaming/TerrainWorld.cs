@@ -397,6 +397,19 @@ public partial class TerrainWorld : Node3D
         return routes.Count == 0 ? Array.Empty<TerrainWorldRoute>() : routes.ToArray();
     }
 
+    /// <summary>Samples the current plan's route corridor influence at a world XZ position without generating tiles.</summary>
+    public TerrainRouteCorridorSample SampleRouteCorridor(Vector2 world)
+    {
+        TerrainRouteCorridorIndex corridors = _routeCorridors ?? TerrainRouteCorridorIndex.Empty;
+        if (_worldPlan is null || !corridors.HasSegments)
+        {
+            return TerrainRouteCorridorSample.None;
+        }
+
+        TerrainGenerationProfile profile = CurrentProfile;
+        return corridors.Sample(world, CoordFromWorld(world, profile.ChunkSize));
+    }
+
     /// <summary>Samples static terrain water semantics at a world XZ position without touching streaming tiles.</summary>
     public TerrainWaterState SampleWaterState(Vector2 world)
     {
@@ -533,6 +546,13 @@ public partial class TerrainWorld : Node3D
             point.X <= maxX &&
             point.Y >= minY &&
             point.Y <= maxY;
+    }
+
+    private static TerrainTileCoord CoordFromWorld(Vector2 world, float chunkSize)
+    {
+        return new TerrainTileCoord(
+            Mathf.FloorToInt(world.X / chunkSize),
+            Mathf.FloorToInt(world.Y / chunkSize));
     }
 
     private static float DistanceSquaredToRoute(Vector2 world, TerrainWorldRoute route)

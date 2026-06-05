@@ -2,7 +2,7 @@
 
 日期：2026-06-04  
 适用项目：`d:\game61`  
-当前契约范围：`TerrainWorld` 运行时查询 facade、运行时流送诊断快照、开放世界 plan 只读访问、基础地形语义采样、确定性 epsilon 边界、runtime gameplay anchor group/meta 契约、`terrain-plan-v1` JSON 持久化契约。
+当前契约范围：`TerrainWorld` 运行时查询 facade、运行时流送诊断快照、开放世界 plan 只读访问、基础地形语义采样、route corridor 语义采样、确定性 epsilon 边界、runtime gameplay anchor group/meta 契约、`terrain-plan-v1` JSON 持久化契约。
 
 ## 1. 契约目标
 
@@ -60,6 +60,7 @@ TerrainWorldRoute[] routes = terrainWorld.GetRoutes();
 bool foundPoint = terrainWorld.TryFindNearestPointOfInterest(world, radius, kind: null, out TerrainWorldPointOfInterest point);
 TerrainWorldPointOfInterest[] nearbyPoints = terrainWorld.QueryPointsOfInterest(worldBounds);
 TerrainWorldRoute[] nearbyRoutes = terrainWorld.QueryRoutesNear(world, radius);
+TerrainRouteCorridorSample routeCorridor = terrainWorld.SampleRouteCorridor(world);
 TerrainWaterState water = terrainWorld.SampleWaterState(world);
 TerrainGameplayTags tags = terrainWorld.SampleGameplayTags(world);
 bool traversable = terrainWorld.IsTraversable(world);
@@ -181,6 +182,14 @@ bool loaded = TerrainWorldPlanSerializer.TryFromJson(planJson, profile, out Terr
 - 返回 waypoint polyline 与查询点距离小于等于半径的 route。
 - 不触发 tile 生成，不触发同步 plan 生成。
 - 复杂度为 route 数量乘以 route waypoint 段数；返回 route 数组和每条 route 的 waypoint 数组都会复制。
+
+### `SampleRouteCorridor(Vector2 world)`
+
+- plan 未就绪或当前 plan 没有 route corridor 索引时，返回 `TerrainRouteCorridorSample.None`。
+- 返回当前位置受到规划路线 corridor 影响的稳定语义样本，包括 route kind、影响强度、core strength、距离、目标高度、风景/通行性均值和 corridor 方向。
+- 使用 `TerrainRouteCorridorIndex` 的当前运行时索引，但调用方不需要直接依赖索引类型或 tile 构建路径。
+- 不触发 tile 生成，不触发同步 plan 生成，不分配数组。
+- 用于导航、AI、任务和调试系统判断当前位置是否落在地形规划路线语义上；不等价于 navmesh、A* 或角色级寻路。
 
 ### `SampleWaterState(Vector2 world)`
 
@@ -315,6 +324,7 @@ Terrain anchor contract smoke: PASS
 - `WorldPlan`、`TryGetWorldPlan`、`SetWorldPlan` 输入和 plan facade 返回值不会泄露内部可变状态。
 - `IsTraversable` 和 `IsAboveWater` 与采样字段一致。
 - `TryFindNearestPointOfInterest`、`QueryPointsOfInterest` 和 `QueryRoutesNear` 返回正确结果且不泄露 route waypoint 内部数组。
+- `SampleRouteCorridor` 与当前 plan 的 route corridor 索引一致，plan 未就绪时返回无影响样本。
 - `SampleWaterState` 与共享地形语义分类器一致。
 - `SampleGameplayTags` 与共享地形语义分类器一致。
 - `GetStreamingSnapshot` 返回稳定、隔离的流送诊断快照，且 cache/job 上限判断未漂移。
