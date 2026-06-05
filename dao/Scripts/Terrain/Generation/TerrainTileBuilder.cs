@@ -172,10 +172,10 @@ public static partial class TerrainTileBuilder
             surfaceColors = useSkirtedRenderMesh ? ArrayPool<Color>.Shared.Rent(vertexCount) : new Color[vertexCount];
             heights = ArrayPool<float>.Shared.Rent(vertexCount);
             fields = ArrayPool<TerrainWorldField>.Shared.Rent(vertexCount);
-            TerrainRouteCorridorSegment[] corridorSegments = routeCorridors.GetSegments(coord);
+            TerrainRouteCorridorSegment[] corridorSegments = routeCorridors.GetSegmentsUnsafe(coord);
             bool hasCorridors = corridorSegments.Length > 0;
             corridorSamples = hasCorridors ? ArrayPool<TerrainRouteCorridorSample>.Shared.Rent(vertexCount) : [];
-            TerrainWorldPointOfInterest[] pointInfluences = pointOfInterestIndex.GetPoints(coord);
+            TerrainWorldPointOfInterest[] pointInfluences = pointOfInterestIndex.GetPointsUnsafe(coord);
             bool hasPointInfluences = pointInfluences.Length > 0;
             footprintSamples = hasPointInfluences ? ArrayPool<TerrainPointFootprintSample>.Shared.Rent(vertexCount) : [];
             TerrainSettlementLayoutDescriptor[] settlementLayouts = hasPointInfluences
@@ -1270,7 +1270,7 @@ public static partial class TerrainTileBuilder
         var landmarkList = new List<TerrainLandmarkData>(4);
         Vector2 origin = coord.Origin(profile.ChunkSize);
         bool hasCorridors = corridorSegments.Length > 0;
-        TerrainWorldPointOfInterest[] plannedPoints = pointOfInterestIndex.GetPoints(coord);
+        TerrainWorldPointOfInterest[] plannedPoints = pointOfInterestIndex.GetPointsUnsafe(coord);
 
         if (lod <= 2)
         {

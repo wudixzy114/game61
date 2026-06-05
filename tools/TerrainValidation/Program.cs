@@ -72,6 +72,7 @@ TerrainScenicLandmarkSmokeReport? scenicLandmarkSmokeReport = null;
 TerrainArtifactSmokeReport? artifactSmokeReport = null;
 TerrainPlanJsonSmokeReport? planJsonSmokeReport = null;
 TerrainEnumContractSmokeReport? enumContractSmokeReport = null;
+TerrainValidationCliContractSmokeReport? validationCliContractSmokeReport = null;
 TerrainRuntimeApiSmokeReport? runtimeApiSmokeReport = null;
 TerrainAnchorContractSmokeReport? anchorSmokeReport = null;
 TerrainRuntimeWorldSmokeReport? runtimeWorldSmokeReport = null;
@@ -193,6 +194,10 @@ if (!skipEnumContractSmoke)
     RecordAuxiliaryCheck(enumContractSmokeReport.Value.Passed, ref totalFailures, ref auxiliaryCheckCount, ref auxiliaryFailureCount);
 }
 
+validationCliContractSmokeReport = ValidateValidationCliContract();
+PrintValidationCliContractSmoke(validationCliContractSmokeReport.Value);
+RecordAuxiliaryCheck(validationCliContractSmokeReport.Value.Passed, ref totalFailures, ref auxiliaryCheckCount, ref auxiliaryFailureCount);
+
 if (nativeSmoke)
 {
     nativeSmokeReport = ValidateNativeSamplerParity(benchmarkProfile);
@@ -223,6 +228,7 @@ PrintAggregate(
     artifactSmokeReport,
     planJsonSmokeReport,
     enumContractSmokeReport,
+    validationCliContractSmokeReport,
     runtimeApiSmokeReport,
     anchorSmokeReport,
     runtimeWorldSmokeReport,
@@ -317,7 +323,7 @@ static TerrainRouteCorridorSmokeReport ValidateRouteCorridorTileEffect(
 
     if (!foundRoute)
     {
-        return new TerrainRouteCorridorSmokeReport(false, profile.Seed, default, 0, 0.0f, 0.0f, 0, "no route with at least two waypoints");
+        return new TerrainRouteCorridorSmokeReport(false, profile.Seed, default, 0, 0.0f, 0.0f, 0, false, "no route with at least two waypoints");
     }
 
     Vector2 midpoint = route.Waypoints[route.Waypoints.Length / 2];
@@ -326,9 +332,10 @@ static TerrainRouteCorridorSmokeReport ValidateRouteCorridorTileEffect(
     TerrainRouteCorridorSegment[] segments = corridorIndex.GetSegments(coord);
     if (segments.Length == 0)
     {
-        return new TerrainRouteCorridorSmokeReport(false, profile.Seed, coord, 0, 0.0f, 0.0f, 0, "selected route chunk had no indexed corridor segments");
+        return new TerrainRouteCorridorSmokeReport(false, profile.Seed, coord, 0, 0.0f, 0.0f, 0, false, "selected route chunk had no indexed corridor segments");
     }
 
+    bool segmentSnapshotIsolated = CorridorSegmentSnapshotIsolated(corridorIndex, coord, segments);
     TerrainTileData baseline = TerrainTileBuilder.Build(coord, lod: 0, profile, includeCollision: false);
     TerrainTileData withCorridor = TerrainTileBuilder.Build(coord, lod: 0, profile, includeCollision: false, corridorIndex);
 
@@ -354,10 +361,11 @@ static TerrainRouteCorridorSmokeReport ValidateRouteCorridorTileEffect(
 
     bool passed =
         influencedVertices > 0 &&
-        (maxHeightDelta >= 0.05f || maxColorDelta >= 0.01f);
+        (maxHeightDelta >= 0.05f || maxColorDelta >= 0.01f) &&
+        segmentSnapshotIsolated;
     string reason = passed
-        ? "route corridor affected the generated tile"
-        : "route corridor produced no measurable tile change";
+        ? "route corridor affected the generated tile without leaking index segment state"
+        : "route corridor produced no measurable tile change or leaked mutable segment state";
 
     return new TerrainRouteCorridorSmokeReport(
         passed,
@@ -367,7 +375,24 @@ static TerrainRouteCorridorSmokeReport ValidateRouteCorridorTileEffect(
         maxHeightDelta,
         maxColorDelta,
         influencedVertices,
+        segmentSnapshotIsolated,
         reason);
+}
+
+static bool CorridorSegmentSnapshotIsolated(
+    TerrainRouteCorridorIndex corridorIndex,
+    TerrainTileCoord coord,
+    TerrainRouteCorridorSegment[] segments)
+{
+    TerrainRouteCorridorSegment original = segments[0];
+    segments[0] = default;
+    TerrainRouteCorridorSegment[] secondRead = corridorIndex.GetSegments(coord);
+    return secondRead.Length == segments.Length &&
+        ExactPositionEquals(secondRead[0].From, original.From) &&
+        ExactPositionEquals(secondRead[0].To, original.To) &&
+        secondRead[0].Kind == original.Kind &&
+        ExactFloatEquals(secondRead[0].CoreWidth, original.CoreWidth) &&
+        ExactFloatEquals(secondRead[0].ShoulderWidth, original.ShoulderWidth);
 }
 
 static void PrintCorridorSmoke(TerrainRouteCorridorSmokeReport report)
@@ -376,7 +401,8 @@ static void PrintCorridorSmoke(TerrainRouteCorridorSmokeReport report)
         $"Route corridor tile smoke: {(report.Passed ? "PASS" : "FAIL")} " +
         $"seed {report.Seed}, tile {report.Coord}, segments {report.SegmentCount}, " +
         $"influenced vertices {report.InfluencedVertexCount}, max height delta {report.MaxHeightDelta:0.000}, " +
-        $"max color delta {report.MaxColorDelta:0.000} ({report.Reason})");
+        $"max color delta {report.MaxColorDelta:0.000}, segment snapshot {(report.SegmentSnapshotIsolated ? "pass" : "fail")} " +
+        $"({report.Reason})");
 }
 
 static TerrainRouteScatterSmokeReport ValidateRouteScatterMaterialization(
@@ -572,6 +598,7 @@ static TerrainPoiTileSmokeReport ValidatePoiTileMaterialization(
         marketStallScatterCount +
         watchTowerScatterCount +
         oasisGardenScatterCount;
+    bool poiIndexSnapshotIsolated = PoiIndexSnapshotIsolated(poiIndex, coords);
 
     bool passed =
         materialized.Count == expected.Count &&
@@ -593,10 +620,11 @@ static TerrainPoiTileSmokeReport ValidatePoiTileMaterialization(
         (kindCounts[(int)TerrainLandmarkKind.OasisHub] == 0 ||
             (oasisCanopyScatterCount > 0 && oasisPoolScatterCount > 0 && oasisGardenScatterCount > 0)) &&
         landmarkScatterCount >= expected.Count &&
-        footprintReport.Passed;
+        footprintReport.Passed &&
+        poiIndexSnapshotIsolated;
     string reason = passed
         ? "planned POIs materialized as tile landmarks with settlement services and road-connected gateways"
-        : "planned POIs missing from tile landmark data";
+        : "planned POIs missing from tile landmark data or leaked mutable index state";
 
     return new TerrainPoiTileSmokeReport(
         passed,
@@ -631,7 +659,30 @@ static TerrainPoiTileSmokeReport ValidatePoiTileMaterialization(
         footprintReport.LayoutColorVertexCount,
         footprintReport.LayoutMaxColorDelta,
         landmarkScatterCount,
+        poiIndexSnapshotIsolated,
         reason);
+}
+
+static bool PoiIndexSnapshotIsolated(TerrainPointOfInterestIndex poiIndex, HashSet<TerrainTileCoord> coords)
+{
+    foreach (TerrainTileCoord coord in coords)
+    {
+        TerrainWorldPointOfInterest[] points = poiIndex.GetPoints(coord);
+        if (points.Length == 0)
+        {
+            continue;
+        }
+
+        TerrainWorldPointOfInterest original = points[0];
+        points[0] = default;
+        TerrainWorldPointOfInterest[] secondRead = poiIndex.GetPoints(coord);
+        return secondRead.Length == points.Length &&
+            secondRead[0].Id == original.Id &&
+            secondRead[0].Kind == original.Kind &&
+            secondRead[0].WorldPosition == original.WorldPosition;
+    }
+
+    return false;
 }
 
 static TerrainPoiFootprintSmokeReport ValidatePoiFootprintTileEffect(
@@ -740,7 +791,8 @@ static void PrintPoiTileSmoke(TerrainPoiTileSmokeReport report)
         $"gateways {report.SettlementGatewayScatterCount}/{report.ExpectedSettlementPointCount}, " +
         $"footprint vertices {report.FootprintInfluencedVertexCount}, max footprint delta {report.FootprintMaxHeightDelta:0.000}/{report.FootprintMaxColorDelta:0.000}, " +
         $"layout color vertices {report.LayoutColorVertexCount}, max layout color {report.LayoutMaxColorDelta:0.000}, " +
-        $"landmark scatter {report.LandmarkScatterCount} ({report.Reason})");
+        $"landmark scatter {report.LandmarkScatterCount}, index snapshot {(report.PoiIndexSnapshotIsolated ? "pass" : "fail")} " +
+        $"({report.Reason})");
 }
 
 static int SettlementLandmarkCount(Span<int> kindCounts)
@@ -1597,7 +1649,11 @@ static TerrainArtifactSmokeReport ValidateOpenWorldArtifactExport(
     long mapBytes = mapExists ? new System.IO.FileInfo(mapFilePath).Length : 0L;
     long reportBytes = reportExists ? new System.IO.FileInfo(reportFilePath).Length : 0L;
     string reportText = reportExists ? System.IO.File.ReadAllText(reportFilePath) : string.Empty;
-    bool reportContainsRequiredSections = ReportContainsRequiredArtifactSections(reportText, profile);
+    bool reportContainsRequiredSections = ReportContainsRequiredArtifactSections(
+        reportText,
+        profile,
+        plan,
+        export.MapPath);
 
     bool mapHasContent =
         distinctColorBuckets >= 24 &&
@@ -1684,7 +1740,11 @@ static int QuantizedColorKey(Color color)
     return (r << 8) | (g << 4) | b;
 }
 
-static bool ReportContainsRequiredArtifactSections(string reportText, TerrainGenerationProfile profile)
+static bool ReportContainsRequiredArtifactSections(
+    string reportText,
+    TerrainGenerationProfile profile,
+    TerrainWorldPlan plan,
+    string mapPath)
 {
     return reportText.Contains("Open World Terrain Plan", StringComparison.Ordinal) &&
         reportText.Contains($"Terrain API Contract: {TerrainApiVersion.Contract}", StringComparison.Ordinal) &&
@@ -1693,6 +1753,10 @@ static bool ReportContainsRequiredArtifactSections(string reportText, TerrainGen
         reportText.Contains($"Terrain Generator Version: {TerrainWorldPlanSerializer.GeneratorVersion}", StringComparison.Ordinal) &&
         reportText.Contains($"Terrain Determinism Contract: {TerrainDeterminismContract.Contract}", StringComparison.Ordinal) &&
         reportText.Contains($"Terrain Profile Hash: {profile.StableHash()}", StringComparison.Ordinal) &&
+        reportText.Contains(FormattableString.Invariant($"Center: {plan.Center.X:0.##}, {plan.Center.Y:0.##}"), StringComparison.Ordinal) &&
+        reportText.Contains(FormattableString.Invariant($"World size: {plan.WorldSize:0.##} meters"), StringComparison.Ordinal) &&
+        reportText.Contains(FormattableString.Invariant($"Planning grid: {plan.GridResolution} x {plan.GridResolution}"), StringComparison.Ordinal) &&
+        reportText.Contains($"Map: {mapPath}", StringComparison.Ordinal) &&
         reportText.Contains("Terrain Quality Gate", StringComparison.Ordinal) &&
         reportText.Contains("Open World Planning Gate", StringComparison.Ordinal) &&
         reportText.Contains("Open World Experience Gate", StringComparison.Ordinal) &&
@@ -2591,6 +2655,18 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
             noPlanWorld,
             "_desiredCoords",
             new HashSet<TerrainTileCoord> { new(2, -1), new(-1, 0) });
+        SetPrivateField(
+            noPlanWorld,
+            "_chunks",
+            new Dictionary<TerrainTileCoord, TerrainChunk>
+            {
+                [new(5, 2)] = null!,
+                [new(-3, 4)] = null!
+            });
+        SetPrivateField(
+            noPlanWorld,
+            "_jobs",
+            CreatePendingTileJobKeyDictionary([new TerrainTileCoord(8, -2), new TerrainTileCoord(-4, -3)]));
         Vector2 query = plan.PointsOfInterest.Length > 0
             ? plan.PointsOfInterest[0].WorldPosition
             : new Vector2(profile.ChunkSize * 0.75f, profile.ChunkSize * -0.5f);
@@ -2640,7 +2716,9 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
                 noPlanWorld,
                 profile,
                 hasWorldPlan: false,
-                expectedDesiredCoords: [new TerrainTileCoord(-1, 0), new TerrainTileCoord(2, -1)]);
+                expectedDesiredCoords: [new TerrainTileCoord(-1, 0), new TerrainTileCoord(2, -1)],
+                expectedLoadedCoords: [new TerrainTileCoord(-3, 4), new TerrainTileCoord(5, 2)],
+                expectedQueuedCoords: [new TerrainTileCoord(-4, -3), new TerrainTileCoord(8, -2)]);
         bool apiVersionPassed =
             TerrainApiVersion.Major == 1 &&
             TerrainApiVersion.Minor == 0 &&
@@ -2663,7 +2741,9 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
                 planWorld,
                 profile,
                 hasWorldPlan: true,
-                expectedDesiredCoords: []);
+                expectedDesiredCoords: [],
+                expectedLoadedCoords: [],
+                expectedQueuedCoords: []);
         bool planTryGetPassed =
             planWorld.TryGetWorldPlan(out TerrainWorldPlan? returnedPlan) &&
             returnedPlan is not null &&
@@ -2978,6 +3058,136 @@ static void SetPrivateField<T>(object instance, string fieldName, T value)
     field.SetValue(instance, value);
 }
 
+static void InvokePrivateMethod(object instance, string methodName)
+{
+    MethodInfo? method = instance.GetType().GetMethod(methodName, BindingFlags.Instance | BindingFlags.NonPublic);
+    if (method is null)
+    {
+        throw new MissingMethodException(instance.GetType().FullName, methodName);
+    }
+
+    method.Invoke(instance, null);
+}
+
+static object CreatePendingTileJobKeyDictionary(TerrainTileCoord[] coords)
+{
+    Type worldType = typeof(TerrainWorld);
+    Type pendingJobType = worldType.GetNestedType("PendingTileJob", BindingFlags.NonPublic)
+        ?? throw new MissingMemberException(worldType.FullName, "PendingTileJob");
+    Type dictionaryType = typeof(Dictionary<,>).MakeGenericType(typeof(TerrainTileCoord), pendingJobType);
+    var dictionary = (System.Collections.IDictionary)(Activator.CreateInstance(dictionaryType)
+        ?? throw new InvalidOperationException("Failed to create pending tile job dictionary."));
+
+    foreach (TerrainTileCoord coord in coords)
+    {
+        dictionary.Add(coord, null);
+    }
+
+    return dictionary;
+}
+
+static object CreatePendingTileJobStateDictionary(
+    TerrainTileCoord[] coords,
+    TerrainGenerationProfile profile,
+    int terrainFeatureKey)
+{
+    Type worldType = typeof(TerrainWorld);
+    Type pendingJobType = worldType.GetNestedType("PendingTileJob", BindingFlags.NonPublic)
+        ?? throw new MissingMemberException(worldType.FullName, "PendingTileJob");
+    Type dictionaryType = typeof(Dictionary<,>).MakeGenericType(typeof(TerrainTileCoord), pendingJobType);
+    var dictionary = (System.Collections.IDictionary)(Activator.CreateInstance(dictionaryType)
+        ?? throw new InvalidOperationException("Failed to create pending tile job dictionary."));
+
+    foreach (TerrainTileCoord coord in coords)
+    {
+        dictionary.Add(coord, CreatePendingTileJob(pendingJobType, coord, profile, terrainFeatureKey));
+    }
+
+    return dictionary;
+}
+
+static object CreatePendingTileJob(
+    Type pendingJobType,
+    TerrainTileCoord coord,
+    TerrainGenerationProfile profile,
+    int terrainFeatureKey)
+{
+    var completion = new TaskCompletionSource<TerrainTileData>();
+    return Activator.CreateInstance(
+            pendingJobType,
+            coord,
+            0,
+            false,
+            profile,
+            terrainFeatureKey,
+            new CancellationTokenSource(),
+            completion.Task)
+        ?? throw new InvalidOperationException("Failed to create pending tile job.");
+}
+
+static object CreatePendingTileJobList()
+{
+    Type pendingJobType = typeof(TerrainWorld).GetNestedType("PendingTileJob", BindingFlags.NonPublic)
+        ?? throw new MissingMemberException(typeof(TerrainWorld).FullName, "PendingTileJob");
+    Type listType = typeof(List<>).MakeGenericType(pendingJobType);
+    return Activator.CreateInstance(listType)
+        ?? throw new InvalidOperationException("Failed to create retired pending tile job list.");
+}
+
+static object CreateTileCacheDictionary(
+    TerrainTileCoord coord,
+    TerrainGenerationProfile profile,
+    int terrainFeatureKey)
+{
+    Type cacheKeyType = typeof(TerrainWorld).GetNestedType("TerrainTileCacheKey", BindingFlags.NonPublic)
+        ?? throw new MissingMemberException(typeof(TerrainWorld).FullName, "TerrainTileCacheKey");
+    object key = Activator.CreateInstance(cacheKeyType, coord, 0, false, profile, terrainFeatureKey)
+        ?? throw new InvalidOperationException("Failed to create tile cache key.");
+    Type dictionaryType = typeof(Dictionary<,>).MakeGenericType(cacheKeyType, typeof(TerrainTileData));
+    var dictionary = (System.Collections.IDictionary)(Activator.CreateInstance(dictionaryType)
+        ?? throw new InvalidOperationException("Failed to create tile cache dictionary."));
+    dictionary.Add(key, null);
+    return dictionary;
+}
+
+static object CreateTileCacheNodeDictionary()
+{
+    Type cacheKeyType = typeof(TerrainWorld).GetNestedType("TerrainTileCacheKey", BindingFlags.NonPublic)
+        ?? throw new MissingMemberException(typeof(TerrainWorld).FullName, "TerrainTileCacheKey");
+    Type nodeType = typeof(LinkedListNode<>).MakeGenericType(cacheKeyType);
+    Type dictionaryType = typeof(Dictionary<,>).MakeGenericType(cacheKeyType, nodeType);
+    return Activator.CreateInstance(dictionaryType)
+        ?? throw new InvalidOperationException("Failed to create tile cache node dictionary.");
+}
+
+static object CreateTileCacheLinkedList()
+{
+    Type cacheKeyType = typeof(TerrainWorld).GetNestedType("TerrainTileCacheKey", BindingFlags.NonPublic)
+        ?? throw new MissingMemberException(typeof(TerrainWorld).FullName, "TerrainTileCacheKey");
+    Type listType = typeof(LinkedList<>).MakeGenericType(cacheKeyType);
+    return Activator.CreateInstance(listType)
+        ?? throw new InvalidOperationException("Failed to create tile cache LRU list.");
+}
+
+static int GetPrivateCollectionCount(object instance, string fieldName)
+{
+    FieldInfo? field = instance.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
+    if (field is null)
+    {
+        throw new MissingFieldException(instance.GetType().FullName, fieldName);
+    }
+
+    object value = field.GetValue(instance)
+        ?? throw new InvalidOperationException($"Private field {fieldName} was null.");
+    PropertyInfo? count = value.GetType().GetProperty("Count", BindingFlags.Instance | BindingFlags.Public);
+    if (count?.GetValue(value) is int result)
+    {
+        return result;
+    }
+
+    throw new InvalidOperationException($"Private field {fieldName} does not expose a Count property.");
+}
+
 static bool RuntimeWorldPlanFacadeIsolated(
     TerrainWorld world,
     TerrainWorldPlan returnedPlan,
@@ -3041,10 +3251,18 @@ static bool StreamingSnapshotMatchesFacadeContract(
     TerrainWorld world,
     TerrainGenerationProfile profile,
     bool hasWorldPlan,
-    TerrainTileCoord[] expectedDesiredCoords)
+    TerrainTileCoord[] expectedDesiredCoords,
+    TerrainTileCoord[] expectedLoadedCoords,
+    TerrainTileCoord[] expectedQueuedCoords)
 {
     TerrainWorldStreamingSnapshot snapshot = world.GetStreamingSnapshot();
-    if (!StreamingSnapshotValuesMatch(snapshot, profile, hasWorldPlan, expectedDesiredCoords))
+    if (!StreamingSnapshotValuesMatch(
+            snapshot,
+            profile,
+            hasWorldPlan,
+            expectedDesiredCoords,
+            expectedLoadedCoords,
+            expectedQueuedCoords))
     {
         return false;
     }
@@ -3052,18 +3270,35 @@ static bool StreamingSnapshotMatchesFacadeContract(
     if (snapshot.DesiredChunks.Length > 0)
     {
         snapshot.DesiredChunks[0] = new TerrainTileCoord(999, 999);
-        TerrainWorldStreamingSnapshot secondSnapshot = world.GetStreamingSnapshot();
-        return StreamingSnapshotValuesMatch(secondSnapshot, profile, hasWorldPlan, expectedDesiredCoords);
     }
 
-    return true;
+    if (snapshot.LoadedChunks.Length > 0)
+    {
+        snapshot.LoadedChunks[0] = new TerrainTileCoord(888, 888);
+    }
+
+    if (snapshot.QueuedTileJobs.Length > 0)
+    {
+        snapshot.QueuedTileJobs[0] = new TerrainTileCoord(777, 777);
+    }
+
+    TerrainWorldStreamingSnapshot secondSnapshot = world.GetStreamingSnapshot();
+    return StreamingSnapshotValuesMatch(
+        secondSnapshot,
+        profile,
+        hasWorldPlan,
+        expectedDesiredCoords,
+        expectedLoadedCoords,
+        expectedQueuedCoords);
 }
 
 static bool StreamingSnapshotValuesMatch(
     TerrainWorldStreamingSnapshot snapshot,
     TerrainGenerationProfile profile,
     bool hasWorldPlan,
-    TerrainTileCoord[] expectedDesiredCoords)
+    TerrainTileCoord[] expectedDesiredCoords,
+    TerrainTileCoord[] expectedLoadedCoords,
+    TerrainTileCoord[] expectedQueuedCoords)
 {
     return snapshot.Profile.Equals(profile) &&
         !snapshot.HasFocus &&
@@ -3082,7 +3317,9 @@ static bool StreamingSnapshotValuesMatch(
         snapshot.StreamTerrainBeforeOpenWorldPlanReady &&
         snapshot.TileCacheWithinLimit &&
         snapshot.TileJobQueueWithinLimit &&
-        TileCoordsMatch(snapshot.DesiredChunks, expectedDesiredCoords);
+        TileCoordsMatch(snapshot.DesiredChunks, expectedDesiredCoords) &&
+        TileCoordsMatch(snapshot.LoadedChunks, expectedLoadedCoords) &&
+        TileCoordsMatch(snapshot.QueuedTileJobs, expectedQueuedCoords);
 }
 
 static bool TileCoordsMatch(TerrainTileCoord[] actual, TerrainTileCoord[] expected)
@@ -3761,6 +3998,7 @@ static TerrainRuntimeWorldSmokeReport ValidateRuntimeWorldPlanMaterialization(
     TerrainWorldPlanningGateResult planningGate = TerrainWorldPlanner.ValidateOpenWorldPlanning(plan);
     TerrainExperienceGateResult experienceGate = TerrainExperienceAnalyzer.ValidateOpenWorldDefault(plan.ExperienceReport);
     TerrainPointOfInterestArchetypeValidationReport archetypeGate = TerrainPointOfInterestArchetypeCatalog.ValidatePlanReadiness(plan);
+    bool setWorldPlanInvalidationPassed = ValidateRuntimeSetWorldPlanInvalidation(profile, plan);
     TerrainRouteCorridorIndex corridorIndex = TerrainRouteCorridorIndex.FromPlan(plan, profile);
     TerrainPointOfInterestIndex poiIndex = TerrainPointOfInterestIndex.FromPlan(plan, profile);
 
@@ -3825,6 +4063,7 @@ static TerrainRuntimeWorldSmokeReport ValidateRuntimeWorldPlanMaterialization(
         planningGate.Passed &&
         experienceGate.Passed &&
         archetypeGate.Passed &&
+        setWorldPlanInvalidationPassed &&
         corridorIndex.HasSegments &&
         poiIndex.HasPoints &&
         sampledTiles > 0 &&
@@ -3842,6 +4081,7 @@ static TerrainRuntimeWorldSmokeReport ValidateRuntimeWorldPlanMaterialization(
             planningGate,
             experienceGate,
             archetypeGate,
+            setWorldPlanInvalidationPassed,
             corridorIndex.HasSegments,
             poiIndex.HasPoints,
             sampledTiles,
@@ -3870,7 +4110,67 @@ static TerrainRuntimeWorldSmokeReport ValidateRuntimeWorldPlanMaterialization(
         planningGate.Passed,
         experienceGate.Passed,
         archetypeGate.Passed,
+        setWorldPlanInvalidationPassed,
         reason);
+}
+
+static bool ValidateRuntimeSetWorldPlanInvalidation(
+    TerrainGenerationProfile profile,
+    TerrainWorldPlan plan)
+{
+    TerrainGenerationProfile probeProfile = profile with
+    {
+        MaxQueuedTileJobs = 0,
+        StreamRadiusChunks = 1
+    };
+    TerrainRouteCorridorIndex routeIndex = TerrainRouteCorridorIndex.FromPlan(plan, probeProfile);
+    TerrainPointOfInterestIndex poiIndex = TerrainPointOfInterestIndex.FromPlan(plan, probeProfile);
+    int terrainFeatureKey = HashCode.Combine(routeIndex.CacheKey, poiIndex.CacheKey);
+    TerrainTileCoord coord = new(12, -7);
+
+    TerrainWorld world = CreateTerrainWorldFacadeProbe(probeProfile, plan);
+    SetPrivateField(world, "_routeCorridors", routeIndex);
+    SetPrivateField(world, "_pointOfInterestIndex", poiIndex);
+    SetPrivateField(world, "_desiredCoords", new HashSet<TerrainTileCoord> { coord });
+
+    SetPrivateField(
+        world,
+        "_chunks",
+        new Dictionary<TerrainTileCoord, TerrainChunk>
+        {
+            [coord] = null!
+        });
+    SetPrivateField(world, "_jobs", CreatePendingTileJobStateDictionary([coord], probeProfile, terrainFeatureKey));
+    SetPrivateField(world, "_retiredJobs", CreatePendingTileJobList());
+    SetPrivateField(world, "_tileCache", CreateTileCacheDictionary(coord, probeProfile, terrainFeatureKey));
+    SetPrivateField(world, "_tileCacheNodes", CreateTileCacheNodeDictionary());
+    SetPrivateField(world, "_tileCacheLru", CreateTileCacheLinkedList());
+
+    TerrainWorldStreamingSnapshot seededSnapshot = world.GetStreamingSnapshot();
+    if (!seededSnapshot.HasWorldPlan ||
+        seededSnapshot.LoadedChunkCount != 1 ||
+        seededSnapshot.QueuedTileJobCount != 1 ||
+        seededSnapshot.TileCacheCount != 1)
+    {
+        return false;
+    }
+
+    InvokePrivateMethod(world, "InvalidatePlanDependentStreamingState");
+    SetPrivateField(world, "_worldPlan", null as TerrainWorldPlan);
+    SetPrivateField(world, "_routeCorridors", TerrainRouteCorridorIndex.Empty);
+    SetPrivateField(world, "_pointOfInterestIndex", TerrainPointOfInterestIndex.Empty);
+    TerrainWorldStreamingSnapshot clearedSnapshot = world.GetStreamingSnapshot();
+    return !world.TryGetWorldPlan(out _) &&
+        !clearedSnapshot.HasWorldPlan &&
+        clearedSnapshot.LoadedChunkCount == 0 &&
+        clearedSnapshot.QueuedTileJobCount == 0 &&
+        clearedSnapshot.TileCacheCount == 0 &&
+        GetPrivateCollectionCount(world, "_jobs") == 0 &&
+        GetPrivateCollectionCount(world, "_retiredJobs") == 1 &&
+        GetPrivateCollectionCount(world, "_tileCache") == 0 &&
+        GetPrivateCollectionCount(world, "_tileCacheNodes") == 0 &&
+        GetPrivateCollectionCount(world, "_tileCacheLru") == 0 &&
+        GetPrivateCollectionCount(world, "_chunks") == 0;
 }
 
 static TerrainRuntimeWorldCancellationReport ValidateRuntimeWorldPlanCancellation(
@@ -3966,6 +4266,7 @@ static string RuntimeWorldFailureReason(
     TerrainWorldPlanningGateResult planningGate,
     TerrainExperienceGateResult experienceGate,
     TerrainPointOfInterestArchetypeValidationReport archetypeGate,
+    bool setWorldPlanInvalidationPassed,
     bool hasCorridorIndex,
     bool hasPointIndex,
     int sampledTiles,
@@ -3988,6 +4289,11 @@ static string RuntimeWorldFailureReason(
     if (!qualityGate.Passed || !planningGate.Passed || !experienceGate.Passed || !archetypeGate.Passed)
     {
         return "runtime open world plan failed readiness gates";
+    }
+
+    if (!setWorldPlanInvalidationPassed)
+    {
+        return "TerrainWorld.SetWorldPlan did not invalidate ready-state jobs, cache, chunks, and plan indices";
     }
 
     if (!hasCorridorIndex || !hasPointIndex)
@@ -4027,7 +4333,8 @@ static void PrintRuntimeWorldSmoke(TerrainRuntimeWorldSmokeReport report)
         $"cancel {report.AsyncPlanCancellationMilliseconds:0.0} ms/{(report.AsyncPlanCancellationPassed ? "pass" : "fail")}, " +
         $"indices route/POI {(report.HasCorridorIndex ? "yes" : "no")}/{(report.HasPointIndex ? "yes" : "no")}, " +
         $"markers/bridges {report.RoadMarkerCount}/{report.BridgeSpanCount}, settlement scatter {report.SettlementInteriorScatterCount}, " +
-        $"gates Q/P/E/A {(report.QualityGatePassed ? "pass" : "fail")}/{(report.PlanningGatePassed ? "pass" : "fail")}/{(report.ExperienceGatePassed ? "pass" : "fail")}/{(report.ArchetypeGatePassed ? "pass" : "fail")} " +
+        $"gates Q/P/E/A {(report.QualityGatePassed ? "pass" : "fail")}/{(report.PlanningGatePassed ? "pass" : "fail")}/{(report.ExperienceGatePassed ? "pass" : "fail")}/{(report.ArchetypeGatePassed ? "pass" : "fail")}, " +
+        $"set-plan invalidation {(report.SetWorldPlanInvalidationPassed ? "pass" : "fail")} " +
         $"({report.Reason})");
 }
 
@@ -4476,6 +4783,17 @@ static bool EvaluateTileBenchmark(
         return false;
     }
 
+    if (!TileBenchmarkPercentilesWithinThresholds(
+            managed,
+            thresholds.MaxManagedP50Milliseconds,
+            thresholds.MaxManagedP95Milliseconds,
+            thresholds.MaxManagedP99Milliseconds,
+            out reason))
+    {
+        reason = $"managed tile percentile {reason}";
+        return false;
+    }
+
     if (managed.AllocatedKilobytesPerTile > thresholds.MaxAllocatedKilobytesPerTile)
     {
         reason = $"managed allocation {managed.AllocatedKilobytesPerTile:0.0} KB/tile exceeded {thresholds.MaxAllocatedKilobytesPerTile:0.0}";
@@ -4506,6 +4824,17 @@ static bool EvaluateTileBenchmark(
         return false;
     }
 
+    if (!TileBenchmarkPercentilesWithinThresholds(
+            native,
+            thresholds.MaxNativeP50Milliseconds,
+            thresholds.MaxNativeP95Milliseconds,
+            thresholds.MaxNativeP99Milliseconds,
+            out reason))
+    {
+        reason = $"native tile percentile {reason}";
+        return false;
+    }
+
     if (native.AllocatedKilobytesPerTile > thresholds.MaxAllocatedKilobytesPerTile)
     {
         reason = $"native allocation {native.AllocatedKilobytesPerTile:0.0} KB/tile exceeded {thresholds.MaxAllocatedKilobytesPerTile:0.0}";
@@ -4532,6 +4861,35 @@ static bool EvaluateTileBenchmark(
     }
 
     reason = "native-enabled render tile build benchmark stayed within thresholds";
+    return true;
+}
+
+static bool TileBenchmarkPercentilesWithinThresholds(
+    TerrainTileBenchmarkPass pass,
+    double maxP50Milliseconds,
+    double maxP95Milliseconds,
+    double maxP99Milliseconds,
+    out string reason)
+{
+    if (pass.P50Milliseconds > maxP50Milliseconds)
+    {
+        reason = $"P50 {pass.P50Milliseconds:0.00} ms exceeded {maxP50Milliseconds:0.00}";
+        return false;
+    }
+
+    if (pass.P95Milliseconds > maxP95Milliseconds)
+    {
+        reason = $"P95 {pass.P95Milliseconds:0.00} ms exceeded {maxP95Milliseconds:0.00}";
+        return false;
+    }
+
+    if (pass.P99Milliseconds > maxP99Milliseconds)
+    {
+        reason = $"P99 {pass.P99Milliseconds:0.00} ms exceeded {maxP99Milliseconds:0.00}";
+        return false;
+    }
+
+    reason = string.Empty;
     return true;
 }
 
@@ -4951,6 +5309,8 @@ static void PrintTileBenchmark(TerrainTileBenchmarkReport report)
     Console.WriteLine(
         $"Benchmark thresholds: managed <= {report.Thresholds.MaxManagedMillisecondsPerTile:0.00} ms/tile, " +
         $"native <= {report.Thresholds.MaxNativeMillisecondsPerTile:0.00} ms/tile, " +
+        $"managed p50/p95/p99 <= {report.Thresholds.MaxManagedP50Milliseconds:0.00}/{report.Thresholds.MaxManagedP95Milliseconds:0.00}/{report.Thresholds.MaxManagedP99Milliseconds:0.00} ms, " +
+        $"native p50/p95/p99 <= {report.Thresholds.MaxNativeP50Milliseconds:0.00}/{report.Thresholds.MaxNativeP95Milliseconds:0.00}/{report.Thresholds.MaxNativeP99Milliseconds:0.00} ms, " +
         $"alloc <= {report.Thresholds.MaxAllocatedKilobytesPerTile:0.0} KB/tile, " +
         $"speedup >= {report.Thresholds.MinNativeSpeedup:0.00}x");
     PrintTileBenchmarkPass("Managed", report.Managed);
@@ -4970,6 +5330,109 @@ static void PrintTileBenchmarkPass(string label, TerrainTileBenchmarkPass pass)
         $"vertices {pass.TotalVertices}, scatter {pass.TotalScatter}, landmarks {pass.TotalLandmarks}");
 }
 
+static TerrainValidationCliContractSmokeReport ValidateValidationCliContract()
+{
+    bool tierSelectionPassed =
+        ParseValidationTier(["--validation-tier", "pr"], out string prError).Name == "pr" &&
+        string.IsNullOrEmpty(prError) &&
+        ParseValidationTier(["--validation-tier", "nightly"], out string nightlyError).Name == "nightly" &&
+        string.IsNullOrEmpty(nightlyError) &&
+        ParseValidationTier(["--validation-tier", "release"], out string releaseError).Name == "release" &&
+        string.IsNullOrEmpty(releaseError);
+
+    TerrainValidationTierSpec custom = ParseValidationTier([], out string customError);
+    bool customFallbackPassed = custom.IsCustom && string.IsNullOrEmpty(customError);
+
+    TerrainValidationTierSpec skipRejected = ParseValidationTier(
+        ["--validation-tier", "pr", "--skip-runtime-api-smoke"],
+        out string skipError);
+    bool skipOverrideRejected =
+        skipRejected.IsCustom &&
+        skipError.Contains("--skip-*", StringComparison.Ordinal);
+
+    TerrainValidationTierSpec seedRejected = ParseValidationTier(
+        ["--validation-tier", "nightly", "--seed", "1234"],
+        out string seedError);
+    bool seedOverrideRejected =
+        seedRejected.IsCustom &&
+        seedError.Contains("seed/world/smoke/native/benchmark", StringComparison.Ordinal);
+
+    TerrainValidationTierSpec worldRejected = ParseValidationTier(
+        ["--validation-tier", "release", "--world-size", "4096"],
+        out string worldError);
+    bool worldOverrideRejected =
+        worldRejected.IsCustom &&
+        worldError.Contains("seed/world/smoke/native/benchmark", StringComparison.Ordinal);
+
+    TerrainValidationTierSpec nativeRejected = ParseValidationTier(
+        ["--validation-tier", "pr", "--native-smoke"],
+        out string nativeError);
+    bool nativeOverrideRejected =
+        nativeRejected.IsCustom &&
+        nativeError.Contains("seed/world/smoke/native/benchmark", StringComparison.Ordinal);
+
+    TerrainValidationTierSpec smokeAllSeedsRejected = ParseValidationTier(
+        ["--validation-tier", "pr", "--smoke-all-seeds"],
+        out string smokeAllSeedsError);
+    bool smokeAllSeedsOverrideRejected =
+        smokeAllSeedsRejected.IsCustom &&
+        smokeAllSeedsError.Contains("seed/world/smoke/native/benchmark", StringComparison.Ordinal);
+
+    TerrainValidationTierSpec benchmarkRejected = ParseValidationTier(
+        ["--validation-tier", "release", "--benchmark-tiles"],
+        out string benchmarkError);
+    bool benchmarkOverrideRejected =
+        benchmarkRejected.IsCustom &&
+        benchmarkError.Contains("seed/world/smoke/native/benchmark", StringComparison.Ordinal);
+
+    TerrainValidationTierSpec unknownRejected = ParseValidationTier(
+        ["--validation-tier", "fast"],
+        out string unknownError);
+    bool unknownTierRejected =
+        unknownRejected.IsCustom &&
+        unknownError.Contains("unknown --validation-tier", StringComparison.Ordinal) &&
+        unknownError.Contains("pr, nightly, release", StringComparison.Ordinal);
+
+    bool passed =
+        tierSelectionPassed &&
+        customFallbackPassed &&
+        skipOverrideRejected &&
+        seedOverrideRejected &&
+        worldOverrideRejected &&
+        nativeOverrideRejected &&
+        smokeAllSeedsOverrideRejected &&
+        benchmarkOverrideRejected &&
+        unknownTierRejected;
+
+    string reason = passed
+        ? "validation tiers remain fixed gates and reject weakening overrides"
+        : "validation tier parsing accepted an invalid override or rejected a valid tier";
+
+    return new TerrainValidationCliContractSmokeReport(
+        passed,
+        tierSelectionPassed,
+        customFallbackPassed,
+        skipOverrideRejected,
+        seedOverrideRejected,
+        worldOverrideRejected,
+        nativeOverrideRejected,
+        smokeAllSeedsOverrideRejected,
+        benchmarkOverrideRejected,
+        unknownTierRejected,
+        reason);
+}
+
+static void PrintValidationCliContractSmoke(TerrainValidationCliContractSmokeReport report)
+{
+    Console.WriteLine(
+        $"Validation CLI contract smoke: {(report.Passed ? "PASS" : "FAIL")} " +
+        $"tiers/custom {report.TierSelectionPassed}/{report.CustomFallbackPassed}, " +
+        $"reject skip/seed/world/native/smoke-all/benchmark/unknown {report.SkipOverrideRejected}/{report.SeedOverrideRejected}/" +
+        $"{report.WorldOverrideRejected}/{report.NativeOverrideRejected}/{report.SmokeAllSeedsOverrideRejected}/" +
+        $"{report.BenchmarkOverrideRejected}/{report.UnknownTierRejected} " +
+        $"({report.Reason})");
+}
+
 static void PrintAggregate(
     TerrainValidationAggregate aggregate,
     int seedCount,
@@ -4986,6 +5449,7 @@ static void PrintAggregate(
     TerrainArtifactSmokeReport? artifactSmokeReport,
     TerrainPlanJsonSmokeReport? planJsonSmokeReport,
     TerrainEnumContractSmokeReport? enumContractSmokeReport,
+    TerrainValidationCliContractSmokeReport? validationCliContractSmokeReport,
     TerrainRuntimeApiSmokeReport? runtimeApiSmokeReport,
     TerrainAnchorContractSmokeReport? anchorSmokeReport,
     TerrainRuntimeWorldSmokeReport? runtimeWorldSmokeReport,
@@ -5055,6 +5519,10 @@ static void PrintAggregate(
     if (enumContractSmokeReport is not null)
     {
         Console.WriteLine($"Terrain enum contract smoke: {(enumContractSmokeReport.Value.Passed ? "PASS" : "FAIL")}");
+    }
+    if (validationCliContractSmokeReport is not null)
+    {
+        Console.WriteLine($"Validation CLI contract smoke: {(validationCliContractSmokeReport.Value.Passed ? "PASS" : "FAIL")}");
     }
     if (runtimeApiSmokeReport is not null)
     {
@@ -5349,6 +5817,7 @@ internal readonly record struct TerrainRouteCorridorSmokeReport(
     float MaxHeightDelta,
     float MaxColorDelta,
     int InfluencedVertexCount,
+    bool SegmentSnapshotIsolated,
     string Reason);
 
 /// <summary>Reports whether corridor-driven road markers and bridge spans materialize across many tiles.</summary>
@@ -5395,6 +5864,7 @@ internal readonly record struct TerrainPoiTileSmokeReport(
     int LayoutColorVertexCount,
     float LayoutMaxColorDelta,
     int LandmarkScatterCount,
+    bool PoiIndexSnapshotIsolated,
     string Reason);
 
 /// <summary>Reports whether POI footprints produce height and color changes on a sampled tile.</summary>
@@ -5405,6 +5875,20 @@ internal readonly record struct TerrainPoiFootprintSmokeReport(
     float MaxColorDelta,
     int LayoutColorVertexCount,
     float LayoutMaxColorDelta);
+
+/// <summary>Reports whether validation tier command-line contracts reject weakening overrides.</summary>
+internal readonly record struct TerrainValidationCliContractSmokeReport(
+    bool Passed,
+    bool TierSelectionPassed,
+    bool CustomFallbackPassed,
+    bool SkipOverrideRejected,
+    bool SeedOverrideRejected,
+    bool WorldOverrideRejected,
+    bool NativeOverrideRejected,
+    bool SmokeAllSeedsOverrideRejected,
+    bool BenchmarkOverrideRejected,
+    bool UnknownTierRejected,
+    string Reason);
 
 /// <summary>Reports whether gameplay scatter (understory, resource nodes, hazard outcrops) materializes across tiles.</summary>
 internal readonly record struct TerrainGameplayScatterSmokeReport(
@@ -5565,6 +6049,7 @@ internal readonly record struct TerrainRuntimeWorldSmokeReport(
     bool PlanningGatePassed,
     bool ExperienceGatePassed,
     bool ArchetypeGatePassed,
+    bool SetWorldPlanInvalidationPassed,
     string Reason);
 
 /// <summary>Reports whether async runtime plan generation responds to cancellation.</summary>
@@ -5633,6 +6118,12 @@ internal readonly record struct TerrainTileBenchmarkReport(
 internal readonly record struct TerrainTileBenchmarkThresholds(
     double MaxManagedMillisecondsPerTile,
     double MaxNativeMillisecondsPerTile,
+    double MaxManagedP50Milliseconds,
+    double MaxManagedP95Milliseconds,
+    double MaxManagedP99Milliseconds,
+    double MaxNativeP50Milliseconds,
+    double MaxNativeP95Milliseconds,
+    double MaxNativeP99Milliseconds,
     double MaxAllocatedKilobytesPerTile,
     double MinNativeSpeedup,
     int MinParityTileCount,
@@ -5647,6 +6138,12 @@ internal readonly record struct TerrainTileBenchmarkThresholds(
     public static TerrainTileBenchmarkThresholds Default { get; } = new(
         MaxManagedMillisecondsPerTile: 24.0,
         MaxNativeMillisecondsPerTile: 8.0,
+        MaxManagedP50Milliseconds: 24.0,
+        MaxManagedP95Milliseconds: 48.0,
+        MaxManagedP99Milliseconds: 72.0,
+        MaxNativeP50Milliseconds: 8.0,
+        MaxNativeP95Milliseconds: 16.0,
+        MaxNativeP99Milliseconds: 24.0,
         MaxAllocatedKilobytesPerTile: 2048.0,
         MinNativeSpeedup: 1.00,
         MinParityTileCount: 8,

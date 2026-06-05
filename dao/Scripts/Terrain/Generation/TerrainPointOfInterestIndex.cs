@@ -73,8 +73,17 @@ public sealed class TerrainPointOfInterestIndex
         return new TerrainPointOfInterestIndex(hash == 0 ? 1 : hash, immutableBuckets);
     }
 
-    /// <summary>Returns all POIs whose footprint overlaps the given tile coordinate.</summary>
+    /// <summary>Returns a snapshot copy of all POIs whose footprint overlaps the given tile coordinate.</summary>
     public TerrainWorldPointOfInterest[] GetPoints(TerrainTileCoord coord)
+    {
+        TerrainWorldPointOfInterest[] points = GetPointsUnsafe(coord);
+        return points.Length == 0
+            ? NoPoints
+            : (TerrainWorldPointOfInterest[])points.Clone();
+    }
+
+    /// <summary>Returns the internal POI array for allocation-sensitive tile generation paths.</summary>
+    internal TerrainWorldPointOfInterest[] GetPointsUnsafe(TerrainTileCoord coord)
     {
         return _pointsByCoord.TryGetValue(coord, out TerrainWorldPointOfInterest[]? points)
             ? points

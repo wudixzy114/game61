@@ -129,18 +129,27 @@ public sealed class TerrainRouteCorridorIndex
         return new TerrainRouteCorridorIndex(hash == 0 ? 1 : hash, immutableBuckets);
     }
 
-    /// <summary>Returns all corridor segments overlapping the given tile coordinate.</summary>
+    /// <summary>Returns a snapshot copy of all corridor segments overlapping the given tile coordinate.</summary>
     public TerrainRouteCorridorSegment[] GetSegments(TerrainTileCoord coord)
     {
-        return _segmentsByCoord.TryGetValue(coord, out TerrainRouteCorridorSegment[]? segments)
-            ? segments
-            : NoSegments;
+        TerrainRouteCorridorSegment[] segments = GetSegmentsUnsafe(coord);
+        return segments.Length == 0
+            ? NoSegments
+            : (TerrainRouteCorridorSegment[])segments.Clone();
     }
 
     /// <summary>Samples corridor influence at a world position, looking up segments by tile coordinate.</summary>
     public TerrainRouteCorridorSample Sample(Vector2 world, TerrainTileCoord coord)
     {
-        return Sample(world, GetSegments(coord));
+        return Sample(world, GetSegmentsUnsafe(coord));
+    }
+
+    /// <summary>Returns the internal segment array for allocation-sensitive tile generation paths.</summary>
+    internal TerrainRouteCorridorSegment[] GetSegmentsUnsafe(TerrainTileCoord coord)
+    {
+        return _segmentsByCoord.TryGetValue(coord, out TerrainRouteCorridorSegment[]? segments)
+            ? segments
+            : NoSegments;
     }
 
     /// <summary>Samples corridor influence at a world position against a pre-resolved segment array.</summary>

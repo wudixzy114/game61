@@ -156,10 +156,15 @@ public partial class TerrainWorld : Node3D
             NativeTerrainBridge.EnsureInitialized();
         }
 
+        InvalidatePlanDependentStreamingState();
+        UpdateStreaming(force: true);
+    }
+
+    private void InvalidatePlanDependentStreamingState()
+    {
         CancelAllJobs();
         ClearTileCache();
         ClearChunks();
-        UpdateStreaming(force: true);
     }
 
     /// <summary>Builds a new open-world plan for this terrain world and optionally applies it to streaming tiles.</summary>
@@ -682,9 +687,7 @@ public partial class TerrainWorld : Node3D
             return;
         }
 
-        CancelAllJobs();
-        ClearTileCache();
-        ClearChunks();
+        InvalidatePlanDependentStreamingState();
         UpdateStreaming(force: true);
     }
 
@@ -1061,9 +1064,9 @@ public partial class TerrainWorld : Node3D
 
     private void ClearChunks()
     {
-        foreach (TerrainChunk chunk in _chunks.Values)
+        foreach (TerrainChunk? chunk in _chunks.Values)
         {
-            chunk.QueueFree();
+            chunk?.QueueFree();
         }
 
         _chunks.Clear();
