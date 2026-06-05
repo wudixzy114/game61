@@ -2546,6 +2546,11 @@ static bool ExactFloatEquals(float expected, float actual)
     return Math.Abs(expected - actual) <= TerrainDeterminismContract.ExactFloatEpsilon;
 }
 
+static bool ExactDoubleEquals(double expected, double actual)
+{
+    return Math.Abs(expected - actual) <= TerrainDeterminismContract.ExactFloatEpsilon;
+}
+
 static bool ExactPositionEquals(Vector2 expected, Vector2 actual)
 {
     return expected.DistanceSquaredTo(actual) <= TerrainDeterminismContract.Squared(TerrainDeterminismContract.ExactPositionEpsilon);
@@ -3754,6 +3759,25 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
             ExactFloatEquals(TerrainDeterminismContract.NativeHeightMaxEpsilon, 1.5f) &&
             ExactFloatEquals(TerrainDeterminismContract.NativeFieldMaxEpsilon, 0.015f) &&
             ExactFloatEquals(TerrainDeterminismContract.NativeTileColorEpsilon, 0.03f);
+        bool performanceContractPassed =
+            string.Equals(TerrainPerformanceContract.Contract, "terrain-performance-v1", StringComparison.Ordinal) &&
+            string.Equals(TerrainPerformanceContract.TileBenchmarkHardwareBaseline, "dev-linux-x64-provisional", StringComparison.Ordinal) &&
+            ExactDoubleEquals(TerrainPerformanceContract.MaxManagedMillisecondsPerTile, 24.0) &&
+            ExactDoubleEquals(TerrainPerformanceContract.MaxNativeMillisecondsPerTile, 8.0) &&
+            ExactDoubleEquals(TerrainPerformanceContract.MaxManagedP50Milliseconds, 24.0) &&
+            ExactDoubleEquals(TerrainPerformanceContract.MaxManagedP95Milliseconds, 48.0) &&
+            ExactDoubleEquals(TerrainPerformanceContract.MaxManagedP99Milliseconds, 72.0) &&
+            ExactDoubleEquals(TerrainPerformanceContract.MaxNativeP50Milliseconds, 8.0) &&
+            ExactDoubleEquals(TerrainPerformanceContract.MaxNativeP95Milliseconds, 16.0) &&
+            ExactDoubleEquals(TerrainPerformanceContract.MaxNativeP99Milliseconds, 24.0) &&
+            ExactDoubleEquals(TerrainPerformanceContract.MaxAllocatedKilobytesPerTile, 2048.0) &&
+            ExactDoubleEquals(TerrainPerformanceContract.MinNativeSpeedup, 1.00) &&
+            TerrainPerformanceContract.MinParityTileCount == 8 &&
+            TerrainPerformanceContract.MinBenchmarkBiomeKinds == 7 &&
+            TerrainPerformanceContract.MinBenchmarkLandscapeKinds == 6 &&
+            TerrainPerformanceContract.MinBenchmarkPointOfInterestTiles == 8 &&
+            TerrainPerformanceContract.MinBenchmarkRouteTiles == 8 &&
+            TerrainPerformanceContract.MinBenchmarkGameplayRichTiles == 12;
 
         TerrainWorld planWorld = CreateTerrainWorldFacadeProbe(profile, plan);
         streamingSnapshotPassed =
@@ -3951,6 +3975,7 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
             streamingSnapshotPassed &&
             apiVersionPassed &&
             determinismContractPassed &&
+            performanceContractPassed &&
             planTryGetPassed &&
             planSnapshotTryGetPassed &&
             points.Length == plan.PointsOfInterest.Length &&
@@ -3979,6 +4004,7 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
                 streamingSnapshotPassed,
                 apiVersionPassed,
                 determinismContractPassed,
+                performanceContractPassed,
                 planTryGetPassed,
                 planSnapshotTryGetPassed,
                 points.Length,
@@ -4012,6 +4038,7 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
             streamingSnapshotPassed,
             apiVersionPassed,
             determinismContractPassed,
+            performanceContractPassed,
             pointQueryPassed,
             routeQueryPassed,
             routeCorridorQueryPassed,
@@ -4034,6 +4061,7 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
             false,
             0,
             0,
+            false,
             false,
             false,
             false,
@@ -4670,6 +4698,7 @@ static string RuntimeApiFailureReason(
     bool streamingSnapshotPassed,
     bool apiVersionPassed,
     bool determinismContractPassed,
+    bool performanceContractPassed,
     bool planTryGetPassed,
     bool planSnapshotTryGetPassed,
     int pointCount,
@@ -4753,6 +4782,11 @@ static string RuntimeApiFailureReason(
         return "TerrainDeterminismContract constants did not match terrain-determinism-v1";
     }
 
+    if (!performanceContractPassed)
+    {
+        return "TerrainPerformanceContract constants did not match terrain-performance-v1";
+    }
+
     if (!planTryGetPassed)
     {
         return "TryGetWorldPlan did not return the assigned runtime plan";
@@ -4809,6 +4843,7 @@ static void PrintRuntimeApiSmoke(TerrainRuntimeApiSmokeReport report)
         $"surface axes {(report.SurfacePositionAxesPassed ? "pass" : "fail")}, " +
         $"api {TerrainApiVersion.Contract}/{TerrainApiVersion.Version}/{(report.ApiVersionPassed ? "pass" : "fail")}, " +
         $"determinism {TerrainDeterminismContract.Contract}/{(report.DeterminismContractPassed ? "pass" : "fail")}, " +
+        $"performance {TerrainPerformanceContract.Contract}/{TerrainPerformanceContract.TileBenchmarkHardwareBaseline}/{(report.PerformanceContractPassed ? "pass" : "fail")}, " +
         $"plan empty/ready {(report.NoPlanTryGetPassed && report.NoPlanSnapshotPassed && report.EmptyPlanCollectionsPassed ? "pass" : "fail")}/{(report.PlanTryGetPassed && report.PlanSnapshotTryGetPassed ? "pass" : "fail")}, " +
         $"POIs/routes {report.PointOfInterestCount}/{report.RouteCount}, " +
         $"traversable/water {(report.TraversabilityQueryPassed ? "pass" : "fail")}/{(report.AboveWaterQueryPassed ? "pass" : "fail")}, " +
@@ -6709,7 +6744,7 @@ static void PrintTileBenchmark(TerrainTileBenchmarkReport report)
         $"passes {report.MeasurementPassCount}, native speedup {report.NativeSpeedup:0.00}x, parity tiles {report.ParityTileCount}, " +
         $"max parity delta {report.MaxHeightDelta:0.000}/{report.MaxColorDelta:0.000} ({report.Reason})");
     Console.WriteLine(
-        $"Benchmark thresholds: managed <= {report.Thresholds.MaxManagedMillisecondsPerTile:0.00} ms/tile, " +
+        $"Benchmark thresholds ({TerrainPerformanceContract.Contract}/{TerrainPerformanceContract.TileBenchmarkHardwareBaseline}): managed <= {report.Thresholds.MaxManagedMillisecondsPerTile:0.00} ms/tile, " +
         $"native <= {report.Thresholds.MaxNativeMillisecondsPerTile:0.00} ms/tile, " +
         $"managed p50/p95/p99 <= {report.Thresholds.MaxManagedP50Milliseconds:0.00}/{report.Thresholds.MaxManagedP95Milliseconds:0.00}/{report.Thresholds.MaxManagedP99Milliseconds:0.00} ms, " +
         $"native p50/p95/p99 <= {report.Thresholds.MaxNativeP50Milliseconds:0.00}/{report.Thresholds.MaxNativeP95Milliseconds:0.00}/{report.Thresholds.MaxNativeP99Milliseconds:0.00} ms, " +
@@ -7456,6 +7491,7 @@ internal readonly record struct TerrainRuntimeApiSmokeReport(
     bool StreamingSnapshotPassed,
     bool ApiVersionPassed,
     bool DeterminismContractPassed,
+    bool PerformanceContractPassed,
     bool PointQueryPassed,
     bool RouteQueryPassed,
     bool RouteCorridorQueryPassed,
@@ -7590,22 +7626,22 @@ internal readonly record struct TerrainTileBenchmarkThresholds(
     float MaxParityColorDelta)
 {
     public static TerrainTileBenchmarkThresholds Default { get; } = new(
-        MaxManagedMillisecondsPerTile: 24.0,
-        MaxNativeMillisecondsPerTile: 8.0,
-        MaxManagedP50Milliseconds: 24.0,
-        MaxManagedP95Milliseconds: 48.0,
-        MaxManagedP99Milliseconds: 72.0,
-        MaxNativeP50Milliseconds: 8.0,
-        MaxNativeP95Milliseconds: 16.0,
-        MaxNativeP99Milliseconds: 24.0,
-        MaxAllocatedKilobytesPerTile: 2048.0,
-        MinNativeSpeedup: 1.00,
-        MinParityTileCount: 8,
-        MinBenchmarkBiomeKinds: 7,
-        MinBenchmarkLandscapeKinds: 6,
-        MinBenchmarkPointOfInterestTiles: 8,
-        MinBenchmarkRouteTiles: 8,
-        MinBenchmarkGameplayRichTiles: 12,
+        MaxManagedMillisecondsPerTile: TerrainPerformanceContract.MaxManagedMillisecondsPerTile,
+        MaxNativeMillisecondsPerTile: TerrainPerformanceContract.MaxNativeMillisecondsPerTile,
+        MaxManagedP50Milliseconds: TerrainPerformanceContract.MaxManagedP50Milliseconds,
+        MaxManagedP95Milliseconds: TerrainPerformanceContract.MaxManagedP95Milliseconds,
+        MaxManagedP99Milliseconds: TerrainPerformanceContract.MaxManagedP99Milliseconds,
+        MaxNativeP50Milliseconds: TerrainPerformanceContract.MaxNativeP50Milliseconds,
+        MaxNativeP95Milliseconds: TerrainPerformanceContract.MaxNativeP95Milliseconds,
+        MaxNativeP99Milliseconds: TerrainPerformanceContract.MaxNativeP99Milliseconds,
+        MaxAllocatedKilobytesPerTile: TerrainPerformanceContract.MaxAllocatedKilobytesPerTile,
+        MinNativeSpeedup: TerrainPerformanceContract.MinNativeSpeedup,
+        MinParityTileCount: TerrainPerformanceContract.MinParityTileCount,
+        MinBenchmarkBiomeKinds: TerrainPerformanceContract.MinBenchmarkBiomeKinds,
+        MinBenchmarkLandscapeKinds: TerrainPerformanceContract.MinBenchmarkLandscapeKinds,
+        MinBenchmarkPointOfInterestTiles: TerrainPerformanceContract.MinBenchmarkPointOfInterestTiles,
+        MinBenchmarkRouteTiles: TerrainPerformanceContract.MinBenchmarkRouteTiles,
+        MinBenchmarkGameplayRichTiles: TerrainPerformanceContract.MinBenchmarkGameplayRichTiles,
         MaxParityHeightDelta: TerrainDeterminismContract.TileParityHeightEpsilon,
         MaxParityColorDelta: TerrainDeterminismContract.TileParityColorEpsilon);
 }
