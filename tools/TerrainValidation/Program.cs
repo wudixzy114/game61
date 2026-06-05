@@ -191,6 +191,25 @@ for (int i = 0; i < seedCount; i++)
         PrintRuntimeWorldSmoke(runtimeWorldSmokeReport.Value);
         RecordAuxiliaryCheck(runtimeWorldSmokeReport.Value.Passed, ref totalFailures, ref auxiliaryCheckCount, ref auxiliaryFailureCount);
     }
+
+    if (i == 0)
+    {
+        // Run native parity and tile benchmark immediately after the benchmark seed is ready,
+        // before the remaining multi-seed sweep adds more thermal/noise variance.
+        if (nativeSmoke)
+        {
+            nativeSmokeReport = ValidateNativeSamplerParity(benchmarkProfile);
+            PrintNativeSamplerSmoke(nativeSmokeReport.Value);
+            RecordAuxiliaryCheck(nativeSmokeReport.Value.Passed, ref totalFailures, ref auxiliaryCheckCount, ref auxiliaryFailureCount);
+        }
+
+        if (benchmarkTiles && benchmarkPlan is not null)
+        {
+            tileBenchmarkReport = BenchmarkTerrainTiles(benchmarkProfile, benchmarkPlan, benchmarkTileCount);
+            PrintTileBenchmark(tileBenchmarkReport.Value);
+            RecordAuxiliaryCheck(tileBenchmarkReport.Value.Passed, ref totalFailures, ref auxiliaryCheckCount, ref auxiliaryFailureCount);
+        }
+    }
 }
 
 if (!skipEnumContractSmoke)
@@ -219,20 +238,6 @@ RecordAuxiliaryCheck(thresholdContractSmokeReport.Value.Passed, ref totalFailure
 defaultStateContractSmokeReport = ValidateTerrainDefaultStateContracts();
 PrintDefaultStateContractSmoke(defaultStateContractSmokeReport.Value);
 RecordAuxiliaryCheck(defaultStateContractSmokeReport.Value.Passed, ref totalFailures, ref auxiliaryCheckCount, ref auxiliaryFailureCount);
-
-if (nativeSmoke)
-{
-    nativeSmokeReport = ValidateNativeSamplerParity(benchmarkProfile);
-    PrintNativeSamplerSmoke(nativeSmokeReport.Value);
-    RecordAuxiliaryCheck(nativeSmokeReport.Value.Passed, ref totalFailures, ref auxiliaryCheckCount, ref auxiliaryFailureCount);
-}
-
-if (benchmarkTiles && benchmarkPlan is not null)
-{
-    tileBenchmarkReport = BenchmarkTerrainTiles(benchmarkProfile, benchmarkPlan, benchmarkTileCount);
-    PrintTileBenchmark(tileBenchmarkReport.Value);
-    RecordAuxiliaryCheck(tileBenchmarkReport.Value.Passed, ref totalFailures, ref auxiliaryCheckCount, ref auxiliaryFailureCount);
-}
 
 PrintAggregate(
     aggregate,
