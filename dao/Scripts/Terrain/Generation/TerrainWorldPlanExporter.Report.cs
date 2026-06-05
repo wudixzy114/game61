@@ -52,6 +52,11 @@ public static partial class TerrainWorldPlanExporter
         if (profile is TerrainGenerationProfile value)
         {
             builder.AppendLine($"Terrain Profile Hash: {value.StableHash()}");
+            builder.AppendLine($"Terrain Scatter Rule Set Hash: {NormalizeScatterRuleSetHash(value.ScatterRuleSetHash)}");
+            builder.AppendLine($"Terrain Settlement Visual Rule Set Hash: {NormalizeSettlementVisualRuleSetHash(value.SettlementVisualRuleSetHash)}");
+            builder.AppendLine($"Terrain POI Rule Set Hash: {NormalizePointOfInterestRuleSetHash(value.PointOfInterestRuleSetHash)}");
+            builder.AppendLine($"Terrain Route Rule Set Hash: {NormalizeRouteRuleSetHash(value.RouteRuleSetHash)}");
+            builder.AppendLine($"Terrain Scenic Landmark Rule Set Hash: {NormalizeScenicRuleSetHash(value.ScenicLandmarkRuleSetHash)}");
         }
 
         builder.AppendLine(FormattableString.Invariant($"Center: {plan.Center.X:0.##}, {plan.Center.Y:0.##}"));
@@ -244,5 +249,40 @@ public static partial class TerrainWorldPlanExporter
     private static void AppendBiomeCount(StringBuilder builder, TerrainBiomeKind kind, int count)
     {
         builder.AppendLine(FormattableString.Invariant($"{kind}: {count}"));
+    }
+
+    private static string NormalizePointOfInterestRuleSetHash(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value)
+            ? TerrainPointOfInterestRuleCatalog.DefaultHash
+            : value;
+    }
+
+    private static string NormalizeScatterRuleSetHash(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value)
+            ? TerrainScatterRuleCatalog.DefaultHash
+            : value;
+    }
+
+    private static string NormalizeSettlementVisualRuleSetHash(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value)
+            ? TerrainSettlementVisualRuleCatalog.DefaultHash
+            : value;
+    }
+
+    private static string NormalizeRouteRuleSetHash(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value)
+            ? TerrainRouteRuleCatalog.DefaultHash
+            : value;
+    }
+
+    private static string NormalizeScenicRuleSetHash(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value)
+            ? TerrainScenicLandmarkRuleCatalog.DefaultHash
+            : value;
     }
 }

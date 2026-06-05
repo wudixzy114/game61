@@ -40,9 +40,23 @@ Use for read-only runtime streaming diagnostics.
 
 - `GetStreamingSnapshot()`
 
+### `ITerrainPlacementService`
+
+Use for terrain-driven resource, encounter, audio, and local interaction placement candidates.
+
+- `QueryPlacementCandidates(Rect2 worldBounds, TerrainGameplayTag requiredTags, TerrainGameplayTag excludedTags = TerrainGameplayTag.None, int maxCandidates = 32, float sampleSpacing = 32.0f, float minTraversability = 0.45f, float maxTraversalCost = 2.4f, float maxHazardPotential = 1.0f, bool requireRouteInfluence = false, float minRouteInfluence = 0.0f)`
+
+### `ITerrainNavigationProvider`
+
+Use for navigation and map-graph handoff without embedding character pathfinding in the terrain system.
+
+- `CreateTraversalCostGrid(Vector2 center, float worldSize, int gridSize, float spacing = 24.0f)`
+- `GetRouteGraphSnapshot()`
+- `TryGetRouteGraphSnapshot(out TerrainRouteGraphSnapshot? snapshot)`
+
 ## Runtime Provider
 
-`Dao.Terrain.Streaming.TerrainWorld` implements all three interfaces above.
+`Dao.Terrain.Streaming.TerrainWorld` implements all five interfaces above.
 
 Gameplay systems should prefer depending on one or more of these interfaces instead of:
 
@@ -83,6 +97,8 @@ New gameplay systems should not read `TerrainTileBuilder` internals directly.
 The PR terrain validation tier now verifies:
 
 - `TerrainWorld` implements the stable runtime interfaces
+- placement candidates respect requested tags, traversal filters, and route-influence requirements
+- route-graph snapshots and traversal-cost grid handoff are stable and isolated
 - runtime signal delegates exist with the expected signatures
 - existing runtime facade behavior remains unchanged
 - open-world generation, artifacts, JSON roundtrip, anchor contract, and runtime materialization still pass

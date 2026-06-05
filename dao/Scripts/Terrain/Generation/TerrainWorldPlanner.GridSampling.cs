@@ -11,6 +11,7 @@ public static partial class TerrainWorldPlanner
         Vector2 center,
         float worldSize,
         int resolution,
+        TerrainPointOfInterestRuleSetSnapshot poiRules,
         CancellationToken cancellationToken)
     {
         float cellSize = worldSize / resolution;
@@ -44,7 +45,7 @@ public static partial class TerrainWorldPlanner
                     field.BiomeKind,
                     field.LandscapeKind,
                     ClassifyRegion(field));
-                AddPoiCandidates(candidates, profile, field, x, y);
+                AddPoiCandidates(candidates, profile, poiRules, field, x, y);
             }
         }
 

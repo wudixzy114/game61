@@ -26,6 +26,7 @@ public static partial class TerrainTileBuilder
         }
 
         Vector2 origin = coord.Origin(profile.ChunkSize);
+        TerrainSettlementVisualRuleSetSnapshot visualRules = ResolveSettlementVisualRules(profile);
         foreach (TerrainWorldPointOfInterest point in plannedPoints)
         {
             AddSettlementInteriorScatter(
@@ -38,6 +39,7 @@ public static partial class TerrainTileBuilder
                 fields,
                 point,
                 corridorSegments,
+                visualRules,
                 origin,
                 scatter);
             AddSettlementGatewayScatter(
@@ -49,6 +51,7 @@ public static partial class TerrainTileBuilder
                 fields,
                 point,
                 corridorSegments,
+                visualRules,
                 origin,
                 scatter);
 
@@ -77,8 +80,8 @@ public static partial class TerrainTileBuilder
                 0.0f,
                 1.0f);
             float rotation = Hash01(coord.X, coord.Z, point.Id * 104_729, profile.Seed + 211) * Mathf.Pi * 2.0f;
-            float scale = LandmarkScaleFor(kind, point.Score);
-            Color tint = LandmarkColorFor(kind, field);
+            float scale = LandmarkScaleFor(kind, point.Score, visualRules);
+            Color tint = LandmarkColorFor(kind, field, visualRules);
 
             var localPosition = new Vector3(localX, height, localZ);
             landmarks.Add(new TerrainLandmarkData(kind, localPosition, score, $"POI_{point.Id:00}_{point.Kind}"));
@@ -96,6 +99,7 @@ public static partial class TerrainTileBuilder
         TerrainWorldField[] fields,
         TerrainWorldPointOfInterest point,
         TerrainRouteCorridorSegment[] corridorSegments,
+        TerrainSettlementVisualRuleSetSnapshot visualRules,
         Vector2 origin,
         List<TerrainScatterInstance> scatter)
     {
@@ -110,7 +114,7 @@ public static partial class TerrainTileBuilder
             return;
         }
 
-        int count = TerrainSettlementRules.InteriorCount(point.SettlementTier);
+        int count = visualRules.InteriorCount(point.SettlementTier);
         Vector2 axis = SettlementLayoutAxis(point, corridorSegments, profile);
         Vector2 side = new(-axis.Y, axis.X);
 
@@ -134,8 +138,8 @@ public static partial class TerrainTileBuilder
 
             TerrainWorldField field = SampleFieldBilinear(localX, localZ, resolution, step, fields, vertexCountPerSide);
             float rotation = SettlementInteriorRotation(point, axis, i, profile);
-            float scale = SettlementInteriorScale(point.SettlementTier, kind, point.Score, coord, i, profile);
-            Color tint = SettlementInteriorColor(kind, field, coord, i, profile);
+            float scale = SettlementInteriorScale(point.SettlementTier, kind, point.Score, coord, i, profile, visualRules);
+            Color tint = SettlementInteriorColor(kind, field, coord, i, profile, visualRules);
             scatter.Add(new TerrainScatterInstance(
                 TerrainScatterKind.Landmark,
                 new Vector3(localX, height, localZ),

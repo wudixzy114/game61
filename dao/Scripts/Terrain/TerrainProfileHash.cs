@@ -34,7 +34,11 @@ public static class TerrainProfileHash
         Append(builder, nameof(profile.MaxCachedTileData), profile.MaxCachedTileData);
         Append(builder, nameof(profile.GenerateCollision), profile.GenerateCollision);
         Append(builder, nameof(profile.UseNativeSamplerWhenAvailable), profile.UseNativeSamplerWhenAvailable);
-        Append(builder, nameof(profile.ScenicLandmarkRuleSetHash), NormalizeRuleSetHash(profile.ScenicLandmarkRuleSetHash));
+        Append(builder, nameof(profile.ScatterRuleSetHash), NormalizeScatterRuleSetHash(profile.ScatterRuleSetHash));
+        Append(builder, nameof(profile.SettlementVisualRuleSetHash), NormalizeSettlementVisualRuleSetHash(profile.SettlementVisualRuleSetHash));
+        Append(builder, nameof(profile.PointOfInterestRuleSetHash), NormalizePointOfInterestRuleSetHash(profile.PointOfInterestRuleSetHash));
+        Append(builder, nameof(profile.RouteRuleSetHash), NormalizeRouteRuleSetHash(profile.RouteRuleSetHash));
+        Append(builder, nameof(profile.ScenicLandmarkRuleSetHash), NormalizeScenicRuleSetHash(profile.ScenicLandmarkRuleSetHash));
 
         byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes(builder.ToString()));
         return Convert.ToHexString(hash).ToLowerInvariant();
@@ -60,7 +64,35 @@ public static class TerrainProfileHash
         builder.Append(name).Append('=').Append(value).Append(';');
     }
 
-    private static string NormalizeRuleSetHash(string? value)
+    private static string NormalizeScatterRuleSetHash(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value)
+            ? Dao.Terrain.Generation.TerrainScatterRuleCatalog.DefaultHash
+            : value;
+    }
+
+    private static string NormalizeSettlementVisualRuleSetHash(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value)
+            ? Dao.Terrain.Generation.TerrainSettlementVisualRuleCatalog.DefaultHash
+            : value;
+    }
+
+    private static string NormalizePointOfInterestRuleSetHash(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value)
+            ? Dao.Terrain.Generation.TerrainPointOfInterestRuleCatalog.DefaultHash
+            : value;
+    }
+
+    private static string NormalizeRouteRuleSetHash(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value)
+            ? Dao.Terrain.Generation.TerrainRouteRuleCatalog.DefaultHash
+            : value;
+    }
+
+    private static string NormalizeScenicRuleSetHash(string? value)
     {
         return string.IsNullOrWhiteSpace(value)
             ? Dao.Terrain.Generation.TerrainScenicLandmarkRuleCatalog.DefaultHash

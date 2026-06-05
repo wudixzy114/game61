@@ -1841,6 +1841,64 @@ static bool TerrainMapRasterSnapshotIsolated(TerrainMapRaster raster)
     return snapshotMutationIsolated && constructorInputIsolated;
 }
 
+static bool TraversalCostGridMatches(
+    TerrainTraversalCostGrid expected,
+    TerrainTraversalCostGrid actual)
+{
+    if (expected.Width != actual.Width ||
+        expected.Height != actual.Height ||
+        !ExactPositionEquals(expected.Center, actual.Center) ||
+        !ExactFloatEquals(expected.WorldSize, actual.WorldSize) ||
+        expected.SampleCount != actual.SampleCount)
+    {
+        return false;
+    }
+
+    for (int i = 0; i < expected.Height; i++)
+    {
+        for (int j = 0; j < expected.Width; j++)
+        {
+            if (!TerrainTraversalCostsMatch(expected.GetSample(j, i), actual.GetSample(j, i)))
+            {
+                return false;
+            }
+        }
+    }
+
+    return true;
+}
+
+static bool TraversalCostGridSnapshotIsolated(TerrainTraversalCostGrid grid)
+{
+    if (grid.Width <= 0 || grid.Height <= 0 || grid.SampleCount < grid.Width * grid.Height)
+    {
+        return false;
+    }
+
+    TerrainTraversalCost firstSample = grid.GetSample(0, 0);
+    TerrainTraversalCost[] sampleSnapshot = grid.ToSampleArray();
+    if (sampleSnapshot.Length == 0)
+    {
+        return false;
+    }
+
+    sampleSnapshot[0] = default;
+    bool snapshotMutationIsolated = TerrainTraversalCostsMatch(firstSample, grid.GetSample(0, 0)) &&
+        !TerrainTraversalCostsMatch(sampleSnapshot[0], grid.GetSample(0, 0));
+
+    TerrainTraversalCost[] constructorSamples = grid.ToSampleArray();
+    TerrainTraversalCostGrid constructed = new(
+        grid.Width,
+        grid.Height,
+        grid.Center,
+        grid.WorldSize,
+        constructorSamples);
+    constructorSamples[0] = default;
+    bool constructorInputIsolated = TerrainTraversalCostsMatch(firstSample, constructed.GetSample(0, 0));
+
+    return snapshotMutationIsolated && constructorInputIsolated;
+}
+
 static void AnalyzeTraversalCostMap(
     TerrainMapRaster traversalCostMap,
     out int distinctColorBuckets,
@@ -1976,6 +2034,11 @@ static bool ReportContainsRequiredArtifactSections(
         reportText.Contains($"Terrain Generator Version: {TerrainWorldPlanSerializer.GeneratorVersion}", StringComparison.Ordinal) &&
         reportText.Contains($"Terrain Determinism Contract: {TerrainDeterminismContract.Contract}", StringComparison.Ordinal) &&
         reportText.Contains($"Terrain Profile Hash: {profile.StableHash()}", StringComparison.Ordinal) &&
+        reportText.Contains($"Terrain Scatter Rule Set Hash: {NormalizeScatterRuleSetHash(profile.ScatterRuleSetHash)}", StringComparison.Ordinal) &&
+        reportText.Contains($"Terrain Settlement Visual Rule Set Hash: {NormalizeSettlementVisualRuleSetHash(profile.SettlementVisualRuleSetHash)}", StringComparison.Ordinal) &&
+        reportText.Contains($"Terrain POI Rule Set Hash: {NormalizePointOfInterestRuleSetHash(profile.PointOfInterestRuleSetHash)}", StringComparison.Ordinal) &&
+        reportText.Contains($"Terrain Route Rule Set Hash: {NormalizeRouteRuleSetHash(profile.RouteRuleSetHash)}", StringComparison.Ordinal) &&
+        reportText.Contains($"Terrain Scenic Landmark Rule Set Hash: {NormalizeScenicRuleSetHash(profile.ScenicLandmarkRuleSetHash)}", StringComparison.Ordinal) &&
         reportText.Contains(FormattableString.Invariant($"Center: {plan.Center.X:0.##}, {plan.Center.Y:0.##}"), StringComparison.Ordinal) &&
         reportText.Contains(FormattableString.Invariant($"World size: {plan.WorldSize:0.##} meters"), StringComparison.Ordinal) &&
         reportText.Contains(FormattableString.Invariant($"Planning grid: {plan.GridResolution} x {plan.GridResolution}"), StringComparison.Ordinal) &&
@@ -2202,6 +2265,11 @@ static bool PlanJsonMetadataMatches(JsonObject root, TerrainGenerationProfile pr
         JsonStringEquals(root, "generatorVersion", TerrainWorldPlanSerializer.GeneratorVersion) &&
         JsonIntEquals(root, "seed", profile.Seed) &&
         JsonStringEquals(root, "profileHash", profile.StableHash()) &&
+        JsonStringEquals(root, "scatterRuleSetHash", NormalizeScatterRuleSetHash(profile.ScatterRuleSetHash)) &&
+        JsonStringEquals(root, "settlementVisualRuleSetHash", NormalizeSettlementVisualRuleSetHash(profile.SettlementVisualRuleSetHash)) &&
+        JsonStringEquals(root, "pointOfInterestRuleSetHash", NormalizePointOfInterestRuleSetHash(profile.PointOfInterestRuleSetHash)) &&
+        JsonStringEquals(root, "routeRuleSetHash", NormalizeRouteRuleSetHash(profile.RouteRuleSetHash)) &&
+        JsonStringEquals(root, "scenicLandmarkRuleSetHash", NormalizeScenicRuleSetHash(profile.ScenicLandmarkRuleSetHash)) &&
         JsonArrayCount(root, "regions") == plan.Regions.Length &&
         JsonArrayCount(root, "pointsOfInterest") == plan.PointsOfInterest.Length &&
         JsonArrayCount(root, "routes") == plan.Routes.Length &&
@@ -2268,6 +2336,59 @@ static bool JsonStringEquals(JsonObject root, string propertyName, string expect
     return root.TryGetPropertyValue(propertyName, out JsonNode? node) &&
         node is not null &&
         string.Equals(node.GetValue<string>(), expected, StringComparison.Ordinal);
+}
+
+static string NormalizeScatterRuleSetHash(string? value)
+{
+    return string.IsNullOrWhiteSpace(value)
+        ? ResolveInternalDefaultRuleHash("Dao.Terrain.Generation.TerrainScatterRuleCatalog")
+        : value;
+}
+
+static string NormalizeSettlementVisualRuleSetHash(string? value)
+{
+    return string.IsNullOrWhiteSpace(value)
+        ? ResolveInternalDefaultRuleHash("Dao.Terrain.Generation.TerrainSettlementVisualRuleCatalog")
+        : value;
+}
+
+static string NormalizePointOfInterestRuleSetHash(string? value)
+{
+    return string.IsNullOrWhiteSpace(value)
+        ? ResolveInternalDefaultRuleHash("Dao.Terrain.Generation.TerrainPointOfInterestRuleCatalog")
+        : value;
+}
+
+static string NormalizeRouteRuleSetHash(string? value)
+{
+    return string.IsNullOrWhiteSpace(value)
+        ? ResolveInternalDefaultRuleHash("Dao.Terrain.Generation.TerrainRouteRuleCatalog")
+        : value;
+}
+
+static string NormalizeScenicRuleSetHash(string? value)
+{
+    return string.IsNullOrWhiteSpace(value)
+        ? ResolveInternalDefaultRuleHash("Dao.Terrain.Generation.TerrainScenicLandmarkRuleCatalog")
+        : value;
+}
+
+static string ResolveInternalDefaultRuleHash(string fullTypeName)
+{
+    Type assemblyType = typeof(TerrainWorld);
+    Type? type = assemblyType.Assembly.GetType(fullTypeName, throwOnError: false);
+    if (type is null)
+    {
+        throw new InvalidOperationException($"Unable to resolve terrain rule catalog type '{fullTypeName}'.");
+    }
+
+    PropertyInfo? property = type.GetProperty("DefaultHash", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+    if (property?.GetValue(null) is string value && !string.IsNullOrWhiteSpace(value))
+    {
+        return value;
+    }
+
+    throw new InvalidOperationException($"Terrain rule catalog '{fullTypeName}' did not expose a usable DefaultHash.");
 }
 
 static bool JsonIntEquals(JsonObject root, string propertyName, int expected)
@@ -3030,6 +3151,10 @@ static TerrainPublicApiShapeSmokeReport ValidateTerrainPublicApiShapeContracts()
                     ("MaxCachedTileData", typeof(int)),
                     ("GenerateCollision", typeof(bool)),
                     ("UseNativeSamplerWhenAvailable", typeof(bool)),
+                    ("ScatterRuleSetHash", typeof(string)),
+                    ("SettlementVisualRuleSetHash", typeof(string)),
+                    ("PointOfInterestRuleSetHash", typeof(string)),
+                    ("RouteRuleSetHash", typeof(string)),
                     ("ScenicLandmarkRuleSetHash", typeof(string))
                 ],
                 ref checkedTypeCount,
@@ -3198,6 +3323,306 @@ static TerrainPublicApiShapeSmokeReport ValidateTerrainPublicApiShapeContracts()
                     ("BaseScale", typeof(float)),
                     ("ScoreScale", typeof(float)),
                     ("BaseColor", typeof(Color))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicShape<TerrainScatterVariantRuleResource>(
+                [
+                    ("ProbabilityLow", typeof(float)),
+                    ("ProbabilityHigh", typeof(float)),
+                    ("BaseScale", typeof(float)),
+                    ("ScaleJitterFactor", typeof(float)),
+                    ("TintLow", typeof(Color)),
+                    ("TintHigh", typeof(Color))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicShape<TerrainScatterRuleSet>(
+                [
+                    ("NaturalDensityPenalty", typeof(float)),
+                    ("BaseDensityPenalty", typeof(float)),
+                    ("TreeMaxSlope", typeof(float)),
+                    ("TreeMinMoisture", typeof(float)),
+                    ("TreeMinTemperature", typeof(float)),
+                    ("TreeMaxRiver", typeof(float)),
+                    ("TreeMinTraversability", typeof(float)),
+                    ("TreeProbability", typeof(float)),
+                    ("TreeBaseScale", typeof(float)),
+                    ("TreeScaleJitter", typeof(float)),
+                    ("TreeTintLow", typeof(Color)),
+                    ("TreeTintHigh", typeof(Color)),
+                    ("RockMinSlope", typeof(float)),
+                    ("RockMinHeightAboveSea", typeof(float)),
+                    ("RockMinHazardPotential", typeof(float)),
+                    ("RockProbability", typeof(float)),
+                    ("RockBaseScale", typeof(float)),
+                    ("RockScaleJitter", typeof(float)),
+                    ("RockTintLow", typeof(Color)),
+                    ("RockTintHigh", typeof(Color)),
+                    ("UnderstoryMaxSlope", typeof(float)),
+                    ("UnderstoryMinResourcePotential", typeof(float)),
+                    ("UnderstoryMinMoisture", typeof(float)),
+                    ("UnderstoryMinTemperature", typeof(float)),
+                    ("UnderstoryProbabilityLow", typeof(float)),
+                    ("UnderstoryProbabilityHigh", typeof(float)),
+                    ("UnderstoryBaseScale", typeof(float)),
+                    ("UnderstoryScaleJitter", typeof(float)),
+                    ("UnderstoryTintLow", typeof(Color)),
+                    ("UnderstoryTintHigh", typeof(Color)),
+                    ("ResourceNodeMaxSlope", typeof(float)),
+                    ("ResourceNodeMinResourcePotential", typeof(float)),
+                    ("ResourceNodeMinTraversability", typeof(float)),
+                    ("ResourceNodeMinTemperature", typeof(float)),
+                    ("ResourceNodeProbabilityLow", typeof(float)),
+                    ("ResourceNodeProbabilityHigh", typeof(float)),
+                    ("ResourceNodeBaseScale", typeof(float)),
+                    ("ResourceNodeScaleJitter", typeof(float)),
+                    ("ResourceNodeTintLow", typeof(Color)),
+                    ("ResourceNodeTintHigh", typeof(Color)),
+                    ("HazardOutcropMaxSlope", typeof(float)),
+                    ("HazardOutcropMinHazardPotential", typeof(float)),
+                    ("HazardOutcropMinEncounterPotential", typeof(float)),
+                    ("HazardOutcropMinTemperature", typeof(float)),
+                    ("HazardOutcropProbabilityLow", typeof(float)),
+                    ("HazardOutcropProbabilityHigh", typeof(float)),
+                    ("HazardOutcropBaseScale", typeof(float)),
+                    ("HazardOutcropScaleJitter", typeof(float)),
+                    ("HazardOutcropTintLow", typeof(Color)),
+                    ("HazardOutcropTintHigh", typeof(Color)),
+                    ("TidalMangroveFlatMaxSlope", typeof(float)),
+                    ("TidalMangroveFlatMinHeightOffset", typeof(float)),
+                    ("TidalMangroveFlatMaxHeightOffset", typeof(float)),
+                    ("TidalMangroveFlatMinMoisture", typeof(float)),
+                    ("TidalMangroveFlatMinTemperature", typeof(float)),
+                    ("TidalMangroveFlatRiverThreshold", typeof(float)),
+                    ("TidalMangroveFlatShorelineHeightOffset", typeof(float)),
+                    ("LakeScatterZoneMaxSlope", typeof(float)),
+                    ("LakeScatterZoneMinHeightOffset", typeof(float)),
+                    ("LakeScatterZoneMaxHeightFactor", typeof(float)),
+                    ("LakeScatterZoneMinLake", typeof(float)),
+                    ("LakeScatterZoneMinMoisture", typeof(float)),
+                    ("LakeScatterZoneMinResourcePotential", typeof(float)),
+                    ("TidalMangroveRoot", typeof(TerrainScatterVariantRuleResource)),
+                    ("LakeWaterLily", typeof(TerrainScatterVariantRuleResource)),
+                    ("LakeReed", typeof(TerrainScatterVariantRuleResource)),
+                    ("GrassTuft", typeof(TerrainScatterVariantRuleResource)),
+                    ("CoastalMangroveRoot", typeof(TerrainScatterVariantRuleResource)),
+                    ("CoastalPalm", typeof(TerrainScatterVariantRuleResource)),
+                    ("Driftwood", typeof(TerrainScatterVariantRuleResource)),
+                    ("OasisReed", typeof(TerrainScatterVariantRuleResource)),
+                    ("DesertCactus", typeof(TerrainScatterVariantRuleResource)),
+                    ("DesertShrub", typeof(TerrainScatterVariantRuleResource)),
+                    ("WetlandMangroveRoot", typeof(TerrainScatterVariantRuleResource)),
+                    ("WetlandReed", typeof(TerrainScatterVariantRuleResource)),
+                    ("SnowfieldAlpinePine", typeof(TerrainScatterVariantRuleResource)),
+                    ("SnowClump", typeof(TerrainScatterVariantRuleResource)),
+                    ("MountainAlpinePine", typeof(TerrainScatterVariantRuleResource))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicShape<TerrainSettlementVisualRuleSet>(
+                [
+                    ("VillageInteriorCount", typeof(int)),
+                    ("TownInteriorCount", typeof(int)),
+                    ("OasisHubInteriorCount", typeof(int)),
+                    ("SettlementLandmarkBaseScale", typeof(float)),
+                    ("VistaLandmarkBaseScale", typeof(float)),
+                    ("RiverCrossingLandmarkBaseScale", typeof(float)),
+                    ("MountainPassLandmarkBaseScale", typeof(float)),
+                    ("CoastalLandingLandmarkBaseScale", typeof(float)),
+                    ("ResourceGroveLandmarkBaseScale", typeof(float)),
+                    ("CanyonOverlookLandmarkBaseScale", typeof(float)),
+                    ("OasisLandmarkBaseScale", typeof(float)),
+                    ("VillageLandmarkBaseScale", typeof(float)),
+                    ("TownLandmarkBaseScale", typeof(float)),
+                    ("OasisHubLandmarkBaseScale", typeof(float)),
+                    ("DefaultGatewayTierScale", typeof(float)),
+                    ("VillageGatewayTierScale", typeof(float)),
+                    ("TownGatewayTierScale", typeof(float)),
+                    ("OasisHubGatewayTierScale", typeof(float)),
+                    ("DefaultGatewayRouteScale", typeof(float)),
+                    ("PrimaryTrailGatewayRouteScale", typeof(float)),
+                    ("RiverRoadGatewayRouteScale", typeof(float)),
+                    ("CoastalPathGatewayRouteScale", typeof(float)),
+                    ("DefaultGatewayBaseColor", typeof(Color)),
+                    ("VillageGatewayBaseColor", typeof(Color)),
+                    ("TownGatewayBaseColor", typeof(Color)),
+                    ("OasisHubGatewayBaseColor", typeof(Color)),
+                    ("DefaultGatewayRouteTint", typeof(Color)),
+                    ("RiverRoadGatewayRouteTint", typeof(Color)),
+                    ("CoastalPathGatewayRouteTint", typeof(Color)),
+                    ("RidgePassGatewayRouteTint", typeof(Color)),
+                    ("ScenicTrailGatewayRouteTint", typeof(Color)),
+                    ("VillageInteriorBaseScale", typeof(float)),
+                    ("TownInteriorBaseScale", typeof(float)),
+                    ("OasisHubInteriorBaseScale", typeof(float)),
+                    ("VillageWellBaseScale", typeof(float)),
+                    ("MarketStallBaseScale", typeof(float)),
+                    ("WatchTowerBaseScale", typeof(float)),
+                    ("OasisGardenBaseScale", typeof(float)),
+                    ("SettlementLandmarkBaseColor", typeof(Color)),
+                    ("VistaLandmarkBaseColor", typeof(Color)),
+                    ("RiverCrossingLandmarkBaseColor", typeof(Color)),
+                    ("MountainPassLandmarkBaseColor", typeof(Color)),
+                    ("CoastalLandingLandmarkBaseColor", typeof(Color)),
+                    ("ResourceGroveLandmarkBaseColor", typeof(Color)),
+                    ("CanyonOverlookLandmarkBaseColor", typeof(Color)),
+                    ("OasisLandmarkBaseColor", typeof(Color)),
+                    ("VillageLandmarkBaseColor", typeof(Color)),
+                    ("TownLandmarkBaseColor", typeof(Color)),
+                    ("OasisHubLandmarkBaseColor", typeof(Color)),
+                    ("DefaultInteriorVariationColor", typeof(Color)),
+                    ("TownBlockVariationColor", typeof(Color)),
+                    ("OasisCanopyVariationColor", typeof(Color)),
+                    ("SettlementPlazaVariationColor", typeof(Color)),
+                    ("OasisPoolVariationColor", typeof(Color)),
+                    ("VillageWellVariationColor", typeof(Color)),
+                    ("MarketStallVariationColor", typeof(Color)),
+                    ("WatchTowerVariationColor", typeof(Color)),
+                    ("OasisGardenVariationColor", typeof(Color))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicShape<TerrainPointOfInterestRuleSet>(
+                [
+                    ("SettlementCandidateThreshold", typeof(float)),
+                    ("VistaThreshold", typeof(float)),
+                    ("RiverCrossingThreshold", typeof(float)),
+                    ("MountainPassThreshold", typeof(float)),
+                    ("CoastalLandingThreshold", typeof(float)),
+                    ("ResourceGroveThreshold", typeof(float)),
+                    ("AncientSiteThreshold", typeof(float)),
+                    ("CanyonOverlookThreshold", typeof(float)),
+                    ("OasisThreshold", typeof(float)),
+                    ("SettlementStableFlatLandWeight", typeof(float)),
+                    ("SettlementMoistureWeight", typeof(float)),
+                    ("SettlementTemperatureWeight", typeof(float)),
+                    ("SettlementRiverWeight", typeof(float)),
+                    ("SettlementScenicWeight", typeof(float)),
+                    ("SettlementPlainsGrassBonus", typeof(float)),
+                    ("SettlementOasisBonus", typeof(float)),
+                    ("VistaScenicWeight", typeof(float)),
+                    ("VistaElevationWeight", typeof(float)),
+                    ("VistaRarityWeight", typeof(float)),
+                    ("CrossingRiverWeight", typeof(float)),
+                    ("CrossingTraversabilityWeight", typeof(float)),
+                    ("CrossingLandWeight", typeof(float)),
+                    ("PassElevationWeight", typeof(float)),
+                    ("PassTraversabilityWeight", typeof(float)),
+                    ("PassScenicWeight", typeof(float)),
+                    ("PassRarityWeight", typeof(float)),
+                    ("CoastLandWeight", typeof(float)),
+                    ("CoastTraversabilityWeight", typeof(float)),
+                    ("CoastScenicWeight", typeof(float)),
+                    ("CoastRarityWeight", typeof(float)),
+                    ("ResourceMoistureWeight", typeof(float)),
+                    ("ResourceTraversabilityWeight", typeof(float)),
+                    ("ResourceLowElevationWeight", typeof(float)),
+                    ("ResourceRiverWeight", typeof(float)),
+                    ("ResourceRarityWeight", typeof(float)),
+                    ("AncientScenicWeight", typeof(float)),
+                    ("AncientElevationWeight", typeof(float)),
+                    ("AncientStableFlatLandWeight", typeof(float)),
+                    ("AncientRarityWeight", typeof(float)),
+                    ("CanyonScenicWeight", typeof(float)),
+                    ("CanyonRiverWeight", typeof(float)),
+                    ("CanyonElevationWeight", typeof(float)),
+                    ("CanyonRarityWeight", typeof(float)),
+                    ("OasisNaturalResourceWeight", typeof(float)),
+                    ("OasisNaturalTraversabilityWeight", typeof(float)),
+                    ("OasisNaturalRiverWeight", typeof(float)),
+                    ("OasisNaturalScenicWeight", typeof(float)),
+                    ("OasisNaturalRarityWeight", typeof(float)),
+                    ("OasisStrategicWaterAccessWeight", typeof(float)),
+                    ("OasisStrategicResourceWeight", typeof(float)),
+                    ("OasisStrategicTraversabilityWeight", typeof(float)),
+                    ("OasisStrategicScenicWeight", typeof(float)),
+                    ("OasisStrategicRarityWeight", typeof(float)),
+                    ("CandidateRarityLift", typeof(float)),
+                    ("MinPerKindLimit", typeof(int)),
+                    ("PerKindLimitRatio", typeof(float)),
+                    ("MinDistanceCellMultiplier", typeof(float)),
+                    ("MinDistanceChunkMultiplier", typeof(float)),
+                    ("RequiredKindDistanceFactor", typeof(float)),
+                    ("KindSweepDistanceFactor", typeof(float)),
+                    ("CoverageAnchorTargetRatio", typeof(float)),
+                    ("CoverageGainWeight", typeof(float)),
+                    ("DistanceNoveltyWeight", typeof(float)),
+                    ("CandidateScoreWeight", typeof(float)),
+                    ("ExoticBiomeBonus", typeof(float)),
+                    ("TownThreshold", typeof(float)),
+                    ("TownCandidateScoreWeight", typeof(float)),
+                    ("TownTraversabilityWeight", typeof(float)),
+                    ("TownResourceWeight", typeof(float)),
+                    ("TownScenicWeight", typeof(float)),
+                    ("TownBiomeWeight", typeof(float)),
+                    ("PlainsBiomeScore", typeof(float)),
+                    ("GrasslandBiomeScore", typeof(float)),
+                    ("OasisBiomeScore", typeof(float)),
+                    ("ForestBiomeScore", typeof(float)),
+                    ("CoastBiomeScore", typeof(float)),
+                    ("FallbackBiomeScore", typeof(float))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicShape<TerrainRouteRuleSet>(
+                [
+                    ("SecondaryMinDistanceChunks", typeof(float)),
+                    ("SecondaryIdealDistanceChunks", typeof(float)),
+                    ("SecondaryMaxDistanceChunks", typeof(float)),
+                    ("SecondaryMinCandidateTests", typeof(int)),
+                    ("SecondaryCandidateTestMultiplier", typeof(int)),
+                    ("SettlementMinDistanceChunks", typeof(float)),
+                    ("SettlementIdealDistanceChunks", typeof(float)),
+                    ("SettlementMaxDistanceChunks", typeof(float)),
+                    ("SettlementMinCandidateTests", typeof(int)),
+                    ("SettlementCandidateTestMultiplier", typeof(int)),
+                    ("MinimumSettlementConnectorRoutes", typeof(int)),
+                    ("SettlementEndpointWeight", typeof(float)),
+                    ("SettlementScenicWeight", typeof(float)),
+                    ("SettlementTraversalWeight", typeof(float)),
+                    ("SettlementUnderConnectedWeight", typeof(float)),
+                    ("SettlementKindVarietyWeight", typeof(float)),
+                    ("SettlementTierImportanceWeight", typeof(float)),
+                    ("SettlementTierVarietyWeight", typeof(float)),
+                    ("SettlementDistanceWeight", typeof(float)),
+                    ("SettlementBonusWeight", typeof(float)),
+                    ("SecondaryEndpointWeight", typeof(float)),
+                    ("SecondaryScenicWeight", typeof(float)),
+                    ("SecondaryTraversalWeight", typeof(float)),
+                    ("SecondaryUnderConnectedWeight", typeof(float)),
+                    ("SecondaryKindVarietyWeight", typeof(float)),
+                    ("SecondaryTierImportanceWeight", typeof(float)),
+                    ("SecondaryTierVarietyWeight", typeof(float)),
+                    ("SecondaryDistanceWeight", typeof(float)),
+                    ("SecondarySettlementBonusWeight", typeof(float)),
+                    ("ImpassableWaterDepthHeightScaleRatio", typeof(float)),
+                    ("DiagonalBaseCost", typeof(float)),
+                    ("OrthogonalBaseCost", typeof(float)),
+                    ("TraversabilityPenaltyWeight", typeof(float)),
+                    ("HeightDeltaPenaltyHeightScaleRatio", typeof(float)),
+                    ("HeightDeltaPenaltyMax", typeof(float)),
+                    ("RiverHighPenaltyThreshold", typeof(float)),
+                    ("RiverHighPenalty", typeof(float)),
+                    ("RiverPenaltyWeight", typeof(float)),
+                    ("WaterPenaltyStart", typeof(float)),
+                    ("WaterPenaltyBase", typeof(float)),
+                    ("WaterPenaltyDepthScale", typeof(float)),
+                    ("WaterPenaltyDepthMax", typeof(float)),
+                    ("ScenicBonusWeight", typeof(float)),
+                    ("MinimumScaledCost", typeof(float)),
+                    ("WaterPathThreshold", typeof(float)),
+                    ("CoastPathThreshold", typeof(float)),
+                    ("RiverRoadPrimaryThreshold", typeof(float)),
+                    ("RidgePassPrimaryThreshold", typeof(float)),
+                    ("ScenicTrailThreshold", typeof(float)),
+                    ("RiverRoadSecondaryThreshold", typeof(float)),
+                    ("RidgePassSecondaryThreshold", typeof(float))
                 ],
                 ref checkedTypeCount,
                 ref checkedMemberCount,
@@ -3485,6 +3910,56 @@ static TerrainPublicApiShapeSmokeReport ValidateTerrainPublicApiShapeContracts()
                 ref checkedTypeCount,
                 ref checkedMemberCount,
                 out failureReason) &&
+            CheckPublicShape<TerrainPlacementCandidate>(
+                [
+                    ("WorldPosition", typeof(Vector2)),
+                    ("Height", typeof(float)),
+                    ("Score", typeof(float)),
+                    ("Tags", typeof(TerrainGameplayTags)),
+                    ("Traversal", typeof(TerrainTraversalCost)),
+                    ("Water", typeof(TerrainWaterState)),
+                    ("RouteCorridor", typeof(TerrainRouteCorridorSample)),
+                    ("NearRoute", typeof(bool))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicShape<TerrainRouteGraphNode>(
+                [
+                    ("PointId", typeof(int)),
+                    ("WorldPosition", typeof(Vector2)),
+                    ("Kind", typeof(TerrainPointOfInterestKind)),
+                    ("SettlementTier", typeof(TerrainSettlementTier)),
+                    ("Score", typeof(float))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicShape<TerrainRouteGraphEdge>(
+                [
+                    ("FromPointId", typeof(int)),
+                    ("ToPointId", typeof(int)),
+                    ("Kind", typeof(TerrainRouteKind)),
+                    ("Cost", typeof(float)),
+                    ("AverageScenicPotential", typeof(float)),
+                    ("AverageTraversability", typeof(float)),
+                    ("CoreWidth", typeof(float)),
+                    ("ShoulderWidth", typeof(float)),
+                    ("Waypoints", typeof(Vector2[]))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicShape<TerrainRouteGraphSnapshot>(
+                [
+                    ("Center", typeof(Vector2)),
+                    ("WorldSize", typeof(float)),
+                    ("Nodes", typeof(TerrainRouteGraphNode[])),
+                    ("Edges", typeof(TerrainRouteGraphEdge[]))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
             CheckPublicShape<TerrainWorldStreamingSnapshot>(
                 [
                     ("Profile", typeof(TerrainGenerationProfile)),
@@ -3736,6 +4211,38 @@ static TerrainPublicApiShapeSmokeReport ValidateTerrainPublicApiShapeContracts()
                 ref checkedTypeCount,
                 ref checkedMemberCount,
                 out failureReason) &&
+            CheckPublicMethods(
+                typeof(TerrainScatterRuleSet),
+                [
+                    new("StableHash", false, typeof(string), [])
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicMethods(
+                typeof(TerrainSettlementVisualRuleSet),
+                [
+                    new("StableHash", false, typeof(string), [])
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicMethods(
+                typeof(TerrainPointOfInterestRuleSet),
+                [
+                    new("StableHash", false, typeof(string), [])
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicMethods(
+                typeof(TerrainRouteRuleSet),
+                [
+                    new("StableHash", false, typeof(string), [])
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
             CheckPublicStaticFields(
                 typeof(TerrainApiVersion),
                 [
@@ -3885,6 +4392,24 @@ static TerrainPublicApiShapeSmokeReport ValidateTerrainPublicApiShapeContracts()
                 ref checkedMemberCount,
                 out failureReason) &&
             CheckPublicMethods(
+                typeof(ITerrainPlacementService),
+                [
+                    new("QueryPlacementCandidates", false, typeof(TerrainPlacementCandidate[]), [typeof(Rect2), typeof(TerrainGameplayTag), typeof(TerrainGameplayTag), typeof(int), typeof(float), typeof(float), typeof(float), typeof(float), typeof(bool), typeof(float)])
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicMethods(
+                typeof(ITerrainNavigationProvider),
+                [
+                    new("CreateTraversalCostGrid", false, typeof(TerrainTraversalCostGrid), [typeof(Vector2), typeof(float), typeof(int), typeof(float)]),
+                    new("GetRouteGraphSnapshot", false, typeof(TerrainRouteGraphSnapshot), []),
+                    new("TryGetRouteGraphSnapshot", false, typeof(bool), [typeof(TerrainRouteGraphSnapshot).MakeByRefType()])
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicMethods(
                 typeof(TerrainWorld),
                 [
                     new("SetFocus", false, typeof(void), [typeof(Node3D)]),
@@ -3909,6 +4434,10 @@ static TerrainPublicApiShapeSmokeReport ValidateTerrainPublicApiShapeContracts()
                     new("SampleTraversalCost", false, typeof(TerrainTraversalCost), [typeof(Vector2), typeof(float)]),
                     new("IsTraversable", false, typeof(bool), [typeof(Vector2), typeof(float)]),
                     new("IsAboveWater", false, typeof(bool), [typeof(Vector2), typeof(float)]),
+                    new("QueryPlacementCandidates", false, typeof(TerrainPlacementCandidate[]), [typeof(Rect2), typeof(TerrainGameplayTag), typeof(TerrainGameplayTag), typeof(int), typeof(float), typeof(float), typeof(float), typeof(float), typeof(bool), typeof(float)]),
+                    new("CreateTraversalCostGrid", false, typeof(TerrainTraversalCostGrid), [typeof(Vector2), typeof(float), typeof(int), typeof(float)]),
+                    new("GetRouteGraphSnapshot", false, typeof(TerrainRouteGraphSnapshot), []),
+                    new("TryGetRouteGraphSnapshot", false, typeof(bool), [typeof(TerrainRouteGraphSnapshot).MakeByRefType()]),
                     new("CreateRuntimeOpenWorldPlan", true, typeof(TerrainWorldPlan), [typeof(TerrainGenerationProfile), typeof(float), typeof(CancellationToken)]),
                     new("CreateRuntimeOpenWorldPlan", true, typeof(TerrainWorldPlan), [typeof(TerrainGenerationProfile), typeof(Vector2), typeof(float), typeof(CancellationToken)]),
                     new("CreateRuntimeOpenWorldPlanAsync", true, typeof(Task<TerrainWorldPlan>), [typeof(TerrainGenerationProfile), typeof(float), typeof(CancellationToken)]),
@@ -4160,6 +4689,7 @@ static bool CheckExportedTerrainTypes(out string? failureReason)
         "Dao.Terrain.Generation.TerrainMapLayer",
         "Dao.Terrain.Generation.TerrainMapRaster",
         "Dao.Terrain.Generation.TerrainMapSample",
+        "Dao.Terrain.Generation.TerrainPlacementCandidate",
         "Dao.Terrain.Generation.TerrainPointOfInterestIndex",
         "Dao.Terrain.Generation.TerrainPointOfInterestKind",
         "Dao.Terrain.Generation.TerrainQualityAnalyzer",
@@ -4169,6 +4699,9 @@ static bool CheckExportedTerrainTypes(out string? failureReason)
         "Dao.Terrain.Generation.TerrainRouteCorridorIndex",
         "Dao.Terrain.Generation.TerrainRouteCorridorSample",
         "Dao.Terrain.Generation.TerrainRouteCorridorSegment",
+        "Dao.Terrain.Generation.TerrainRouteGraphEdge",
+        "Dao.Terrain.Generation.TerrainRouteGraphNode",
+        "Dao.Terrain.Generation.TerrainRouteGraphSnapshot",
         "Dao.Terrain.Generation.TerrainRouteKind",
         "Dao.Terrain.Generation.TerrainSample",
         "Dao.Terrain.Generation.TerrainSampler",
@@ -4199,14 +4732,21 @@ static bool CheckExportedTerrainTypes(out string? failureReason)
         "Dao.Terrain.Generation.TerrainWorldRegion",
         "Dao.Terrain.Generation.TerrainWorldRegionKind",
         "Dao.Terrain.Generation.TerrainWorldRoute",
+        "Dao.Terrain.ITerrainNavigationProvider",
         "Dao.Terrain.ITerrainPlanProvider",
+        "Dao.Terrain.ITerrainPlacementService",
         "Dao.Terrain.ITerrainQueryService",
         "Dao.Terrain.ITerrainStreamingDiagnostics",
         "Dao.Terrain.TerrainGameplaySettingsResource",
         "Dao.Terrain.TerrainNaturalLandmarkRuleResource",
+        "Dao.Terrain.TerrainPointOfInterestRuleSet",
         "Dao.Terrain.Rendering.TerrainMaterialFactory",
         "Dao.Terrain.Rendering.TerrainMeshBuilder",
         "Dao.Terrain.TerrainRenderingSettingsResource",
+        "Dao.Terrain.TerrainRouteRuleSet",
+        "Dao.Terrain.TerrainScatterRuleSet",
+        "Dao.Terrain.TerrainScatterVariantRuleResource",
+        "Dao.Terrain.TerrainSettlementVisualRuleSet",
         "Dao.Terrain.TerrainScenicLandmarkRuleSet",
         "Dao.Terrain.TerrainShapeSettingsResource",
         "Dao.Terrain.Runtime.TerrainPointOfInterestArchetype",
@@ -4414,7 +4954,7 @@ static void PrintPublicApiShapeSmoke(TerrainPublicApiShapeSmokeReport report)
 
 static TerrainProfileHashSmokeReport ValidateTerrainProfileHashContract(TerrainGenerationProfile profile)
 {
-    const string ExpectedDemoProfileHash = "1935cb338e79a294c89306bf6cbb6ad2046420521f42e190d1dc2318b2192dc2";
+    const string ExpectedDemoProfileHash = "e74e3118b219c64a022f93dbfe0ea0f33c0342394fa2ac7499a0d99abbc5bf58";
     string hash = profile.StableHash();
     bool formatPassed =
         hash.Length == 64 &&
@@ -4447,6 +4987,10 @@ static TerrainProfileHashSmokeReport ValidateTerrainProfileHashContract(TerrainG
         ("MaxCachedTileData", profile with { MaxCachedTileData = profile.MaxCachedTileData + 1 }),
         ("GenerateCollision", profile with { GenerateCollision = !profile.GenerateCollision }),
         ("UseNativeSamplerWhenAvailable", profile with { UseNativeSamplerWhenAvailable = !profile.UseNativeSamplerWhenAvailable }),
+        ("ScatterRuleSetHash", profile with { ScatterRuleSetHash = "alt-scatter-rule-set" }),
+        ("SettlementVisualRuleSetHash", profile with { SettlementVisualRuleSetHash = "alt-settlement-visual-rule-set" }),
+        ("PointOfInterestRuleSetHash", profile with { PointOfInterestRuleSetHash = "alt-poi-rule-set" }),
+        ("RouteRuleSetHash", profile with { RouteRuleSetHash = "alt-route-rule-set" }),
         ("ScenicLandmarkRuleSetHash", profile with { ScenicLandmarkRuleSetHash = "alt-scenic-rule-set" })
     ];
 
@@ -4600,6 +5144,53 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
             TerrainSemanticClassifier.ClassifyTraversalCost(expectedField, expectedSurface, profile);
         TerrainTraversalCost facadeTraversalCost = noPlanWorld.SampleTraversalCost(query, spacing: 4.0f);
         bool traversalCostQueryPassed = TerrainTraversalCostsMatch(expectedTraversalCost, facadeTraversalCost);
+        Rect2 placementBounds = new(
+            query - new Vector2(profile.ChunkSize * 0.5f, profile.ChunkSize * 0.5f),
+            new Vector2(profile.ChunkSize, profile.ChunkSize));
+        TerrainPlacementCandidate[] noPlanPlacementCandidates = noPlanWorld.QueryPlacementCandidates(
+            placementBounds,
+            TerrainGameplayTag.Traversable,
+            TerrainGameplayTag.None,
+            maxCandidates: 8,
+            sampleSpacing: 24.0f,
+            minTraversability: 0.45f,
+            maxTraversalCost: 3.0f,
+            maxHazardPotential: 1.0f,
+            requireRouteInfluence: false,
+            minRouteInfluence: 0.0f);
+        bool placementCandidatesQueryPassed =
+            noPlanPlacementCandidates.Length > 0 &&
+            PlacementCandidatesMatchFilters(
+                noPlanPlacementCandidates,
+                TerrainGameplayTag.Traversable,
+                TerrainGameplayTag.None,
+                minTraversability: 0.45f,
+                maxTraversalCost: 3.0f,
+                maxHazardPotential: 1.0f,
+                requireRouteInfluence: false,
+                minRouteInfluence: 0.0f);
+        bool noPlanRoutePlacementPassed = noPlanWorld.QueryPlacementCandidates(
+            placementBounds,
+            TerrainGameplayTag.Traversable,
+            TerrainGameplayTag.None,
+            maxCandidates: 8,
+            sampleSpacing: 24.0f,
+            minTraversability: 0.30f,
+            maxTraversalCost: 8.0f,
+            maxHazardPotential: 1.0f,
+            requireRouteInfluence: true,
+            minRouteInfluence: 0.05f).Length == 0;
+        TerrainTraversalCostGrid expectedTraversalGrid =
+            TerrainMapExporter.CreateTraversalCostGrid(profile, query, profile.ChunkSize, 8, 16.0f);
+        TerrainTraversalCostGrid facadeTraversalGrid = noPlanWorld.CreateTraversalCostGrid(query, profile.ChunkSize, 8, 16.0f);
+        bool navigationGridPassed =
+            TraversalCostGridMatches(expectedTraversalGrid, facadeTraversalGrid) &&
+            TraversalCostGridSnapshotIsolated(facadeTraversalGrid);
+        bool noPlanRouteGraphPassed =
+            !noPlanWorld.TryGetRouteGraphSnapshot(out TerrainRouteGraphSnapshot? noPlanRouteGraph) &&
+            noPlanRouteGraph is null &&
+            noPlanWorld.GetRouteGraphSnapshot().Nodes.Length == 0 &&
+            noPlanWorld.GetRouteGraphSnapshot().Edges.Length == 0;
         bool streamingSnapshotPassed =
             StreamingSnapshotMatchesFacadeContract(
                 noPlanWorld,
@@ -4787,6 +5378,9 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
 
         bool routeQueryPassed = plan.Routes.Length == 0;
         bool routeCorridorQueryPassed = plan.Routes.Length == 0;
+        bool routeGraphSnapshotPassed = true;
+        bool routeGraphSnapshotIsolated = true;
+        bool routePlacementQueryPassed = plan.Routes.Length == 0;
         if (plan.Routes.Length > 0)
         {
             TerrainWorldRoute expectedRoute = plan.Routes[0];
@@ -4823,6 +5417,78 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
                     TerrainRouteCorridorSamplesMatch(expectedCorridor, facadeCorridor);
                 break;
             }
+
+            routePlacementQueryPassed = false;
+            foreach (TerrainWorldRoute route in plan.Routes)
+            {
+                if (route.Waypoints.Length < 2)
+                {
+                    continue;
+                }
+
+                Vector2 midpoint = route.Waypoints[0].Lerp(route.Waypoints[1], 0.5f);
+                Rect2 routeBounds = new(
+                    midpoint - new Vector2(profile.ChunkSize * 0.25f, profile.ChunkSize * 0.25f),
+                    new Vector2(profile.ChunkSize * 0.5f, profile.ChunkSize * 0.5f));
+                TerrainPlacementCandidate[] routePlacements = planWorld.QueryPlacementCandidates(
+                    routeBounds,
+                    TerrainGameplayTag.Traversable,
+                    TerrainGameplayTag.None,
+                    maxCandidates: 8,
+                    sampleSpacing: 16.0f,
+                    minTraversability: 0.30f,
+                    maxTraversalCost: 8.0f,
+                    maxHazardPotential: 1.0f,
+                    requireRouteInfluence: true,
+                    minRouteInfluence: 0.05f);
+                if (routePlacements.Length == 0)
+                {
+                    continue;
+                }
+
+                routePlacementQueryPassed =
+                    PlacementCandidatesMatchFilters(
+                        routePlacements,
+                        TerrainGameplayTag.Traversable,
+                        TerrainGameplayTag.None,
+                        minTraversability: 0.30f,
+                        maxTraversalCost: 8.0f,
+                        maxHazardPotential: 1.0f,
+                        requireRouteInfluence: true,
+                        minRouteInfluence: 0.05f);
+                if (routePlacementQueryPassed)
+                {
+                    TerrainPlacementCandidate originalPlacement = routePlacements[0];
+                    routePlacements[0] = default;
+                    TerrainPlacementCandidate[] secondPlacements = planWorld.QueryPlacementCandidates(
+                        routeBounds,
+                        TerrainGameplayTag.Traversable,
+                        TerrainGameplayTag.None,
+                        maxCandidates: 8,
+                        sampleSpacing: 16.0f,
+                        minTraversability: 0.30f,
+                        maxTraversalCost: 8.0f,
+                        maxHazardPotential: 1.0f,
+                        requireRouteInfluence: true,
+                        minRouteInfluence: 0.05f);
+                    routePlacementQueryPassed = ContainsPlacementCandidate(secondPlacements, originalPlacement);
+                }
+
+                break;
+            }
+
+            routeGraphSnapshotPassed =
+                planWorld.TryGetRouteGraphSnapshot(out TerrainRouteGraphSnapshot? routeGraphSnapshot) &&
+                routeGraphSnapshot is not null &&
+                RouteGraphMatchesPlan(routeGraphSnapshot, plan);
+            if (routeGraphSnapshotPassed && routeGraphSnapshot is not null)
+            {
+                routeGraphSnapshotIsolated = RouteGraphSnapshotIsolated(planWorld, routeGraphSnapshot, plan);
+            }
+            else
+            {
+                routeGraphSnapshotIsolated = false;
+            }
         }
 
         bool passed =
@@ -4837,6 +5503,10 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
             waterStateQueryPassed &&
             gameplayTagsQueryPassed &&
             traversalCostQueryPassed &&
+            placementCandidatesQueryPassed &&
+            noPlanRoutePlacementPassed &&
+            navigationGridPassed &&
+            noPlanRouteGraphPassed &&
             streamingSnapshotPassed &&
             apiVersionPassed &&
             determinismContractPassed &&
@@ -4850,6 +5520,9 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
             pointQueryPassed &&
             routeQueryPassed &&
             routeCorridorQueryPassed &&
+            routePlacementQueryPassed &&
+            routeGraphSnapshotPassed &&
+            routeGraphSnapshotIsolated &&
             pointSnapshotIsolated &&
             routeSnapshotIsolated &&
             worldPlanSnapshotIsolated;
@@ -4868,6 +5541,10 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
                 waterStateQueryPassed,
                 gameplayTagsQueryPassed,
                 traversalCostQueryPassed,
+                placementCandidatesQueryPassed,
+                noPlanRoutePlacementPassed,
+                navigationGridPassed,
+                noPlanRouteGraphPassed,
                 streamingSnapshotPassed,
                 apiVersionPassed,
                 determinismContractPassed,
@@ -4883,6 +5560,9 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
                 pointQueryPassed,
                 routeQueryPassed,
                 routeCorridorQueryPassed,
+                routePlacementQueryPassed,
+                routeGraphSnapshotPassed,
+                routeGraphSnapshotIsolated,
                 pointSnapshotIsolated,
                 routeSnapshotIsolated,
                 worldPlanSnapshotIsolated);
@@ -4904,6 +5584,10 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
             waterStateQueryPassed,
             gameplayTagsQueryPassed,
             traversalCostQueryPassed,
+            placementCandidatesQueryPassed,
+            noPlanRoutePlacementPassed,
+            navigationGridPassed,
+            noPlanRouteGraphPassed,
             streamingSnapshotPassed,
             apiVersionPassed,
             determinismContractPassed,
@@ -4913,6 +5597,9 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
             pointQueryPassed,
             routeQueryPassed,
             routeCorridorQueryPassed,
+            routePlacementQueryPassed,
+            routeGraphSnapshotPassed,
+            routeGraphSnapshotIsolated,
             pointSnapshotIsolated,
             routeSnapshotIsolated,
             worldPlanSnapshotIsolated,
@@ -4937,6 +5624,10 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
             WaterStateQueryPassed: false,
             GameplayTagsQueryPassed: false,
             TraversalCostQueryPassed: false,
+            PlacementCandidatesQueryPassed: false,
+            NoPlanRoutePlacementPassed: false,
+            NavigationGridPassed: false,
+            NoPlanRouteGraphPassed: false,
             StreamingSnapshotPassed: false,
             ApiVersionPassed: false,
             DeterminismContractPassed: false,
@@ -4946,6 +5637,9 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
             PointQueryPassed: false,
             RouteQueryPassed: false,
             RouteCorridorQueryPassed: false,
+            RoutePlacementQueryPassed: false,
+            RouteGraphSnapshotPassed: false,
+            RouteGraphSnapshotIsolated: false,
             PointSnapshotIsolated: false,
             RouteSnapshotIsolated: false,
             WorldPlanSnapshotIsolated: false,
@@ -5556,6 +6250,185 @@ static bool ContainsRoute(
     return false;
 }
 
+static bool PlacementCandidatesMatchFilters(
+    TerrainPlacementCandidate[] candidates,
+    TerrainGameplayTag requiredTags,
+    TerrainGameplayTag excludedTags,
+    float minTraversability,
+    float maxTraversalCost,
+    float maxHazardPotential,
+    bool requireRouteInfluence,
+    float minRouteInfluence)
+{
+    foreach (TerrainPlacementCandidate candidate in candidates)
+    {
+        TerrainGameplayTags tags = candidate.Tags;
+        TerrainTraversalCost traversal = candidate.Traversal;
+        TerrainRouteCorridorSample route = candidate.RouteCorridor;
+
+        if (requiredTags != TerrainGameplayTag.None &&
+            (tags.Flags & requiredTags) != requiredTags)
+        {
+            return false;
+        }
+
+        if (excludedTags != TerrainGameplayTag.None &&
+            (tags.Flags & excludedTags) != TerrainGameplayTag.None)
+        {
+            return false;
+        }
+
+        if (traversal.IsBlocked ||
+            traversal.Traversability + TerrainDeterminismContract.ExactFloatEpsilon < minTraversability)
+        {
+            return false;
+        }
+
+        if (!float.IsPositiveInfinity(traversal.Cost) &&
+            traversal.Cost - TerrainDeterminismContract.ExactFloatEpsilon > maxTraversalCost)
+        {
+            return false;
+        }
+
+        if (candidate.Tags.HazardPotential - TerrainDeterminismContract.ExactFloatEpsilon > maxHazardPotential)
+        {
+            return false;
+        }
+
+        if (requireRouteInfluence &&
+            (!route.HasInfluence ||
+                route.Influence + TerrainDeterminismContract.ExactFloatEpsilon < minRouteInfluence))
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+static bool ContainsPlacementCandidate(
+    TerrainPlacementCandidate[] candidates,
+    TerrainPlacementCandidate expected)
+{
+    foreach (TerrainPlacementCandidate candidate in candidates)
+    {
+        if (ExactPositionEquals(candidate.WorldPosition, expected.WorldPosition) &&
+            ExactFloatEquals(candidate.Height, expected.Height) &&
+            ExactFloatEquals(candidate.Score, expected.Score) &&
+            TerrainGameplayTagsMatch(candidate.Tags, expected.Tags) &&
+            TerrainTraversalCostsMatch(candidate.Traversal, expected.Traversal) &&
+            TerrainWaterStatesMatch(candidate.Water, expected.Water) &&
+            TerrainRouteCorridorSamplesMatch(candidate.RouteCorridor, expected.RouteCorridor))
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static bool RouteGraphMatchesPlan(
+    TerrainRouteGraphSnapshot snapshot,
+    TerrainWorldPlan plan)
+{
+    if (!ExactPositionEquals(snapshot.Center, plan.Center) ||
+        !ExactFloatEquals(snapshot.WorldSize, plan.WorldSize) ||
+        snapshot.Nodes.Length != plan.PointsOfInterest.Length ||
+        snapshot.Edges.Length != plan.Routes.Length)
+    {
+        return false;
+    }
+
+    for (int i = 0; i < snapshot.Nodes.Length; i++)
+    {
+        TerrainRouteGraphNode node = snapshot.Nodes[i];
+        TerrainWorldPointOfInterest point = plan.PointsOfInterest[i];
+        if (node.PointId != point.Id ||
+            !ExactPositionEquals(node.WorldPosition, point.WorldPosition) ||
+            node.Kind != point.Kind ||
+            node.SettlementTier != point.SettlementTier ||
+            !ExactFloatEquals(node.Score, point.Score))
+        {
+            return false;
+        }
+    }
+
+    for (int i = 0; i < snapshot.Edges.Length; i++)
+    {
+        TerrainRouteGraphEdge edge = snapshot.Edges[i];
+        TerrainWorldRoute route = plan.Routes[i];
+        if (edge.FromPointId != route.FromPointId ||
+            edge.ToPointId != route.ToPointId ||
+            edge.Kind != route.Kind ||
+            !ExactFloatEquals(edge.Cost, route.Cost) ||
+            !ExactFloatEquals(edge.AverageScenicPotential, route.AverageScenicPotential) ||
+            !ExactFloatEquals(edge.AverageTraversability, route.AverageTraversability) ||
+            edge.Waypoints.Length != route.Waypoints.Length)
+        {
+            return false;
+        }
+
+        for (int waypointIndex = 0; waypointIndex < edge.Waypoints.Length; waypointIndex++)
+        {
+            if (!ExactPositionEquals(edge.Waypoints[waypointIndex], route.Waypoints[waypointIndex]))
+            {
+                return false;
+            }
+        }
+    }
+
+    return true;
+}
+
+static bool RouteGraphSnapshotIsolated(
+    TerrainWorld planWorld,
+    TerrainRouteGraphSnapshot snapshot,
+    TerrainWorldPlan plan)
+{
+    bool isolated = snapshot.Nodes.Length == plan.PointsOfInterest.Length &&
+        snapshot.Edges.Length == plan.Routes.Length;
+    if (!isolated)
+    {
+        return false;
+    }
+
+    if (snapshot.Nodes.Length > 0)
+    {
+        TerrainRouteGraphNode originalNode = snapshot.Nodes[0];
+        snapshot.Nodes[0] = originalNode with { PointId = originalNode.PointId + 1_000_000 };
+        TerrainRouteGraphSnapshot secondSnapshot = planWorld.GetRouteGraphSnapshot();
+        isolated =
+            secondSnapshot.Nodes.Length == plan.PointsOfInterest.Length &&
+            secondSnapshot.Nodes[0].PointId == plan.PointsOfInterest[0].Id &&
+            secondSnapshot.Nodes[0].Kind == plan.PointsOfInterest[0].Kind;
+    }
+
+    if (!isolated || snapshot.Edges.Length == 0)
+    {
+        return isolated;
+    }
+
+    TerrainRouteGraphEdge originalEdge = snapshot.Edges[0];
+    snapshot.Edges[0] = originalEdge with { FromPointId = originalEdge.FromPointId + 1_000_000 };
+    TerrainRouteGraphSnapshot edgeSnapshot = planWorld.GetRouteGraphSnapshot();
+    isolated =
+        edgeSnapshot.Edges.Length == plan.Routes.Length &&
+        edgeSnapshot.Edges[0].FromPointId == plan.Routes[0].FromPointId &&
+        edgeSnapshot.Edges[0].ToPointId == plan.Routes[0].ToPointId;
+
+    if (!isolated || originalEdge.Waypoints.Length == 0)
+    {
+        return isolated;
+    }
+
+    Vector2 originalWaypoint = originalEdge.Waypoints[0];
+    snapshot.Edges[0].Waypoints[0] = originalWaypoint + new Vector2(4444.0f, -4444.0f);
+    TerrainRouteGraphSnapshot waypointSnapshot = planWorld.GetRouteGraphSnapshot();
+    return waypointSnapshot.Edges.Length == plan.Routes.Length &&
+        waypointSnapshot.Edges[0].Waypoints.Length == plan.Routes[0].Waypoints.Length &&
+        ExactPositionEquals(waypointSnapshot.Edges[0].Waypoints[0], originalWaypoint);
+}
+
 static string RuntimeApiFailureReason(
     bool noPlanTryGetPassed,
     bool noPlanSnapshotPassed,
@@ -5568,6 +6441,10 @@ static string RuntimeApiFailureReason(
     bool waterStateQueryPassed,
     bool gameplayTagsQueryPassed,
     bool traversalCostQueryPassed,
+    bool placementCandidatesQueryPassed,
+    bool noPlanRoutePlacementPassed,
+    bool navigationGridPassed,
+    bool noPlanRouteGraphPassed,
     bool streamingSnapshotPassed,
     bool apiVersionPassed,
     bool determinismContractPassed,
@@ -5583,6 +6460,9 @@ static string RuntimeApiFailureReason(
     bool pointQueryPassed,
     bool routeQueryPassed,
     bool routeCorridorQueryPassed,
+    bool routePlacementQueryPassed,
+    bool routeGraphSnapshotPassed,
+    bool routeGraphSnapshotIsolated,
     bool pointSnapshotIsolated,
     bool routeSnapshotIsolated,
     bool worldPlanSnapshotIsolated)
@@ -5640,6 +6520,26 @@ static string RuntimeApiFailureReason(
     if (!traversalCostQueryPassed)
     {
         return "SampleTraversalCost did not match terrain semantic traversal classification";
+    }
+
+    if (!placementCandidatesQueryPassed)
+    {
+        return "QueryPlacementCandidates did not return candidates matching the requested tag and traversal filters";
+    }
+
+    if (!noPlanRoutePlacementPassed)
+    {
+        return "QueryPlacementCandidates returned route-influenced candidates without a world plan";
+    }
+
+    if (!navigationGridPassed)
+    {
+        return "CreateTraversalCostGrid did not match TerrainMapExporter traversal-cost handoff or isolate samples";
+    }
+
+    if (!noPlanRouteGraphPassed)
+    {
+        return "route graph facade did not expose an empty no-plan state";
     }
 
     if (!streamingSnapshotPassed)
@@ -5702,6 +6602,21 @@ static string RuntimeApiFailureReason(
         return "route corridor semantic facade did not match the planned corridor index";
     }
 
+    if (!routePlacementQueryPassed)
+    {
+        return "route-influenced placement candidate facade did not respect route corridor filters";
+    }
+
+    if (!routeGraphSnapshotPassed)
+    {
+        return "route graph snapshot facade did not match the assigned open-world plan";
+    }
+
+    if (!routeGraphSnapshotIsolated)
+    {
+        return "route graph snapshot facade exposed mutable waypoint or graph array state";
+    }
+
     if (!pointSnapshotIsolated)
     {
         return "GetPointsOfInterest exposed mutable plan array state";
@@ -5725,7 +6640,9 @@ static bool TerrainWorldImplementsIntegrationContracts()
     Type worldType = typeof(TerrainWorld);
     return typeof(ITerrainQueryService).IsAssignableFrom(worldType) &&
         typeof(ITerrainPlanProvider).IsAssignableFrom(worldType) &&
-        typeof(ITerrainStreamingDiagnostics).IsAssignableFrom(worldType);
+        typeof(ITerrainStreamingDiagnostics).IsAssignableFrom(worldType) &&
+        typeof(ITerrainPlacementService).IsAssignableFrom(worldType) &&
+        typeof(ITerrainNavigationProvider).IsAssignableFrom(worldType);
 }
 
 static bool TerrainWorldSignalContractMatches()
@@ -5792,6 +6709,7 @@ static void PrintRuntimeApiSmoke(TerrainRuntimeApiSmokeReport report)
         $"POIs/routes {report.PointOfInterestCount}/{report.RouteCount}, " +
         $"traversable/water {(report.TraversabilityQueryPassed ? "pass" : "fail")}/{(report.AboveWaterQueryPassed ? "pass" : "fail")}, " +
         $"semantic POI/route/corridor/water/tags/traversal {(report.PointQueryPassed ? "pass" : "fail")}/{(report.RouteQueryPassed ? "pass" : "fail")}/{(report.RouteCorridorQueryPassed ? "pass" : "fail")}/{(report.WaterStateQueryPassed ? "pass" : "fail")}/{(report.GameplayTagsQueryPassed ? "pass" : "fail")}/{(report.TraversalCostQueryPassed ? "pass" : "fail")}, " +
+        $"placement/nav {(report.PlacementCandidatesQueryPassed ? "pass" : "fail")}/{(report.RoutePlacementQueryPassed ? "pass" : "fail")}/{(report.NavigationGridPassed ? "pass" : "fail")}/{(report.RouteGraphSnapshotPassed ? "pass" : "fail")}/{(report.RouteGraphSnapshotIsolated ? "pass" : "fail")}, " +
         $"streaming {(report.StreamingSnapshotPassed ? "pass" : "fail")}, " +
         $"snapshots POI/routes/plan {(report.PointSnapshotIsolated ? "pass" : "fail")}/{(report.RouteSnapshotIsolated ? "pass" : "fail")}/{(report.WorldPlanSnapshotIsolated ? "pass" : "fail")} " +
         $"({report.Reason})");
@@ -8746,6 +9664,10 @@ internal readonly record struct TerrainRuntimeApiSmokeReport(
     bool WaterStateQueryPassed,
     bool GameplayTagsQueryPassed,
     bool TraversalCostQueryPassed,
+    bool PlacementCandidatesQueryPassed,
+    bool NoPlanRoutePlacementPassed,
+    bool NavigationGridPassed,
+    bool NoPlanRouteGraphPassed,
     bool StreamingSnapshotPassed,
     bool ApiVersionPassed,
     bool DeterminismContractPassed,
@@ -8755,6 +9677,9 @@ internal readonly record struct TerrainRuntimeApiSmokeReport(
     bool PointQueryPassed,
     bool RouteQueryPassed,
     bool RouteCorridorQueryPassed,
+    bool RoutePlacementQueryPassed,
+    bool RouteGraphSnapshotPassed,
+    bool RouteGraphSnapshotIsolated,
     bool PointSnapshotIsolated,
     bool RouteSnapshotIsolated,
     bool WorldPlanSnapshotIsolated,

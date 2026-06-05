@@ -28,6 +28,7 @@ public static partial class TerrainTileBuilder
         Vector2 origin = coord.Origin(profile.ChunkSize);
         bool hasCorridors = corridorSegments.Length > 0;
         TerrainWorldPointOfInterest[] plannedPoints = pointOfInterestIndex.GetPointsUnsafe(coord);
+        TerrainScatterRuleSetSnapshot scatterRules = ResolveScatterRules(profile);
 
         if (lod <= 2)
         {
@@ -51,7 +52,7 @@ public static partial class TerrainTileBuilder
                     Vector3 normal = SampleNearestNormal(localX, localZ, resolution, step, normals, vertexCountPerSide);
                     float slope = 1.0f - Mathf.Clamp(normal.Y, 0.0f, 1.0f);
                     TerrainWorldField field = SampleFieldBilinear(localX, localZ, resolution, step, fields, vertexCountPerSide);
-                    bool isTidalMangroveFlat = IsMangroveTidalFlat(height, slope, field, profile);
+                    bool isTidalMangroveFlat = IsMangroveTidalFlat(height, slope, field, profile, scatterRules.TidalMangroveFlat);
                     if (height < profile.SeaLevel + 6.0f &&
                         !isTidalMangroveFlat &&
                         (!corridor.HasInfluence || corridor.CoreStrength < 0.32f))
@@ -88,29 +89,30 @@ public static partial class TerrainTileBuilder
                     }
 
                     bool placedNaturalScatter = false;
-                    if (slope < 0.30f &&
-                        field.Moisture > 0.47f &&
-                        field.Temperature > 0.24f &&
-                        field.River < 0.78f &&
-                        field.Traversability > 0.35f &&
+                    TerrainSurfaceNaturalScatterRule treeRule = scatterRules.Tree;
+                    if (slope < treeRule.MaxSlope &&
+                        field.Moisture > treeRule.MinMoisture &&
+                        field.Temperature > treeRule.MinTemperature &&
+                        field.River < treeRule.MaxRiver &&
+                        field.Traversability > treeRule.MinTraversability &&
                         field.LandscapeKind is TerrainLandscapeKind.ForestBasin or TerrainLandscapeKind.Lowland or TerrainLandscapeKind.RiverValley or TerrainLandscapeKind.Wetland &&
-                        roll < 0.44f)
+                        roll < treeRule.Probability)
                     {
-                        float scale = 2.2f + Hash01(coord.X, coord.Z, x * 1237 + z * 2011, profile.Seed + 43) * 3.4f;
+                        float scale = treeRule.BaseScale + Hash01(coord.X, coord.Z, x * 1237 + z * 2011, profile.Seed + 43) * treeRule.ScaleJitter;
                         float rotation = Hash01(coord.X, coord.Z, x * 719 + z * 911, profile.Seed + 59) * Mathf.Pi * 2.0f;
-                        Color tint = new Color(0.22f, 0.44f, 0.19f).Lerp(new Color(0.08f, 0.25f, 0.12f), field.Moisture);
+                        Color tint = treeRule.TintLow.Lerp(treeRule.TintHigh, field.Moisture);
                         scatter.Add(new TerrainScatterInstance(TerrainScatterKind.Tree, new Vector3(localX, height, localZ), rotation, scale, tint));
                         placedNaturalScatter = true;
                     }
-                    else if ((slope > 0.35f ||
-                            height > profile.SeaLevel + 360.0f ||
-                            field.HazardPotential > 0.56f ||
+                    else if ((slope > scatterRules.Rock.MinSlope ||
+                            height > profile.SeaLevel + scatterRules.Rock.MinHeightAboveSea ||
+                            field.HazardPotential > scatterRules.Rock.MinHazardPotential ||
                             field.LandscapeKind is TerrainLandscapeKind.Canyon or TerrainLandscapeKind.Highlands or TerrainLandscapeKind.MountainMassif) &&
-                        roll < 0.38f)
+                        roll < scatterRules.Rock.Probability)
                     {
-                        float scale = 1.3f + Hash01(coord.X, coord.Z, x * 4567 + z * 3461, profile.Seed + 61) * 3.1f;
+                        float scale = scatterRules.Rock.BaseScale + Hash01(coord.X, coord.Z, x * 4567 + z * 3461, profile.Seed + 61) * scatterRules.Rock.ScaleJitter;
                         float rotation = Hash01(coord.X, coord.Z, x * 2467 + z * 6421, profile.Seed + 67) * Mathf.Pi * 2.0f;
-                        Color tint = new Color(0.36f, 0.35f, 0.32f).Lerp(new Color(0.55f, 0.54f, 0.49f), Mathf.Clamp(slope, 0.0f, 1.0f));
+                        Color tint = scatterRules.Rock.TintLow.Lerp(scatterRules.Rock.TintHigh, Mathf.Clamp(slope, 0.0f, 1.0f));
                         scatter.Add(new TerrainScatterInstance(TerrainScatterKind.Rock, new Vector3(localX, height, localZ), rotation, scale, tint));
                         placedNaturalScatter = true;
                     }
@@ -125,6 +127,7 @@ public static partial class TerrainTileBuilder
                         height,
                         slope,
                         field,
+                        scatterRules,
                         placedNaturalScatter,
                         scatter);
 
@@ -140,6 +143,7 @@ public static partial class TerrainTileBuilder
                             height,
                             slope,
                             field,
+                            scatterRules,
                             scatter);
                     }
                 }

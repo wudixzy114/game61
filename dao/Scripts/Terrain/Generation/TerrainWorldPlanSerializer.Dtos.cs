@@ -10,6 +10,11 @@ public static partial class TerrainWorldPlanSerializer
         public string GeneratorVersion { get; set; } = string.Empty;
         public int Seed { get; set; }
         public string ProfileHash { get; set; } = string.Empty;
+        public string ScatterRuleSetHash { get; set; } = string.Empty;
+        public string SettlementVisualRuleSetHash { get; set; } = string.Empty;
+        public string PointOfInterestRuleSetHash { get; set; } = string.Empty;
+        public string RouteRuleSetHash { get; set; } = string.Empty;
+        public string ScenicLandmarkRuleSetHash { get; set; } = string.Empty;
         public TerrainVector2Dto? Center { get; set; }
         public float WorldSize { get; set; }
         public int GridResolution { get; set; }

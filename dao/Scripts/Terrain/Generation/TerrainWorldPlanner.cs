@@ -360,9 +360,25 @@ public static partial class TerrainWorldPlanner
         int safeMaxPoints = Mathf.Clamp(maxPointsOfInterest, 4, 512);
         int safeMaxRoutes = Mathf.Clamp(maxRoutes, 0, 512);
         float safeWorldSize = Mathf.Max(profile.ChunkSize, worldSize);
-        TerrainPlanningGridData planningGrid = SamplePlanningGrid(profile, center, safeWorldSize, resolution, cancellationToken);
-        TerrainWorldPointOfInterest[] points = SelectPointsOfInterest(planningGrid.Candidates, profile, safeMaxPoints, planningGrid.CellSize, safeWorldSize, cancellationToken);
-        TerrainWorldRoute[] routes = BuildRoutes(points, planningGrid.Fields, profile, resolution, safeMaxRoutes, cancellationToken);
+        TerrainPointOfInterestRuleSetSnapshot poiRules = ResolvePointOfInterestRules(profile);
+        TerrainRouteRuleSetSnapshot routeRules = ResolveRouteRules(profile);
+        TerrainPlanningGridData planningGrid = SamplePlanningGrid(profile, center, safeWorldSize, resolution, poiRules, cancellationToken);
+        TerrainWorldPointOfInterest[] points = SelectPointsOfInterest(
+            planningGrid.Candidates,
+            profile,
+            poiRules,
+            safeMaxPoints,
+            planningGrid.CellSize,
+            safeWorldSize,
+            cancellationToken);
+        TerrainWorldRoute[] routes = BuildRoutes(
+            points,
+            planningGrid.Fields,
+            profile,
+            routeRules,
+            resolution,
+            safeMaxRoutes,
+            cancellationToken);
         TerrainQualityReport qualityReport = TerrainQualityAnalyzer.Analyze(profile, center, safeWorldSize, resolution, cancellationToken);
         TerrainWorldPlanningReport planningReport = AnalyzePlanning(points, routes, safeWorldSize);
         TerrainExperienceReport experienceReport = TerrainExperienceAnalyzer.Analyze(planningGrid.Regions, points, routes, planningReport, cancellationToken);
@@ -573,4 +589,14 @@ public static partial class TerrainWorldPlanner
         float River,
         TerrainBiomeKind BiomeKind,
         TerrainLandscapeKind LandscapeKind);
+
+    private static TerrainPointOfInterestRuleSetSnapshot ResolvePointOfInterestRules(TerrainGenerationProfile profile)
+    {
+        return TerrainPointOfInterestRuleCatalog.Resolve(profile.PointOfInterestRuleSetHash);
+    }
+
+    private static TerrainRouteRuleSetSnapshot ResolveRouteRules(TerrainGenerationProfile profile)
+    {
+        return TerrainRouteRuleCatalog.Resolve(profile.RouteRuleSetHash);
+    }
 }

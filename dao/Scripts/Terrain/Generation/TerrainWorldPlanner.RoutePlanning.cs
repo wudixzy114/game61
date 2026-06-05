@@ -11,6 +11,7 @@ public static partial class TerrainWorldPlanner
         TerrainWorldPointOfInterest[] points,
         TerrainWorldField[] fields,
         TerrainGenerationProfile profile,
+        TerrainRouteRuleSetSnapshot routeRules,
         int resolution,
         int maxRoutes,
         CancellationToken cancellationToken)
@@ -51,7 +52,7 @@ public static partial class TerrainWorldPlanner
                         continue;
                     }
 
-                    TerrainWorldRoute? route = TryBuildRoute(points[from], points[to], fields, profile, resolution, cancellationToken);
+                    TerrainWorldRoute? route = TryBuildRoute(points[from], points[to], fields, profile, routeRules, resolution, cancellationToken);
                     if (route is null)
                     {
                         continue;
@@ -73,7 +74,7 @@ public static partial class TerrainWorldPlanner
             remaining.Remove(bestTo);
         }
 
-        AddSecondaryRoutes(points, fields, profile, resolution, maxRoutes, routes, cancellationToken);
+        AddSecondaryRoutes(points, fields, profile, routeRules, resolution, maxRoutes, routes, cancellationToken);
         return routes.ToArray();
     }
 
@@ -81,6 +82,7 @@ public static partial class TerrainWorldPlanner
         TerrainWorldPointOfInterest[] points,
         TerrainWorldField[] fields,
         TerrainGenerationProfile profile,
+        TerrainRouteRuleSetSnapshot routeRules,
         int resolution,
         int maxRoutes,
         List<TerrainWorldRoute> routes,
@@ -91,7 +93,7 @@ public static partial class TerrainWorldPlanner
             return;
         }
 
-        TerrainSecondaryRoutePolicy rules = TerrainWorldPlannerRules.SecondaryRoutes;
+        TerrainSecondaryRoutePolicy rules = routeRules.SecondaryRoutes;
         var existingEdges = new HashSet<long>();
         var routeDegree = new int[points.Length];
         foreach (TerrainWorldRoute route in routes)
@@ -108,7 +110,7 @@ public static partial class TerrainWorldPlanner
             }
         }
 
-        AddSettlementConnectorRoutes(points, fields, profile, resolution, maxRoutes, routes, existingEdges, routeDegree, cancellationToken);
+        AddSettlementConnectorRoutes(points, fields, profile, routeRules, resolution, maxRoutes, routes, existingEdges, routeDegree, cancellationToken);
         if (routes.Count >= maxRoutes)
         {
             return;
@@ -142,7 +144,7 @@ public static partial class TerrainWorldPlanner
                 candidates.Add(new SecondaryRouteCandidate(
                     from,
                     to,
-                    ScoreSecondaryRouteCandidate(points[from], points[to], routeDegree, distance, idealDistance)));
+                    ScoreSecondaryRouteCandidate(points[from], points[to], routeDegree, routeRules.SecondaryRouteScoring, distance, idealDistance)));
             }
         }
 
@@ -168,7 +170,7 @@ public static partial class TerrainWorldPlanner
             }
 
             testedCandidates++;
-            TerrainWorldRoute? route = TryBuildRoute(from, to, fields, profile, resolution, cancellationToken);
+            TerrainWorldRoute? route = TryBuildRoute(from, to, fields, profile, routeRules, resolution, cancellationToken);
             if (route is null)
             {
                 continue;
@@ -185,6 +187,7 @@ public static partial class TerrainWorldPlanner
         TerrainWorldPointOfInterest[] points,
         TerrainWorldField[] fields,
         TerrainGenerationProfile profile,
+        TerrainRouteRuleSetSnapshot routeRules,
         int resolution,
         int maxRoutes,
         List<TerrainWorldRoute> routes,
@@ -198,9 +201,9 @@ public static partial class TerrainWorldPlanner
             return;
         }
 
-        TerrainSecondaryRoutePolicy rules = TerrainWorldPlannerRules.SettlementRoutes;
+        TerrainSecondaryRoutePolicy rules = routeRules.SettlementRoutes;
         int settlementRouteCount = CountSettlementRoutes(points, routes);
-        int targetSettlementRoutes = Mathf.Min(maxRoutes, Mathf.Max(8, settlementCount - 1));
+        int targetSettlementRoutes = Mathf.Min(maxRoutes, Mathf.Max(routeRules.MinimumSettlementConnectorRoutes, settlementCount - 1));
         if (settlementRouteCount >= targetSettlementRoutes)
         {
             return;
@@ -244,7 +247,7 @@ public static partial class TerrainWorldPlanner
                 candidates.Add(new SecondaryRouteCandidate(
                     from,
                     to,
-                    ScoreSettlementRouteCandidate(points[from], points[to], routeDegree, distance, idealDistance)));
+                    ScoreSettlementRouteCandidate(points[from], points[to], routeDegree, routeRules.SettlementRouteScoring, distance, idealDistance)));
             }
         }
 
@@ -272,7 +275,7 @@ public static partial class TerrainWorldPlanner
             }
 
             testedCandidates++;
-            TerrainWorldRoute? route = TryBuildRoute(from, to, fields, profile, resolution, cancellationToken);
+            TerrainWorldRoute? route = TryBuildRoute(from, to, fields, profile, routeRules, resolution, cancellationToken);
             if (route is null)
             {
                 continue;
@@ -290,10 +293,10 @@ public static partial class TerrainWorldPlanner
         TerrainWorldPointOfInterest from,
         TerrainWorldPointOfInterest to,
         int[] routeDegree,
+        TerrainRouteScoreWeights weights,
         float distance,
         float idealDistance)
     {
-        TerrainRouteScoreWeights weights = TerrainWorldPlannerRules.SettlementRouteScoring;
         float endpointScore = (from.Score + to.Score) * 0.5f;
         float traversalScore = (from.Traversability + to.Traversability) * 0.5f;
         int fromDegree = (uint)from.Id < (uint)routeDegree.Length ? routeDegree[from.Id] : 0;
@@ -316,10 +319,10 @@ public static partial class TerrainWorldPlanner
         TerrainWorldPointOfInterest from,
         TerrainWorldPointOfInterest to,
         int[] routeDegree,
+        TerrainRouteScoreWeights weights,
         float distance,
         float idealDistance)
     {
-        TerrainRouteScoreWeights weights = TerrainWorldPlannerRules.SecondaryRouteScoring;
         float endpointScore = (from.Score + to.Score) * 0.5f;
         float scenicScore = (from.ScenicPotential + to.ScenicPotential) * 0.5f;
         float traversalScore = (from.Traversability + to.Traversability) * 0.5f;

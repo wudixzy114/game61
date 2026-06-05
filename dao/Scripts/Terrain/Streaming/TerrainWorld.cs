@@ -11,7 +11,7 @@ namespace Dao.Terrain.Streaming;
 
 /// <summary>Streaming terrain world that manages chunk loading/unloading, tile caching, and asynchronous generation job scheduling.</summary>
 [GlobalClass]
-public partial class TerrainWorld : Node3D, ITerrainQueryService, ITerrainPlanProvider, ITerrainStreamingDiagnostics
+public partial class TerrainWorld : Node3D, ITerrainQueryService, ITerrainPlanProvider, ITerrainStreamingDiagnostics, ITerrainPlacementService, ITerrainNavigationProvider
 {
     private const string PlanReadySignalName = "PlanReady";
     private const string PlanClearedSignalName = "PlanCleared";

@@ -10,6 +10,7 @@ public static partial class TerrainWorldPlanner
     private static TerrainWorldPointOfInterest[] SelectPointsOfInterest(
         List<PoiCandidate> candidates,
         TerrainGenerationProfile profile,
+        TerrainPointOfInterestRuleSetSnapshot poiRules,
         int maxPoints,
         float cellSize,
         float worldSize,
@@ -17,7 +18,7 @@ public static partial class TerrainWorldPlanner
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        TerrainPoiSelectionPolicy rules = TerrainWorldPlannerRules.PoiSelection;
+        TerrainPoiSelectionPolicy rules = poiRules.Selection;
         candidates.Sort((a, b) => b.Score.CompareTo(a.Score));
         var selected = new List<TerrainWorldPointOfInterest>(maxPoints);
         var kindCounts = new Dictionary<TerrainPointOfInterestKind, int>();
@@ -31,6 +32,7 @@ public static partial class TerrainWorldPlanner
             selected,
             kindCounts,
             TerrainPointOfInterestKind.Oasis,
+            poiRules.SettlementTier,
             maxPoints,
             perKindLimit,
             minDistanceSquared * rules.RequiredKindDistanceFactor,
@@ -53,6 +55,7 @@ public static partial class TerrainWorldPlanner
                     selected,
                     kindCounts,
                     candidate,
+                    poiRules.SettlementTier,
                     maxPoints,
                     perKindLimit,
                     minDistanceSquared * rules.KindSweepDistanceFactor,
@@ -72,6 +75,7 @@ public static partial class TerrainWorldPlanner
             minDistanceSquared,
             worldSize,
             rules,
+            poiRules.SettlementTier,
             cancellationToken);
 
         foreach (PoiCandidate candidate in candidates)
@@ -82,6 +86,7 @@ public static partial class TerrainWorldPlanner
                 selected,
                 kindCounts,
                 candidate,
+                poiRules.SettlementTier,
                 maxPoints,
                 perKindLimit,
                 minDistanceSquared,
@@ -96,6 +101,7 @@ public static partial class TerrainWorldPlanner
         List<TerrainWorldPointOfInterest> selected,
         Dictionary<TerrainPointOfInterestKind, int> kindCounts,
         TerrainPointOfInterestKind requiredKind,
+        TerrainSettlementTierScoring settlementTierRules,
         int maxPoints,
         int perKindLimit,
         float minDistanceSquared,
@@ -120,6 +126,7 @@ public static partial class TerrainWorldPlanner
                 selected,
                 kindCounts,
                 candidate,
+                settlementTierRules,
                 maxPoints,
                 perKindLimit,
                 minDistanceSquared,
@@ -139,6 +146,7 @@ public static partial class TerrainWorldPlanner
         float minDistanceSquared,
         float worldSize,
         TerrainPoiSelectionPolicy rules,
+        TerrainSettlementTierScoring settlementTierRules,
         CancellationToken cancellationToken)
     {
         int targetCount = Mathf.Clamp(Mathf.CeilToInt(maxPoints * rules.CoverageAnchorTargetRatio), selected.Count, maxPoints);
@@ -186,6 +194,7 @@ public static partial class TerrainWorldPlanner
                 selected,
                 kindCounts,
                 candidates[bestIndex],
+                settlementTierRules,
                 maxPoints,
                 perKindLimit,
                 minDistanceSquared,
@@ -252,6 +261,7 @@ public static partial class TerrainWorldPlanner
         List<TerrainWorldPointOfInterest> selected,
         Dictionary<TerrainPointOfInterestKind, int> kindCounts,
         PoiCandidate candidate,
+        TerrainSettlementTierScoring settlementTierRules,
         int maxPoints,
         int perKindLimit,
         float minDistanceSquared,
@@ -283,7 +293,7 @@ public static partial class TerrainWorldPlanner
             candidate.Traversability,
             candidate.BiomeKind,
             candidate.LandscapeKind,
-            ClassifySettlementTier(candidate),
+            ClassifySettlementTier(candidate, settlementTierRules),
             $"{candidate.Kind}_{candidate.GridX}_{candidate.GridY}_{id}"));
         kindCounts[candidate.Kind] = kindCount + 1;
         return true;

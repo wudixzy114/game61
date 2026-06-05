@@ -15,9 +15,10 @@ public static partial class TerrainTileBuilder
         float height,
         float slope,
         TerrainWorldField field,
+        TerrainScatterRuleSetSnapshot rules,
         List<TerrainScatterInstance> scatter)
     {
-        GameplayScatterRule understoryRule = TerrainSurfaceScatterRules.Understory;
+        TerrainGameplayScatterRule understoryRule = rules.Understory;
         float understoryRoll = Hash01(coord.X, coord.Z, cellX * 2711 + cellZ * 2797, profile.Seed + 149);
         if (slope < understoryRule.MaxSlope &&
             field.ResourcePotential > understoryRule.MinPrimary &&
@@ -32,7 +33,7 @@ public static partial class TerrainTileBuilder
             scatter.Add(new TerrainScatterInstance(TerrainScatterKind.Understory, new Vector3(localX, height, localZ), rotation, scale, tint));
         }
 
-        GameplayScatterRule resourceRule = TerrainSurfaceScatterRules.ResourceNode;
+        TerrainGameplayScatterRule resourceRule = rules.ResourceNode;
         float resourceRoll = Hash01(coord.X, coord.Z, cellX * 3761 + cellZ * 3851, profile.Seed + 163);
         if (field.ResourcePotential > resourceRule.MinPrimary &&
             field.Traversability > resourceRule.MinSecondary &&
@@ -45,7 +46,7 @@ public static partial class TerrainTileBuilder
             scatter.Add(new TerrainScatterInstance(TerrainScatterKind.ResourceNode, new Vector3(localX, height, localZ), rotation, scale, tint));
         }
 
-        GameplayScatterRule hazardRule = TerrainSurfaceScatterRules.HazardOutcrop;
+        TerrainGameplayScatterRule hazardRule = rules.HazardOutcrop;
         float hazardRoll = Hash01(coord.X, coord.Z, cellX * 4441 + cellZ * 4481, profile.Seed + 181);
         if (field.HazardPotential > hazardRule.MinPrimary &&
             field.EncounterPotential > hazardRule.MinSecondary &&

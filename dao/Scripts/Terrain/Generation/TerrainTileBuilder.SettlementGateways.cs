@@ -15,6 +15,7 @@ public static partial class TerrainTileBuilder
         TerrainWorldField[] fields,
         TerrainWorldPointOfInterest point,
         TerrainRouteCorridorSegment[] corridorSegments,
+        TerrainSettlementVisualRuleSetSnapshot visualRules,
         Vector2 origin,
         List<TerrainScatterInstance> scatter)
     {
@@ -51,8 +52,8 @@ public static partial class TerrainTileBuilder
         TerrainWorldField field = SampleFieldBilinear(localX, localZ, resolution, step, fields, vertexCountPerSide);
         Vector2 side = new(-direction.Y, direction.X);
         float rotation = Mathf.Atan2(side.Y, side.X);
-        float scale = SettlementGatewayScale(point.SettlementTier, point.Score, placementRouteKind);
-        Color tint = SettlementGatewayColor(point.SettlementTier, placementRouteKind, field);
+        float scale = SettlementGatewayScale(point.SettlementTier, point.Score, placementRouteKind, visualRules);
+        Color tint = SettlementGatewayColor(point.SettlementTier, placementRouteKind, field, visualRules);
         scatter.Add(new TerrainScatterInstance(
             TerrainScatterKind.Landmark,
             new Vector3(localX, height + 0.06f, localZ),
@@ -192,10 +193,11 @@ public static partial class TerrainTileBuilder
     private static float SettlementGatewayScale(
         TerrainSettlementTier tier,
         float score,
-        TerrainRouteKind routeKind)
+        TerrainRouteKind routeKind,
+        TerrainSettlementVisualRuleSetSnapshot visualRules)
     {
-        float tierScale = TerrainSettlementRules.GatewayTierScale(tier);
-        float routeScale = TerrainSettlementRules.GatewayRouteScale(routeKind);
+        float tierScale = visualRules.GatewayTierScale(tier);
+        float routeScale = visualRules.GatewayRouteScale(routeKind);
 
         return tierScale * routeScale * Mathf.Lerp(0.92f, 1.16f, Mathf.Clamp(score, 0.0f, 1.0f));
     }
@@ -203,10 +205,11 @@ public static partial class TerrainTileBuilder
     private static Color SettlementGatewayColor(
         TerrainSettlementTier tier,
         TerrainRouteKind routeKind,
-        TerrainWorldField field)
+        TerrainWorldField field,
+        TerrainSettlementVisualRuleSetSnapshot visualRules)
     {
-        Color baseColor = TerrainSettlementRules.GatewayBaseColor(tier);
-        Color routeTint = TerrainSettlementRules.GatewayRouteTint(routeKind);
+        Color baseColor = visualRules.GatewayBaseColor(tier);
+        Color routeTint = visualRules.GatewayRouteTint(routeKind);
 
         return baseColor
             .Lerp(routeTint, 0.28f)

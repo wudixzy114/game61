@@ -202,11 +202,12 @@ public static partial class TerrainTileBuilder
         float score,
         TerrainTileCoord coord,
         int index,
-        TerrainGenerationProfile profile)
+        TerrainGenerationProfile profile,
+        TerrainSettlementVisualRuleSetSnapshot visualRules)
     {
         float quality = Mathf.Lerp(0.90f, 1.18f, Mathf.Clamp(score, 0.0f, 1.0f));
         float jitter = Mathf.Lerp(0.84f, 1.20f, Hash01(coord.X, coord.Z, index * 1399, profile.Seed + 229));
-        float baseScale = TerrainSettlementRules.InteriorBaseScale(tier, kind);
+        float baseScale = visualRules.InteriorBaseScale(tier, kind);
 
         return baseScale * quality * jitter;
     }
@@ -216,10 +217,11 @@ public static partial class TerrainTileBuilder
         TerrainWorldField field,
         TerrainTileCoord coord,
         int index,
-        TerrainGenerationProfile profile)
+        TerrainGenerationProfile profile,
+        TerrainSettlementVisualRuleSetSnapshot visualRules)
     {
-        Color baseColor = LandmarkColorFor(kind, field);
-        Color variation = TerrainSettlementRules.InteriorVariationColor(kind);
+        Color baseColor = LandmarkColorFor(kind, field, visualRules);
+        Color variation = visualRules.InteriorVariationColor(kind);
         float blend = Mathf.Lerp(0.18f, 0.42f, Hash01(coord.X, coord.Z, index * 1423, profile.Seed + 233));
         return baseColor.Lerp(variation, blend);
     }

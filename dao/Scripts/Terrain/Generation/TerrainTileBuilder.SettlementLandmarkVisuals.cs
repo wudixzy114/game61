@@ -35,31 +35,34 @@ public static partial class TerrainTileBuilder
         };
     }
 
-    private static float LandmarkScaleFor(TerrainLandmarkKind kind, float score)
+    private static float LandmarkScaleFor(
+        TerrainLandmarkKind kind,
+        float score,
+        TerrainSettlementVisualRuleSetSnapshot visualRules)
     {
         float quality = Mathf.Lerp(0.88f, 1.24f, Mathf.Clamp(score, 0.0f, 1.0f));
         float baseScale = kind switch
         {
-            TerrainLandmarkKind.Settlement => 7.8f,
-            TerrainLandmarkKind.Vista => 6.6f,
-            TerrainLandmarkKind.RiverCrossing => 6.2f,
-            TerrainLandmarkKind.MountainPass => 7.0f,
-            TerrainLandmarkKind.CoastalLanding => 7.4f,
-            TerrainLandmarkKind.ResourceGrove => 6.8f,
-            TerrainLandmarkKind.CanyonOverlook => 7.2f,
-            TerrainLandmarkKind.Oasis => 7.6f,
-            TerrainLandmarkKind.Village => 8.4f,
-            TerrainLandmarkKind.Town => 10.8f,
-            TerrainLandmarkKind.OasisHub => 9.4f,
+            TerrainLandmarkKind.Settlement => visualRules.SettlementLandmarkBaseScale,
+            TerrainLandmarkKind.Vista => visualRules.VistaLandmarkBaseScale,
+            TerrainLandmarkKind.RiverCrossing => visualRules.RiverCrossingLandmarkBaseScale,
+            TerrainLandmarkKind.MountainPass => visualRules.MountainPassLandmarkBaseScale,
+            TerrainLandmarkKind.CoastalLanding => visualRules.CoastalLandingLandmarkBaseScale,
+            TerrainLandmarkKind.ResourceGrove => visualRules.ResourceGroveLandmarkBaseScale,
+            TerrainLandmarkKind.CanyonOverlook => visualRules.CanyonOverlookLandmarkBaseScale,
+            TerrainLandmarkKind.Oasis => visualRules.OasisLandmarkBaseScale,
+            TerrainLandmarkKind.Village => visualRules.VillageLandmarkBaseScale,
+            TerrainLandmarkKind.Town => visualRules.TownLandmarkBaseScale,
+            TerrainLandmarkKind.OasisHub => visualRules.OasisHubLandmarkBaseScale,
+            TerrainLandmarkKind.VillageWell => visualRules.VillageWellBaseScale,
+            TerrainLandmarkKind.MarketStall => visualRules.MarketStallBaseScale,
+            TerrainLandmarkKind.WatchTower => visualRules.WatchTowerBaseScale,
+            TerrainLandmarkKind.OasisGarden => visualRules.OasisGardenBaseScale,
             TerrainLandmarkKind.VillageHouse => 2.6f,
             TerrainLandmarkKind.TownBlock => 3.4f,
             TerrainLandmarkKind.OasisCanopy => 3.0f,
             TerrainLandmarkKind.SettlementPlaza => 3.2f,
             TerrainLandmarkKind.OasisPool => 3.4f,
-            TerrainLandmarkKind.VillageWell => 2.4f,
-            TerrainLandmarkKind.MarketStall => 2.7f,
-            TerrainLandmarkKind.WatchTower => 4.2f,
-            TerrainLandmarkKind.OasisGarden => 3.0f,
             TerrainLandmarkKind.SettlementGateway => 3.0f,
             TerrainLandmarkKind.Waterfall => 7.2f,
             TerrainLandmarkKind.RoadMarker => 2.0f,
@@ -77,21 +80,24 @@ public static partial class TerrainTileBuilder
         return baseScale * quality;
     }
 
-    private static Color LandmarkColorFor(TerrainLandmarkKind kind, TerrainWorldField field)
+    private static Color LandmarkColorFor(
+        TerrainLandmarkKind kind,
+        TerrainWorldField field,
+        TerrainSettlementVisualRuleSetSnapshot visualRules)
     {
         Color baseColor = kind switch
         {
-            TerrainLandmarkKind.Settlement => new Color(0.70f, 0.52f, 0.32f),
-            TerrainLandmarkKind.Vista => new Color(0.86f, 0.74f, 0.30f),
-            TerrainLandmarkKind.RiverCrossing => new Color(0.42f, 0.48f, 0.45f),
-            TerrainLandmarkKind.MountainPass => new Color(0.56f, 0.54f, 0.62f),
-            TerrainLandmarkKind.CoastalLanding => new Color(0.46f, 0.58f, 0.64f),
-            TerrainLandmarkKind.ResourceGrove => new Color(0.28f, 0.54f, 0.28f),
-            TerrainLandmarkKind.CanyonOverlook => new Color(0.66f, 0.38f, 0.24f),
-            TerrainLandmarkKind.Oasis => new Color(0.18f, 0.58f, 0.42f),
-            TerrainLandmarkKind.Village => new Color(0.74f, 0.56f, 0.30f),
-            TerrainLandmarkKind.Town => new Color(0.78f, 0.44f, 0.24f),
-            TerrainLandmarkKind.OasisHub => new Color(0.16f, 0.66f, 0.50f),
+            TerrainLandmarkKind.Settlement => visualRules.SettlementLandmarkBaseColor,
+            TerrainLandmarkKind.Vista => visualRules.VistaLandmarkBaseColor,
+            TerrainLandmarkKind.RiverCrossing => visualRules.RiverCrossingLandmarkBaseColor,
+            TerrainLandmarkKind.MountainPass => visualRules.MountainPassLandmarkBaseColor,
+            TerrainLandmarkKind.CoastalLanding => visualRules.CoastalLandingLandmarkBaseColor,
+            TerrainLandmarkKind.ResourceGrove => visualRules.ResourceGroveLandmarkBaseColor,
+            TerrainLandmarkKind.CanyonOverlook => visualRules.CanyonOverlookLandmarkBaseColor,
+            TerrainLandmarkKind.Oasis => visualRules.OasisLandmarkBaseColor,
+            TerrainLandmarkKind.Village => visualRules.VillageLandmarkBaseColor,
+            TerrainLandmarkKind.Town => visualRules.TownLandmarkBaseColor,
+            TerrainLandmarkKind.OasisHub => visualRules.OasisHubLandmarkBaseColor,
             TerrainLandmarkKind.VillageHouse => new Color(0.68f, 0.54f, 0.34f),
             TerrainLandmarkKind.TownBlock => new Color(0.72f, 0.46f, 0.31f),
             TerrainLandmarkKind.OasisCanopy => new Color(0.14f, 0.58f, 0.42f),
@@ -113,6 +119,19 @@ public static partial class TerrainTileBuilder
             TerrainLandmarkKind.GeothermalSpring => new Color(0.24f, 0.58f, 0.62f),
             TerrainLandmarkKind.GlacialRidge => new Color(0.70f, 0.82f, 0.88f),
             _ => new Color(0.52f, 0.50f, 0.44f)
+        };
+
+        baseColor = kind switch
+        {
+            TerrainLandmarkKind.VillageWell => visualRules.VillageWellVariationColor,
+            TerrainLandmarkKind.MarketStall => visualRules.MarketStallVariationColor,
+            TerrainLandmarkKind.WatchTower => visualRules.WatchTowerVariationColor,
+            TerrainLandmarkKind.OasisGarden => visualRules.OasisGardenVariationColor,
+            TerrainLandmarkKind.TownBlock => visualRules.TownBlockVariationColor,
+            TerrainLandmarkKind.OasisCanopy => visualRules.OasisCanopyVariationColor,
+            TerrainLandmarkKind.SettlementPlaza => visualRules.SettlementPlazaVariationColor,
+            TerrainLandmarkKind.OasisPool => visualRules.OasisPoolVariationColor,
+            _ => baseColor
         };
 
         return baseColor.Lerp(Colors.White, Mathf.Clamp(field.ScenicPotential * 0.12f, 0.0f, 0.12f));

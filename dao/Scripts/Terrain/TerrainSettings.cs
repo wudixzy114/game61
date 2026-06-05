@@ -13,6 +13,10 @@ public partial class TerrainSettings : Resource
     [Export] public TerrainGameplaySettingsResource? GameplayProfile { get; set; }
     [Export] public TerrainStreamingSettingsResource? StreamingProfile { get; set; }
     [Export] public TerrainRenderingSettingsResource? RenderingProfile { get; set; }
+    [Export] public TerrainScatterRuleSet? ScatterRuleSet { get; set; }
+    [Export] public TerrainSettlementVisualRuleSet? SettlementVisualRuleSet { get; set; }
+    [Export] public TerrainPointOfInterestRuleSet? PointOfInterestRuleSet { get; set; }
+    [Export] public TerrainRouteRuleSet? RouteRuleSet { get; set; }
     [Export] public TerrainScenicLandmarkRuleSet? ScenicLandmarkRuleSet { get; set; }
 
     [ExportGroup("World")]
@@ -54,6 +58,10 @@ public partial class TerrainSettings : Resource
         TerrainGameplaySettingsResource? gameplay = GameplayProfile;
         TerrainStreamingSettingsResource? streaming = StreamingProfile;
         TerrainRenderingSettingsResource? rendering = RenderingProfile;
+        string scatterRuleSetHash = TerrainScatterRuleCatalog.Register(ScatterRuleSet);
+        string settlementVisualRuleSetHash = TerrainSettlementVisualRuleCatalog.Register(SettlementVisualRuleSet);
+        string pointOfInterestRuleSetHash = TerrainPointOfInterestRuleCatalog.Register(PointOfInterestRuleSet);
+        string routeRuleSetHash = TerrainRouteRuleCatalog.Register(RouteRuleSet);
         string scenicLandmarkRuleSetHash = TerrainScenicLandmarkRuleCatalog.Register(ScenicLandmarkRuleSet);
 
         return new TerrainGenerationProfile(
@@ -80,6 +88,10 @@ public partial class TerrainSettings : Resource
             Mathf.Clamp(streaming?.MaxCachedTileData ?? MaxCachedTileData, 0, 2048),
             streaming?.GenerateCollision ?? GenerateCollision,
             streaming?.UseNativeSamplerWhenAvailable ?? UseNativeSamplerWhenAvailable,
+            scatterRuleSetHash,
+            settlementVisualRuleSetHash,
+            pointOfInterestRuleSetHash,
+            routeRuleSetHash,
             scenicLandmarkRuleSetHash);
     }
 }
@@ -109,6 +121,10 @@ public readonly record struct TerrainGenerationProfile(
     int MaxCachedTileData,
     bool GenerateCollision,
     bool UseNativeSamplerWhenAvailable,
+    string ScatterRuleSetHash = "",
+    string SettlementVisualRuleSetHash = "",
+    string PointOfInterestRuleSetHash = "",
+    string RouteRuleSetHash = "",
     string ScenicLandmarkRuleSetHash = "")
 {
     /// <summary>Computes the stable content identity hash for this generation profile.</summary>

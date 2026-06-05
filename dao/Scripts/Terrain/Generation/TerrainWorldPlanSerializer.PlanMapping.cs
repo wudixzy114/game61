@@ -15,6 +15,11 @@ public static partial class TerrainWorldPlanSerializer
             GeneratorVersion = GeneratorVersion,
             Seed = profile.Seed,
             ProfileHash = profile.StableHash(),
+            ScatterRuleSetHash = NormalizeScatterRuleSetHash(profile.ScatterRuleSetHash),
+            SettlementVisualRuleSetHash = NormalizeSettlementVisualRuleSetHash(profile.SettlementVisualRuleSetHash),
+            PointOfInterestRuleSetHash = NormalizePointOfInterestRuleSetHash(profile.PointOfInterestRuleSetHash),
+            RouteRuleSetHash = NormalizeRouteRuleSetHash(profile.RouteRuleSetHash),
+            ScenicLandmarkRuleSetHash = NormalizeScenicRuleSetHash(profile.ScenicLandmarkRuleSetHash),
             Center = ToDto(plan.Center),
             WorldSize = plan.WorldSize,
             GridResolution = plan.GridResolution,
@@ -52,6 +57,41 @@ public static partial class TerrainWorldPlanSerializer
             FromDto(dto.Reports.Quality),
             FromDto(dto.Reports.Planning),
             FromDto(dto.Reports.Experience));
+    }
+
+    private static string NormalizeScatterRuleSetHash(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value)
+            ? TerrainScatterRuleCatalog.DefaultHash
+            : value;
+    }
+
+    private static string NormalizeSettlementVisualRuleSetHash(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value)
+            ? TerrainSettlementVisualRuleCatalog.DefaultHash
+            : value;
+    }
+
+    private static string NormalizePointOfInterestRuleSetHash(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value)
+            ? TerrainPointOfInterestRuleCatalog.DefaultHash
+            : value;
+    }
+
+    private static string NormalizeRouteRuleSetHash(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value)
+            ? TerrainRouteRuleCatalog.DefaultHash
+            : value;
+    }
+
+    private static string NormalizeScenicRuleSetHash(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value)
+            ? TerrainScenicLandmarkRuleCatalog.DefaultHash
+            : value;
     }
 
     private static TerrainRegionDto[] ToDtos(TerrainWorldRegion[] regions)

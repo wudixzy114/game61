@@ -12,6 +12,7 @@ public static partial class TerrainWorldPlanner
         TerrainWorldPointOfInterest to,
         TerrainWorldField[] fields,
         TerrainGenerationProfile profile,
+        TerrainRouteRuleSetSnapshot routeRules,
         int resolution,
         CancellationToken cancellationToken)
     {
@@ -70,7 +71,7 @@ public static partial class TerrainWorldPlanner
 
                     int next = Index(nx, ny, resolution);
                     TerrainWorldField nextField = fields[next];
-                    float moveCost = StepCost(currentField, nextField, profile, ox != 0 && oy != 0);
+                    float moveCost = StepCost(currentField, nextField, profile, routeRules.PathCost, ox != 0 && oy != 0);
                     if (moveCost >= ImpassableCost)
                     {
                         continue;
@@ -133,7 +134,7 @@ public static partial class TerrainWorldPlanner
         return new TerrainWorldRoute(
             from.Id,
             to.Id,
-            ClassifyRoute(from, to, scenic, river, highland, coast, water),
+            ClassifyRoute(from, to, routeRules.RouteClassification, scenic, river, highland, coast, water),
             costSoFar[goal],
             scenic,
             traversability,
@@ -144,9 +145,9 @@ public static partial class TerrainWorldPlanner
         TerrainWorldField current,
         TerrainWorldField next,
         TerrainGenerationProfile profile,
+        TerrainPathCostPolicy rules,
         bool diagonal)
     {
-        TerrainPathCostPolicy rules = TerrainWorldPlannerRules.PathCost;
         float waterDepth = profile.SeaLevel - next.Height;
         if (waterDepth > profile.HeightScale * rules.ImpassableWaterDepthHeightScaleRatio)
         {
@@ -215,13 +216,13 @@ public static partial class TerrainWorldPlanner
     private static TerrainRouteKind ClassifyRoute(
         TerrainWorldPointOfInterest from,
         TerrainWorldPointOfInterest to,
+        TerrainRouteClassificationPolicy rules,
         float scenic,
         float river,
         float highland,
         float coast,
         float water)
     {
-        TerrainRouteClassificationPolicy rules = TerrainWorldPlannerRules.RouteClassification;
         if (water > rules.WaterPathThreshold ||
             coast > rules.CoastPathThreshold ||
             from.Kind == TerrainPointOfInterestKind.CoastalLanding ||
