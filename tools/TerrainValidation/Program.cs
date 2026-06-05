@@ -78,6 +78,7 @@ TerrainPublicApiShapeSmokeReport? publicApiShapeSmokeReport = null;
 TerrainProfileHashSmokeReport? profileHashSmokeReport = null;
 TerrainValidationCliContractSmokeReport? validationCliContractSmokeReport = null;
 TerrainThresholdContractSmokeReport? thresholdContractSmokeReport = null;
+TerrainDefaultStateContractSmokeReport? defaultStateContractSmokeReport = null;
 TerrainRuntimeApiSmokeReport? runtimeApiSmokeReport = null;
 TerrainAnchorContractSmokeReport? anchorSmokeReport = null;
 TerrainRuntimeWorldSmokeReport? runtimeWorldSmokeReport = null;
@@ -215,6 +216,10 @@ thresholdContractSmokeReport = ValidateTerrainDefaultThresholdContracts();
 PrintThresholdContractSmoke(thresholdContractSmokeReport.Value);
 RecordAuxiliaryCheck(thresholdContractSmokeReport.Value.Passed, ref totalFailures, ref auxiliaryCheckCount, ref auxiliaryFailureCount);
 
+defaultStateContractSmokeReport = ValidateTerrainDefaultStateContracts();
+PrintDefaultStateContractSmoke(defaultStateContractSmokeReport.Value);
+RecordAuxiliaryCheck(defaultStateContractSmokeReport.Value.Passed, ref totalFailures, ref auxiliaryCheckCount, ref auxiliaryFailureCount);
+
 if (nativeSmoke)
 {
     nativeSmokeReport = ValidateNativeSamplerParity(benchmarkProfile);
@@ -249,6 +254,7 @@ PrintAggregate(
     profileHashSmokeReport,
     validationCliContractSmokeReport,
     thresholdContractSmokeReport,
+    defaultStateContractSmokeReport,
     runtimeApiSmokeReport,
     anchorSmokeReport,
     runtimeWorldSmokeReport,
@@ -7493,6 +7499,31 @@ static TerrainValidationCliContractSmokeReport ValidateValidationCliContract()
         string.IsNullOrEmpty(nightlyError) &&
         ParseValidationTier(["--validation-tier", "release"], out string releaseError).Name == "release" &&
         string.IsNullOrEmpty(releaseError);
+    bool fixedTierConfigurationPassed =
+        TierMatches(
+            TerrainValidationTierSpec.Pr,
+            "pr",
+            seedCount: 1,
+            smokeAllSeeds: false,
+            nativeSmoke: false,
+            benchmarkTiles: false,
+            benchmarkTileCount: 48) &&
+        TierMatches(
+            TerrainValidationTierSpec.Nightly,
+            "nightly",
+            seedCount: 10,
+            smokeAllSeeds: true,
+            nativeSmoke: false,
+            benchmarkTiles: false,
+            benchmarkTileCount: 48) &&
+        TierMatches(
+            TerrainValidationTierSpec.Release,
+            "release",
+            seedCount: 25,
+            smokeAllSeeds: true,
+            nativeSmoke: true,
+            benchmarkTiles: true,
+            benchmarkTileCount: 48);
 
     TerrainValidationTierSpec custom = ParseValidationTier([], out string customError);
     bool customFallbackPassed = custom.IsCustom && string.IsNullOrEmpty(customError);
@@ -7549,6 +7580,7 @@ static TerrainValidationCliContractSmokeReport ValidateValidationCliContract()
 
     bool passed =
         tierSelectionPassed &&
+        fixedTierConfigurationPassed &&
         customFallbackPassed &&
         skipOverrideRejected &&
         seedOverrideRejected &&
@@ -7565,6 +7597,7 @@ static TerrainValidationCliContractSmokeReport ValidateValidationCliContract()
     return new TerrainValidationCliContractSmokeReport(
         passed,
         tierSelectionPassed,
+        fixedTierConfigurationPassed,
         customFallbackPassed,
         skipOverrideRejected,
         seedOverrideRejected,
@@ -7576,11 +7609,28 @@ static TerrainValidationCliContractSmokeReport ValidateValidationCliContract()
         reason);
 }
 
+static bool TierMatches(
+    TerrainValidationTierSpec tier,
+    string name,
+    int seedCount,
+    bool smokeAllSeeds,
+    bool nativeSmoke,
+    bool benchmarkTiles,
+    int benchmarkTileCount)
+{
+    return string.Equals(tier.Name, name, StringComparison.Ordinal) &&
+        tier.SeedCount == seedCount &&
+        tier.SmokeAllSeeds == smokeAllSeeds &&
+        tier.NativeSmoke == nativeSmoke &&
+        tier.BenchmarkTiles == benchmarkTiles &&
+        tier.BenchmarkTileCount == benchmarkTileCount;
+}
+
 static void PrintValidationCliContractSmoke(TerrainValidationCliContractSmokeReport report)
 {
     Console.WriteLine(
         $"Validation CLI contract smoke: {(report.Passed ? "PASS" : "FAIL")} " +
-        $"tiers/custom {report.TierSelectionPassed}/{report.CustomFallbackPassed}, " +
+        $"tiers/fixed/custom {report.TierSelectionPassed}/{report.FixedTierConfigurationPassed}/{report.CustomFallbackPassed}, " +
         $"reject skip/seed/world/native/smoke-all/benchmark/unknown {report.SkipOverrideRejected}/{report.SeedOverrideRejected}/" +
         $"{report.WorldOverrideRejected}/{report.NativeOverrideRejected}/{report.SmokeAllSeedsOverrideRejected}/" +
         $"{report.BenchmarkOverrideRejected}/{report.UnknownTierRejected} " +
@@ -7634,23 +7684,46 @@ static TerrainThresholdContractSmokeReport ValidateTerrainDefaultThresholdContra
         ExactFloatEquals(experience.MinRiskRewardBalance, 0.42f) &&
         ExactFloatEquals(experience.MinScenicAnchorRatio, 0.28f);
 
-    bool passed = planningPassed && qualityPassed && experiencePassed;
+    TerrainTileBenchmarkThresholds benchmark = TerrainTileBenchmarkThresholds.Default;
+    bool benchmarkPassed =
+        ExactDoubleEquals(benchmark.MaxManagedMillisecondsPerTile, TerrainPerformanceContract.MaxManagedMillisecondsPerTile) &&
+        ExactDoubleEquals(benchmark.MaxNativeMillisecondsPerTile, TerrainPerformanceContract.MaxNativeMillisecondsPerTile) &&
+        ExactDoubleEquals(benchmark.MaxManagedP50Milliseconds, TerrainPerformanceContract.MaxManagedP50Milliseconds) &&
+        ExactDoubleEquals(benchmark.MaxManagedP95Milliseconds, TerrainPerformanceContract.MaxManagedP95Milliseconds) &&
+        ExactDoubleEquals(benchmark.MaxManagedP99Milliseconds, TerrainPerformanceContract.MaxManagedP99Milliseconds) &&
+        ExactDoubleEquals(benchmark.MaxNativeP50Milliseconds, TerrainPerformanceContract.MaxNativeP50Milliseconds) &&
+        ExactDoubleEquals(benchmark.MaxNativeP95Milliseconds, TerrainPerformanceContract.MaxNativeP95Milliseconds) &&
+        ExactDoubleEquals(benchmark.MaxNativeP99Milliseconds, TerrainPerformanceContract.MaxNativeP99Milliseconds) &&
+        ExactDoubleEquals(benchmark.MaxAllocatedKilobytesPerTile, TerrainPerformanceContract.MaxAllocatedKilobytesPerTile) &&
+        ExactDoubleEquals(benchmark.MinNativeSpeedup, TerrainPerformanceContract.MinNativeSpeedup) &&
+        benchmark.MinParityTileCount == TerrainPerformanceContract.MinParityTileCount &&
+        benchmark.MinBenchmarkBiomeKinds == TerrainPerformanceContract.MinBenchmarkBiomeKinds &&
+        benchmark.MinBenchmarkLandscapeKinds == TerrainPerformanceContract.MinBenchmarkLandscapeKinds &&
+        benchmark.MinBenchmarkPointOfInterestTiles == TerrainPerformanceContract.MinBenchmarkPointOfInterestTiles &&
+        benchmark.MinBenchmarkRouteTiles == TerrainPerformanceContract.MinBenchmarkRouteTiles &&
+        benchmark.MinBenchmarkGameplayRichTiles == TerrainPerformanceContract.MinBenchmarkGameplayRichTiles &&
+        ExactFloatEquals(benchmark.MaxParityHeightDelta, TerrainDeterminismContract.TileParityHeightEpsilon) &&
+        ExactFloatEquals(benchmark.MaxParityColorDelta, TerrainDeterminismContract.TileParityColorEpsilon);
+
+    bool passed = planningPassed && qualityPassed && experiencePassed && benchmarkPassed;
     string reason = passed
-        ? "default planning, quality, and experience gate thresholds match the stable open-world contract"
-        : ThresholdContractFailureReason(planningPassed, qualityPassed, experiencePassed);
+        ? "default planning, quality, experience, and benchmark thresholds match the stable open-world contract"
+        : ThresholdContractFailureReason(planningPassed, qualityPassed, experiencePassed, benchmarkPassed);
 
     return new TerrainThresholdContractSmokeReport(
         passed,
         planningPassed,
         qualityPassed,
         experiencePassed,
+        benchmarkPassed,
         reason);
 }
 
 static string ThresholdContractFailureReason(
     bool planningPassed,
     bool qualityPassed,
-    bool experiencePassed)
+    bool experiencePassed,
+    bool benchmarkPassed)
 {
     if (!planningPassed)
     {
@@ -7667,6 +7740,11 @@ static string ThresholdContractFailureReason(
         return "TerrainExperienceThresholds.OpenWorldDefault drifted";
     }
 
+    if (!benchmarkPassed)
+    {
+        return "TerrainTileBenchmarkThresholds.Default drifted from TerrainPerformanceContract/TerrainDeterminismContract";
+    }
+
     return "default terrain threshold contract failed";
 }
 
@@ -7674,7 +7752,128 @@ static void PrintThresholdContractSmoke(TerrainThresholdContractSmokeReport repo
 {
     Console.WriteLine(
         $"Terrain threshold contract smoke: {(report.Passed ? "PASS" : "FAIL")} " +
-        $"planning/quality/experience {report.PlanningThresholdsPassed}/{report.QualityThresholdsPassed}/{report.ExperienceThresholdsPassed} " +
+        $"planning/quality/experience/benchmark {report.PlanningThresholdsPassed}/{report.QualityThresholdsPassed}/{report.ExperienceThresholdsPassed}/{report.BenchmarkThresholdsPassed} " +
+        $"({report.Reason})");
+}
+
+static TerrainDefaultStateContractSmokeReport ValidateTerrainDefaultStateContracts()
+{
+    TerrainRouteCorridorSample corridorNone = TerrainRouteCorridorSample.None;
+    bool corridorNonePassed =
+        !corridorNone.HasInfluence &&
+        corridorNone.Kind == TerrainRouteKind.PrimaryTrail &&
+        ExactFloatEquals(corridorNone.Influence, 0.0f) &&
+        ExactFloatEquals(corridorNone.CoreStrength, 0.0f) &&
+        float.IsPositiveInfinity(corridorNone.Distance) &&
+        ExactFloatEquals(corridorNone.TargetHeight, 0.0f) &&
+        ExactFloatEquals(corridorNone.ScenicPotential, 0.0f) &&
+        ExactFloatEquals(corridorNone.Traversability, 0.0f) &&
+        corridorNone.Direction == Vector2.Zero;
+
+    TerrainRouteCorridorIndex corridorIndexEmpty = TerrainRouteCorridorIndex.Empty;
+    bool corridorIndexEmptyPassed =
+        corridorIndexEmpty.CacheKey == 0 &&
+        !corridorIndexEmpty.HasSegments &&
+        corridorIndexEmpty.GetSegments(default).Length == 0 &&
+        !corridorIndexEmpty.Sample(Vector2.Zero, default(TerrainTileCoord)).HasInfluence;
+
+    TerrainPointOfInterestIndex poiIndexEmpty = TerrainPointOfInterestIndex.Empty;
+    bool poiIndexEmptyPassed =
+        poiIndexEmpty.CacheKey == 0 &&
+        !poiIndexEmpty.HasPoints &&
+        poiIndexEmpty.GetPoints(default).Length == 0;
+
+    TerrainWaterSurfaceData waterSurfaceEmpty = TerrainWaterSurfaceData.Empty;
+    bool waterSurfaceEmptyPassed =
+        waterSurfaceEmpty.Vertices.Length == 0 &&
+        waterSurfaceEmpty.Normals.Length == 0 &&
+        waterSurfaceEmpty.Uvs.Length == 0 &&
+        waterSurfaceEmpty.Colors.Length == 0 &&
+        waterSurfaceEmpty.Indices.Length == 0 &&
+        waterSurfaceEmpty.LakeCellCount == 0 &&
+        waterSurfaceEmpty.RiverCellCount == 0 &&
+        waterSurfaceEmpty.OasisCellCount == 0 &&
+        ExactFloatEquals(waterSurfaceEmpty.MinHeight, 0.0f) &&
+        ExactFloatEquals(waterSurfaceEmpty.MaxHeight, 0.0f) &&
+        !waterSurfaceEmpty.HasSurface &&
+        waterSurfaceEmpty.CellCount == 0;
+
+    TerrainWorldPlanSnapshot planSnapshotEmpty = TerrainWorldPlanSnapshot.Empty;
+    bool planSnapshotEmptyPassed =
+        planSnapshotEmpty.Center == Vector2.Zero &&
+        ExactFloatEquals(planSnapshotEmpty.WorldSize, 0.0f) &&
+        planSnapshotEmpty.GridResolution == 0 &&
+        planSnapshotEmpty.Regions.Length == 0 &&
+        planSnapshotEmpty.PointsOfInterest.Length == 0 &&
+        planSnapshotEmpty.Routes.Length == 0;
+
+    bool passed =
+        corridorNonePassed &&
+        corridorIndexEmptyPassed &&
+        poiIndexEmptyPassed &&
+        waterSurfaceEmptyPassed &&
+        planSnapshotEmptyPassed;
+    string reason = passed
+        ? "default route corridor, POI index, water surface, and empty plan snapshot states match the stable contract"
+        : DefaultStateContractFailureReason(
+            corridorNonePassed,
+            corridorIndexEmptyPassed,
+            poiIndexEmptyPassed,
+            waterSurfaceEmptyPassed,
+            planSnapshotEmptyPassed);
+
+    return new TerrainDefaultStateContractSmokeReport(
+        passed,
+        corridorNonePassed,
+        corridorIndexEmptyPassed,
+        poiIndexEmptyPassed,
+        waterSurfaceEmptyPassed,
+        planSnapshotEmptyPassed,
+        reason);
+}
+
+static string DefaultStateContractFailureReason(
+    bool corridorNonePassed,
+    bool corridorIndexEmptyPassed,
+    bool poiIndexEmptyPassed,
+    bool waterSurfaceEmptyPassed,
+    bool planSnapshotEmptyPassed)
+{
+    if (!corridorNonePassed)
+    {
+        return "TerrainRouteCorridorSample.None drifted";
+    }
+
+    if (!corridorIndexEmptyPassed)
+    {
+        return "TerrainRouteCorridorIndex.Empty drifted";
+    }
+
+    if (!poiIndexEmptyPassed)
+    {
+        return "TerrainPointOfInterestIndex.Empty drifted";
+    }
+
+    if (!waterSurfaceEmptyPassed)
+    {
+        return "TerrainWaterSurfaceData.Empty drifted";
+    }
+
+    if (!planSnapshotEmptyPassed)
+    {
+        return "TerrainWorldPlanSnapshot.Empty drifted";
+    }
+
+    return "default terrain state contract failed";
+}
+
+static void PrintDefaultStateContractSmoke(TerrainDefaultStateContractSmokeReport report)
+{
+    Console.WriteLine(
+        $"Terrain default state contract smoke: {(report.Passed ? "PASS" : "FAIL")} " +
+        $"corridor-none/index-empty/poi-empty/water-empty/plan-empty " +
+        $"{report.CorridorNonePassed}/{report.CorridorIndexEmptyPassed}/{report.PointOfInterestIndexEmptyPassed}/" +
+        $"{report.WaterSurfaceEmptyPassed}/{report.PlanSnapshotEmptyPassed} " +
         $"({report.Reason})");
 }
 
@@ -7698,6 +7897,7 @@ static void PrintAggregate(
     TerrainProfileHashSmokeReport? profileHashSmokeReport,
     TerrainValidationCliContractSmokeReport? validationCliContractSmokeReport,
     TerrainThresholdContractSmokeReport? thresholdContractSmokeReport,
+    TerrainDefaultStateContractSmokeReport? defaultStateContractSmokeReport,
     TerrainRuntimeApiSmokeReport? runtimeApiSmokeReport,
     TerrainAnchorContractSmokeReport? anchorSmokeReport,
     TerrainRuntimeWorldSmokeReport? runtimeWorldSmokeReport,
@@ -7783,6 +7983,10 @@ static void PrintAggregate(
     if (thresholdContractSmokeReport is not null)
     {
         Console.WriteLine($"Terrain threshold contract smoke: {(thresholdContractSmokeReport.Value.Passed ? "PASS" : "FAIL")}");
+    }
+    if (defaultStateContractSmokeReport is not null)
+    {
+        Console.WriteLine($"Terrain default state contract smoke: {(defaultStateContractSmokeReport.Value.Passed ? "PASS" : "FAIL")}");
     }
     if (runtimeApiSmokeReport is not null)
     {
@@ -8140,6 +8344,7 @@ internal readonly record struct TerrainPoiFootprintSmokeReport(
 internal readonly record struct TerrainValidationCliContractSmokeReport(
     bool Passed,
     bool TierSelectionPassed,
+    bool FixedTierConfigurationPassed,
     bool CustomFallbackPassed,
     bool SkipOverrideRejected,
     bool SeedOverrideRejected,
@@ -8282,6 +8487,17 @@ internal readonly record struct TerrainThresholdContractSmokeReport(
     bool PlanningThresholdsPassed,
     bool QualityThresholdsPassed,
     bool ExperienceThresholdsPassed,
+    bool BenchmarkThresholdsPassed,
+    string Reason);
+
+/// <summary>Reports whether public empty/default terrain sentinel states match the stable contract.</summary>
+internal readonly record struct TerrainDefaultStateContractSmokeReport(
+    bool Passed,
+    bool CorridorNonePassed,
+    bool CorridorIndexEmptyPassed,
+    bool PointOfInterestIndexEmptyPassed,
+    bool WaterSurfaceEmptyPassed,
+    bool PlanSnapshotEmptyPassed,
     string Reason);
 
 /// <summary>Stable method signature expected by public API shape validation.</summary>

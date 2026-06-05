@@ -338,6 +338,7 @@ dotnet run --project tools\TerrainValidation\TerrainValidation.csproj -- --valid
 - `nightly`：10 个固定 seed，对每个 seed 运行全部 smoke。
 - `release`：25 个固定 seed，对每个 seed 运行全部 smoke，并启用 native parity 和 tile benchmark。
 - 显式 tier 不能与 `--skip-*`、`--seed*`、`--world-size`、`--smoke-all-seeds`、`--native-smoke`、`--benchmark-tiles` 等覆盖参数混用，避免 CI 门槛被意外削弱。
+- `Validation CLI contract smoke` 会显式锁定 `pr` / `nightly` / `release` 的固定 tier 配置值，防止 `SeedCount`、`SmokeAllSeeds`、`NativeSmoke`、`BenchmarkTiles` 或 `BenchmarkTileCount` 被静默改动。
 
 当前 CI 接入：
 
@@ -363,6 +364,7 @@ Terrain anchor contract smoke: PASS
 - `Terrain public API shape smoke` 还会锁定当前 `Dao.Terrain*` 导出的 public 类型集合，防止无意新增公开类型绕过契约评审。
 - 对稳定化计划中列为“二级半稳定 API”的公共入口，`Terrain public API shape smoke` 也会锁定关键方法签名和返回数据成员形状。
 - `Terrain threshold contract smoke` 会显式锁定默认 planning/quality/experience gate threshold，防止验证门槛被静默放宽或收紧。
+- `Terrain default state contract smoke` 会显式锁定关键公开空态/默认态 sentinel，例如 `TerrainRouteCorridorSample.None`、`TerrainRouteCorridorIndex.Empty`、`TerrainPointOfInterestIndex.Empty`、`TerrainWaterSurfaceData.Empty` 和 `TerrainWorldPlanSnapshot.Empty`。
 - plan 空态返回 false 和空集合。
 - plan 就绪态返回 POI/route 数量正确。
 - `WorldPlan`、`TryGetWorldPlan`、`SetWorldPlan` 输入和 plan facade 返回值不会泄露内部可变状态。

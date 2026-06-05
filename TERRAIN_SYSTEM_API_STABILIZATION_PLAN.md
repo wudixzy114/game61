@@ -1074,6 +1074,7 @@ Tier 约束：
 - `nightly` 固定为 10 个 seed，并对每个 seed 运行全部 smoke。
 - `release` 固定为 25 个 seed，并对每个 seed 运行全部 smoke，同时启用 native parity 和 tile benchmark。
 - 显式 tier 不能与 `--skip-*`、`--seed*`、`--world-size`、`--smoke-all-seeds`、`--native-smoke`、`--benchmark-tiles` 等覆盖参数混用，避免 CI 门槛被意外削弱。
+- `Validation CLI contract smoke` 还会显式锁定这三个 tier 的固定配置值，防止 tier 名称不变但 seed 数、smoke 覆盖或 benchmark 开关被静默改动。
 
 当前 CI 接入：
 
@@ -1256,6 +1257,7 @@ public static class TerrainWorldPlanSerializer
 - facade query smoke。
 - plan serialization smoke。
 - threshold contract smoke。
+- default state contract smoke。
 - artifact smoke 中的 plan map、report、traversal cost map layer、raster 像素快照隔离和结构化 traversal cost grid。
 - `--validation-tier pr/nightly/release` 固定 CI 分层门槛。
 
