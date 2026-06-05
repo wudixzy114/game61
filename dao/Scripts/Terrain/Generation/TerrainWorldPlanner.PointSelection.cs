@@ -15,6 +15,7 @@ public static partial class TerrainWorldPlanner
         int gridY)
     {
         TerrainPoiThresholds thresholds = TerrainWorldPlannerRules.PoiThresholds;
+        TerrainPoiScoringWeights weights = TerrainWorldPlannerRules.PoiScoring;
         if (field.Height < profile.SeaLevel - 4.0f)
         {
             return;
@@ -26,30 +27,33 @@ public static partial class TerrainWorldPlanner
         float stableFlatLand = field.Traversability * land;
 
         float settlementBiomeBonus = field.BiomeKind is TerrainBiomeKind.Plains or TerrainBiomeKind.Grassland
-            ? 0.10f
-            : field.BiomeKind == TerrainBiomeKind.Oasis ? 0.16f : 0.0f;
+            ? weights.SettlementPlainsGrassBonus
+            : field.BiomeKind == TerrainBiomeKind.Oasis ? weights.SettlementOasisBonus : 0.0f;
         float settlementScore =
-            stableFlatLand * 0.55f +
-            Mathf.Clamp(1.0f - Mathf.Abs(field.Moisture - 0.55f) * 2.0f, 0.0f, 1.0f) * 0.12f +
-            Mathf.Clamp(1.0f - Mathf.Abs(field.Temperature - 0.56f) * 2.1f, 0.0f, 1.0f) * 0.12f +
-            Mathf.SmoothStep(0.18f, 0.62f, field.River) * 0.09f +
-            field.ScenicPotential * 0.12f +
+            stableFlatLand * weights.SettlementStableFlatLand +
+            Mathf.Clamp(1.0f - Mathf.Abs(field.Moisture - 0.55f) * 2.0f, 0.0f, 1.0f) * weights.SettlementMoisture +
+            Mathf.Clamp(1.0f - Mathf.Abs(field.Temperature - 0.56f) * 2.1f, 0.0f, 1.0f) * weights.SettlementTemperature +
+            Mathf.SmoothStep(0.18f, 0.62f, field.River) * weights.SettlementRiver +
+            field.ScenicPotential * weights.SettlementScenic +
             settlementBiomeBonus;
         AddCandidateIfStrong(candidates, TerrainPointOfInterestKind.SettlementCandidate, settlementScore, thresholds.SettlementCandidate, field, gridX, gridY, rarity);
 
-        float vistaScore = field.ScenicPotential * 0.82f + elevation * 0.14f + rarity * 0.04f;
+        float vistaScore = field.ScenicPotential * weights.VistaScenic + elevation * weights.VistaElevation + rarity * weights.VistaRarity;
         AddCandidateIfStrong(candidates, TerrainPointOfInterestKind.Vista, vistaScore, thresholds.Vista, field, gridX, gridY, rarity);
 
         float crossingScore =
-            Mathf.SmoothStep(0.50f, 0.82f, field.River) * 0.55f +
-            field.Traversability * 0.30f +
-            land * 0.15f;
+            Mathf.SmoothStep(0.50f, 0.82f, field.River) * weights.CrossingRiver +
+            field.Traversability * weights.CrossingTraversability +
+            land * weights.CrossingLand;
         AddCandidateIfStrong(candidates, TerrainPointOfInterestKind.RiverCrossing, crossingScore, thresholds.RiverCrossing, field, gridX, gridY, rarity);
 
         float passScore = 0.0f;
         if (field.LandscapeKind is TerrainLandscapeKind.Highlands or TerrainLandscapeKind.MountainMassif or TerrainLandscapeKind.VistaPlateau)
         {
-            passScore = elevation * 0.30f + field.Traversability * 0.36f + field.ScenicPotential * 0.28f + rarity * 0.06f;
+            passScore = elevation * weights.PassElevation +
+                field.Traversability * weights.PassTraversability +
+                field.ScenicPotential * weights.PassScenic +
+                rarity * weights.PassRarity;
         }
 
         AddCandidateIfStrong(candidates, TerrainPointOfInterestKind.MountainPass, passScore, thresholds.MountainPass, field, gridX, gridY, rarity);
@@ -57,7 +61,10 @@ public static partial class TerrainWorldPlanner
         float coastScore = 0.0f;
         if (field.LandscapeKind == TerrainLandscapeKind.Coast || Mathf.Abs(field.Height - profile.SeaLevel) < 30.0f)
         {
-            coastScore = land * 0.30f + field.Traversability * 0.30f + field.ScenicPotential * 0.28f + rarity * 0.12f;
+            coastScore = land * weights.CoastLand +
+                field.Traversability * weights.CoastTraversability +
+                field.ScenicPotential * weights.CoastScenic +
+                rarity * weights.CoastRarity;
         }
 
         AddCandidateIfStrong(candidates, TerrainPointOfInterestKind.CoastalLanding, coastScore, thresholds.CoastalLanding, field, gridX, gridY, rarity);
@@ -66,16 +73,26 @@ public static partial class TerrainWorldPlanner
         if (field.LandscapeKind is TerrainLandscapeKind.ForestBasin or TerrainLandscapeKind.Wetland or TerrainLandscapeKind.RiverValley ||
             field.BiomeKind == TerrainBiomeKind.Oasis)
         {
-            resourceScore = field.Moisture * 0.34f + field.Traversability * 0.24f + (1.0f - elevation) * 0.16f + field.River * 0.12f + rarity * 0.14f;
+            resourceScore = field.Moisture * weights.ResourceMoisture +
+                field.Traversability * weights.ResourceTraversability +
+                (1.0f - elevation) * weights.ResourceLowElevation +
+                field.River * weights.ResourceRiver +
+                rarity * weights.ResourceRarity;
         }
 
         AddCandidateIfStrong(candidates, TerrainPointOfInterestKind.ResourceGrove, resourceScore, thresholds.ResourceGrove, field, gridX, gridY, rarity);
 
-        float ancientScore = field.ScenicPotential * 0.50f + elevation * 0.18f + stableFlatLand * 0.16f + rarity * 0.16f;
+        float ancientScore = field.ScenicPotential * weights.AncientScenic +
+            elevation * weights.AncientElevation +
+            stableFlatLand * weights.AncientStableFlatLand +
+            rarity * weights.AncientRarity;
         AddCandidateIfStrong(candidates, TerrainPointOfInterestKind.AncientSite, ancientScore, thresholds.AncientSite, field, gridX, gridY, rarity);
 
         float canyonScore = field.LandscapeKind == TerrainLandscapeKind.Canyon
-            ? field.ScenicPotential * 0.50f + field.River * 0.26f + elevation * 0.12f + rarity * 0.12f
+            ? field.ScenicPotential * weights.CanyonScenic +
+                field.River * weights.CanyonRiver +
+                elevation * weights.CanyonElevation +
+                rarity * weights.CanyonRarity
             : 0.0f;
         AddCandidateIfStrong(candidates, TerrainPointOfInterestKind.CanyonOverlook, canyonScore, thresholds.CanyonOverlook, field, gridX, gridY, rarity);
 
@@ -93,9 +110,17 @@ public static partial class TerrainWorldPlanner
             field.BiomeKind is TerrainBiomeKind.Desert or TerrainBiomeKind.Plains or TerrainBiomeKind.Grassland or TerrainBiomeKind.Hills &&
             warmDryWaterAccess > 0.18f;
         float oasisScore = naturalOasis
-            ? field.ResourcePotential * 0.38f + field.Traversability * 0.20f + field.River * 0.18f + field.ScenicPotential * 0.14f + rarity * 0.10f
+            ? field.ResourcePotential * weights.OasisNaturalResource +
+                field.Traversability * weights.OasisNaturalTraversability +
+                field.River * weights.OasisNaturalRiver +
+                field.ScenicPotential * weights.OasisNaturalScenic +
+                rarity * weights.OasisNaturalRarity
             : strategicOasisSite
-            ? warmDryWaterAccess * 0.30f + field.ResourcePotential * 0.26f + field.Traversability * 0.18f + field.ScenicPotential * 0.12f + rarity * 0.14f
+            ? warmDryWaterAccess * weights.OasisStrategicWaterAccess +
+                field.ResourcePotential * weights.OasisStrategicResource +
+                field.Traversability * weights.OasisStrategicTraversability +
+                field.ScenicPotential * weights.OasisStrategicScenic +
+                rarity * weights.OasisStrategicRarity
             : 0.0f;
         AddCandidateIfStrong(candidates, TerrainPointOfInterestKind.Oasis, oasisScore, thresholds.Oasis, field, gridX, gridY, rarity);
     }
@@ -120,7 +145,7 @@ public static partial class TerrainWorldPlanner
             field.WorldPosition,
             gridX,
             gridY,
-            Mathf.Clamp(score + rarity * 0.025f, 0.0f, 1.0f),
+            Mathf.Clamp(score + rarity * TerrainWorldPlannerRules.PoiScoring.CandidateRarityLift, 0.0f, 1.0f),
             field.Height,
             field.ScenicPotential,
             field.Traversability,
