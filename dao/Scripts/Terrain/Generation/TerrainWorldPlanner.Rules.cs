@@ -110,6 +110,32 @@ public static partial class TerrainWorldPlanner
             TierVariety: 0.0f,
             Distance: 0.06f,
             SettlementBonus: 0.08f);
+
+        public static readonly TerrainPathCostPolicy PathCost = new(
+            ImpassableWaterDepthHeightScaleRatio: 0.62f,
+            DiagonalBaseCost: 1.4142f,
+            OrthogonalBaseCost: 1.0f,
+            TraversabilityPenaltyWeight: 4.5f,
+            HeightDeltaPenaltyHeightScaleRatio: 0.18f,
+            HeightDeltaPenaltyMax: 4.0f,
+            RiverHighPenaltyThreshold: 0.72f,
+            RiverHighPenalty: 1.4f,
+            RiverPenaltyWeight: 0.38f,
+            WaterPenaltyStart: 4.0f,
+            WaterPenaltyBase: 5.8f,
+            WaterPenaltyDepthScale: 90.0f,
+            WaterPenaltyDepthMax: 5.5f,
+            ScenicBonusWeight: 0.18f,
+            MinimumScaledCost: 0.35f);
+
+        public static readonly TerrainRouteClassificationPolicy RouteClassification = new(
+            WaterPathThreshold: 0.12f,
+            CoastPathThreshold: 0.32f,
+            RiverRoadPrimaryThreshold: 0.55f,
+            RidgePassPrimaryThreshold: 0.55f,
+            ScenicTrailThreshold: 0.62f,
+            RiverRoadSecondaryThreshold: 0.34f,
+            RidgePassSecondaryThreshold: 0.34f);
     }
 
     private readonly record struct TerrainPoiThresholds(
@@ -200,4 +226,30 @@ public static partial class TerrainWorldPlanner
         float TierVariety,
         float Distance,
         float SettlementBonus);
+
+    private readonly record struct TerrainPathCostPolicy(
+        float ImpassableWaterDepthHeightScaleRatio,
+        float DiagonalBaseCost,
+        float OrthogonalBaseCost,
+        float TraversabilityPenaltyWeight,
+        float HeightDeltaPenaltyHeightScaleRatio,
+        float HeightDeltaPenaltyMax,
+        float RiverHighPenaltyThreshold,
+        float RiverHighPenalty,
+        float RiverPenaltyWeight,
+        float WaterPenaltyStart,
+        float WaterPenaltyBase,
+        float WaterPenaltyDepthScale,
+        float WaterPenaltyDepthMax,
+        float ScenicBonusWeight,
+        float MinimumScaledCost);
+
+    private readonly record struct TerrainRouteClassificationPolicy(
+        float WaterPathThreshold,
+        float CoastPathThreshold,
+        float RiverRoadPrimaryThreshold,
+        float RidgePassPrimaryThreshold,
+        float ScenicTrailThreshold,
+        float RiverRoadSecondaryThreshold,
+        float RidgePassSecondaryThreshold);
 }

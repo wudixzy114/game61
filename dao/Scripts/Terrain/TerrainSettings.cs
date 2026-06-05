@@ -6,6 +6,13 @@ namespace Dao.Terrain;
 [GlobalClass]
 public partial class TerrainSettings : Resource
 {
+    [ExportGroup("Structured Profiles")]
+    [Export] public TerrainWorldSettingsResource? WorldProfile { get; set; }
+    [Export] public TerrainShapeSettingsResource? ShapeProfile { get; set; }
+    [Export] public TerrainGameplaySettingsResource? GameplayProfile { get; set; }
+    [Export] public TerrainStreamingSettingsResource? StreamingProfile { get; set; }
+    [Export] public TerrainRenderingSettingsResource? RenderingProfile { get; set; }
+
     [ExportGroup("World")]
     [Export] public int Seed { get; set; } = 613_061;
     [Export(PropertyHint.Range, "64,2048,1")] public float ChunkSize { get; set; } = 192.0f;
@@ -40,30 +47,36 @@ public partial class TerrainSettings : Resource
     /// <summary>Creates an immutable snapshot profile from the current settings, clamping values to valid ranges.</summary>
     public TerrainGenerationProfile Snapshot()
     {
+        TerrainWorldSettingsResource? world = WorldProfile;
+        TerrainShapeSettingsResource? shape = ShapeProfile;
+        TerrainGameplaySettingsResource? gameplay = GameplayProfile;
+        TerrainStreamingSettingsResource? streaming = StreamingProfile;
+        TerrainRenderingSettingsResource? rendering = RenderingProfile;
+
         return new TerrainGenerationProfile(
-            Seed,
-            Mathf.Max(16.0f, ChunkSize),
-            Mathf.Clamp(BaseResolution, 8, 256),
-            Mathf.Clamp(StreamRadiusChunks, 1, 32),
-            Mathf.Clamp(CollisionRadiusChunks, 0, 16),
-            Mathf.Clamp(MaxLod, 0, 8),
-            HeightScale,
-            SeaLevel,
-            Mathf.Max(128.0f, ContinentScale),
-            Mathf.Max(64.0f, MountainScale),
-            Mathf.Clamp(MountainWeight, 0.0f, 1.0f),
-            Mathf.Clamp(ValleyWeight, 0.0f, 1.0f),
-            Mathf.Clamp(DetailWeight, 0.0f, 1.0f),
-            Mathf.Clamp(VistaFrequency, 0.0f, 1.0f),
-            Mathf.Clamp(RiverStrength, 0.0f, 1.0f),
-            RiverCarveDepth,
-            TerraceStrength,
-            SkirtDepth,
-            Mathf.Max(1, MaxCompletedTilesPerFrame),
-            Mathf.Max(1, MaxQueuedTileJobs),
-            Mathf.Clamp(MaxCachedTileData, 0, 2048),
-            GenerateCollision,
-            UseNativeSamplerWhenAvailable);
+            world?.Seed ?? Seed,
+            Mathf.Max(16.0f, world?.ChunkSize ?? ChunkSize),
+            Mathf.Clamp(world?.BaseResolution ?? BaseResolution, 8, 256),
+            Mathf.Clamp(streaming?.StreamRadiusChunks ?? StreamRadiusChunks, 1, 32),
+            Mathf.Clamp(streaming?.CollisionRadiusChunks ?? CollisionRadiusChunks, 0, 16),
+            Mathf.Clamp(streaming?.MaxLod ?? MaxLod, 0, 8),
+            shape?.HeightScale ?? HeightScale,
+            shape?.SeaLevel ?? SeaLevel,
+            Mathf.Max(128.0f, shape?.ContinentScale ?? ContinentScale),
+            Mathf.Max(64.0f, shape?.MountainScale ?? MountainScale),
+            Mathf.Clamp(shape?.MountainWeight ?? MountainWeight, 0.0f, 1.0f),
+            Mathf.Clamp(shape?.ValleyWeight ?? ValleyWeight, 0.0f, 1.0f),
+            Mathf.Clamp(shape?.DetailWeight ?? DetailWeight, 0.0f, 1.0f),
+            Mathf.Clamp(gameplay?.VistaFrequency ?? VistaFrequency, 0.0f, 1.0f),
+            Mathf.Clamp(gameplay?.RiverStrength ?? RiverStrength, 0.0f, 1.0f),
+            gameplay?.RiverCarveDepth ?? RiverCarveDepth,
+            gameplay?.TerraceStrength ?? TerraceStrength,
+            rendering?.SkirtDepth ?? SkirtDepth,
+            Mathf.Max(1, streaming?.MaxCompletedTilesPerFrame ?? MaxCompletedTilesPerFrame),
+            Mathf.Max(1, streaming?.MaxQueuedTileJobs ?? MaxQueuedTileJobs),
+            Mathf.Clamp(streaming?.MaxCachedTileData ?? MaxCachedTileData, 0, 2048),
+            streaming?.GenerateCollision ?? GenerateCollision,
+            streaming?.UseNativeSamplerWhenAvailable ?? UseNativeSamplerWhenAvailable);
     }
 }
 

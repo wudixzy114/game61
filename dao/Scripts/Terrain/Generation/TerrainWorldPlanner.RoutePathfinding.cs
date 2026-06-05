@@ -146,20 +146,28 @@ public static partial class TerrainWorldPlanner
         TerrainGenerationProfile profile,
         bool diagonal)
     {
+        TerrainPathCostPolicy rules = TerrainWorldPlannerRules.PathCost;
         float waterDepth = profile.SeaLevel - next.Height;
-        if (waterDepth > profile.HeightScale * 0.62f)
+        if (waterDepth > profile.HeightScale * rules.ImpassableWaterDepthHeightScaleRatio)
         {
             return ImpassableCost;
         }
 
-        float baseCost = diagonal ? 1.4142f : 1.0f;
-        float traversabilityPenalty = (1.0f - next.Traversability) * 4.5f;
-        float heightDeltaPenalty = Mathf.Clamp(Mathf.Abs(next.Height - current.Height) / Mathf.Max(1.0f, profile.HeightScale * 0.18f), 0.0f, 4.0f);
-        float riverPenalty = next.River > 0.72f ? 1.4f : next.River * 0.38f;
-        float waterPenalty = waterDepth > 4.0f ? 5.8f + Mathf.Clamp(waterDepth / 90.0f, 0.0f, 5.5f) : 0.0f;
-        float scenicBonus = next.ScenicPotential * 0.18f;
+        float baseCost = diagonal ? rules.DiagonalBaseCost : rules.OrthogonalBaseCost;
+        float traversabilityPenalty = (1.0f - next.Traversability) * rules.TraversabilityPenaltyWeight;
+        float heightDeltaPenalty = Mathf.Clamp(
+            Mathf.Abs(next.Height - current.Height) / Mathf.Max(1.0f, profile.HeightScale * rules.HeightDeltaPenaltyHeightScaleRatio),
+            0.0f,
+            rules.HeightDeltaPenaltyMax);
+        float riverPenalty = next.River > rules.RiverHighPenaltyThreshold
+            ? rules.RiverHighPenalty
+            : next.River * rules.RiverPenaltyWeight;
+        float waterPenalty = waterDepth > rules.WaterPenaltyStart
+            ? rules.WaterPenaltyBase + Mathf.Clamp(waterDepth / rules.WaterPenaltyDepthScale, 0.0f, rules.WaterPenaltyDepthMax)
+            : 0.0f;
+        float scenicBonus = next.ScenicPotential * rules.ScenicBonusWeight;
 
-        return baseCost * Mathf.Max(0.35f, 1.0f + traversabilityPenalty + heightDeltaPenalty + riverPenalty + waterPenalty - scenicBonus);
+        return baseCost * Mathf.Max(rules.MinimumScaledCost, 1.0f + traversabilityPenalty + heightDeltaPenalty + riverPenalty + waterPenalty - scenicBonus);
     }
 
     private static List<int> ReconstructPath(int goal, int[] cameFrom)
@@ -213,32 +221,42 @@ public static partial class TerrainWorldPlanner
         float coast,
         float water)
     {
-        if (water > 0.12f || coast > 0.32f || from.Kind == TerrainPointOfInterestKind.CoastalLanding || to.Kind == TerrainPointOfInterestKind.CoastalLanding)
+        TerrainRouteClassificationPolicy rules = TerrainWorldPlannerRules.RouteClassification;
+        if (water > rules.WaterPathThreshold ||
+            coast > rules.CoastPathThreshold ||
+            from.Kind == TerrainPointOfInterestKind.CoastalLanding ||
+            to.Kind == TerrainPointOfInterestKind.CoastalLanding)
         {
             return TerrainRouteKind.CoastalPath;
         }
 
-        if (river > 0.55f)
+        if (river > rules.RiverRoadPrimaryThreshold)
         {
             return TerrainRouteKind.RiverRoad;
         }
 
-        if (highland > 0.55f)
+        if (highland > rules.RidgePassPrimaryThreshold)
         {
             return TerrainRouteKind.RidgePass;
         }
 
-        if (scenic > 0.62f || from.Kind == TerrainPointOfInterestKind.Vista || to.Kind == TerrainPointOfInterestKind.Vista)
+        if (scenic > rules.ScenicTrailThreshold ||
+            from.Kind == TerrainPointOfInterestKind.Vista ||
+            to.Kind == TerrainPointOfInterestKind.Vista)
         {
             return TerrainRouteKind.ScenicTrail;
         }
 
-        if (river > 0.34f || from.Kind == TerrainPointOfInterestKind.RiverCrossing || to.Kind == TerrainPointOfInterestKind.RiverCrossing)
+        if (river > rules.RiverRoadSecondaryThreshold ||
+            from.Kind == TerrainPointOfInterestKind.RiverCrossing ||
+            to.Kind == TerrainPointOfInterestKind.RiverCrossing)
         {
             return TerrainRouteKind.RiverRoad;
         }
 
-        if (highland > 0.34f || from.Kind == TerrainPointOfInterestKind.MountainPass || to.Kind == TerrainPointOfInterestKind.MountainPass)
+        if (highland > rules.RidgePassSecondaryThreshold ||
+            from.Kind == TerrainPointOfInterestKind.MountainPass ||
+            to.Kind == TerrainPointOfInterestKind.MountainPass)
         {
             return TerrainRouteKind.RidgePass;
         }

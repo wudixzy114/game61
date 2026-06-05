@@ -4116,8 +4116,11 @@ static bool CheckExportedTerrainTypes(out string? failureReason)
         "Dao.Terrain.ITerrainPlanProvider",
         "Dao.Terrain.ITerrainQueryService",
         "Dao.Terrain.ITerrainStreamingDiagnostics",
+        "Dao.Terrain.TerrainGameplaySettingsResource",
         "Dao.Terrain.Rendering.TerrainMaterialFactory",
         "Dao.Terrain.Rendering.TerrainMeshBuilder",
+        "Dao.Terrain.TerrainRenderingSettingsResource",
+        "Dao.Terrain.TerrainShapeSettingsResource",
         "Dao.Terrain.Runtime.TerrainPointOfInterestArchetype",
         "Dao.Terrain.Runtime.TerrainPointOfInterestArchetypeCatalog",
         "Dao.Terrain.Runtime.TerrainPointOfInterestArchetypeValidationReport",
@@ -4137,7 +4140,9 @@ static bool CheckExportedTerrainTypes(out string? failureReason)
         "Dao.Terrain.TerrainGenerationProfile",
         "Dao.Terrain.TerrainPerformanceContract",
         "Dao.Terrain.TerrainProfileHash",
-        "Dao.Terrain.TerrainSettings"
+        "Dao.Terrain.TerrainSettings",
+        "Dao.Terrain.TerrainStreamingSettingsResource",
+        "Dao.Terrain.TerrainWorldSettingsResource"
     ];
 
     string[] actual = typeof(TerrainWorld).Assembly.GetExportedTypes()

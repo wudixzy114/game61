@@ -194,20 +194,8 @@ public static partial class TerrainTileBuilder
         float score,
         TerrainRouteKind routeKind)
     {
-        float tierScale = tier switch
-        {
-            TerrainSettlementTier.Town => 3.20f,
-            TerrainSettlementTier.OasisHub => 2.90f,
-            TerrainSettlementTier.Village => 2.55f,
-            _ => 2.40f
-        };
-        float routeScale = routeKind switch
-        {
-            TerrainRouteKind.PrimaryTrail => 1.08f,
-            TerrainRouteKind.RiverRoad => 1.04f,
-            TerrainRouteKind.CoastalPath => 1.02f,
-            _ => 1.0f
-        };
+        float tierScale = TerrainSettlementRules.GatewayTierScale(tier);
+        float routeScale = TerrainSettlementRules.GatewayRouteScale(routeKind);
 
         return tierScale * routeScale * Mathf.Lerp(0.92f, 1.16f, Mathf.Clamp(score, 0.0f, 1.0f));
     }
@@ -217,21 +205,8 @@ public static partial class TerrainTileBuilder
         TerrainRouteKind routeKind,
         TerrainWorldField field)
     {
-        Color baseColor = tier switch
-        {
-            TerrainSettlementTier.Town => new Color(0.68f, 0.42f, 0.25f),
-            TerrainSettlementTier.OasisHub => new Color(0.16f, 0.58f, 0.42f),
-            TerrainSettlementTier.Village => new Color(0.62f, 0.48f, 0.28f),
-            _ => new Color(0.50f, 0.40f, 0.26f)
-        };
-        Color routeTint = routeKind switch
-        {
-            TerrainRouteKind.RiverRoad => new Color(0.38f, 0.48f, 0.38f),
-            TerrainRouteKind.CoastalPath => new Color(0.58f, 0.56f, 0.40f),
-            TerrainRouteKind.RidgePass => new Color(0.54f, 0.52f, 0.46f),
-            TerrainRouteKind.ScenicTrail => new Color(0.72f, 0.54f, 0.28f),
-            _ => new Color(0.56f, 0.42f, 0.26f)
-        };
+        Color baseColor = TerrainSettlementRules.GatewayBaseColor(tier);
+        Color routeTint = TerrainSettlementRules.GatewayRouteTint(routeKind);
 
         return baseColor
             .Lerp(routeTint, 0.28f)
