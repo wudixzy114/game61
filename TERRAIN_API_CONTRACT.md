@@ -39,6 +39,7 @@
 - `dao/Scripts/Terrain/Streaming/TerrainWorldStreamingSnapshot.cs`
 - `dao/Scripts/Terrain/TerrainApiVersion.cs`
 - `dao/Scripts/Terrain/TerrainDeterminismContract.cs`
+- `dao/Scripts/Terrain/TerrainPerformanceContract.cs`
 - `dao/Scripts/Terrain/Runtime/TerrainWorldAnchorContract.cs`
 - `dao/Scripts/Terrain/Runtime/TerrainWorldAnchorBuilder.cs`
 - `dao/Scripts/Terrain/Generation/TerrainSemanticQueryData.cs`
@@ -74,6 +75,8 @@ string contract = TerrainApiVersion.Contract;
 string version = TerrainApiVersion.Version;
 string determinismContract = TerrainDeterminismContract.Contract;
 float planPositionEpsilon = TerrainDeterminismContract.PositionEpsilon;
+string performanceContract = TerrainPerformanceContract.Contract;
+string benchmarkBaseline = TerrainPerformanceContract.TileBenchmarkHardwareBaseline;
 string profileHash = profile.StableHash();
 string planJson = TerrainWorldPlanSerializer.ToJson(plan, profile);
 bool loaded = TerrainWorldPlanSerializer.TryFromJson(planJson, profile, out TerrainWorldPlan? loadedPlan, out string error);
@@ -263,6 +266,15 @@ bool loaded = TerrainWorldPlanSerializer.TryFromJson(planJson, profile, out Terr
 - `TileParityHeightEpsilon` 和 `TileParityColorEpsilon` 用于 tile benchmark parity 检查。
 - 普通玩法模块可以依赖 deterministic contract 输出；视觉表现、scatter 精确位置、primitive 尺寸和 debug overlay 绘制顺序只按近似或平台相关处理。
 
+### `TerrainPerformanceContract`
+
+- `TerrainPerformanceContract.Contract` 当前固定为 `terrain-performance-v1`。
+- `TileBenchmarkHardwareBaseline` 当前固定为 `dev-linux-x64-provisional`，表示当前 CI/validation 共享的临时目标机器标签。
+- managed/native tile benchmark 的 average、P50/P95/P99、allocation、speedup 和 benchmark coverage 下限由该契约集中定义。
+- `TerrainTileBenchmarkThresholds.Default` 必须直接引用该契约，避免 CLI 私有常量与公开性能门槛漂移。
+- runtime API smoke 必须校验 contract 名称、baseline 标签和关键性能门槛未漂移。
+- benchmark 输出必须打印 `terrain-performance-v1` 和当前 baseline，便于 CI、报告和人工排查对齐同一门槛来源。
+
 ### `TerrainGenerationProfile.StableHash()`
 
 - 返回当前 generation profile 的稳定 SHA-256 内容身份。
@@ -347,6 +359,8 @@ Terrain anchor contract smoke: PASS
 - `SurfacePositionAt` 坐标轴正确。
 - `TerrainApiVersion` 为 `terrain-api-v1` / `1.2.0`。
 - `TerrainDeterminismContract` 为 `terrain-determinism-v1`，关键 epsilon 未漂移。
+- `TerrainPerformanceContract` 为 `terrain-performance-v1`，shared benchmark baseline 和关键门槛未漂移。
+- `Terrain public API shape smoke` 还会锁定当前 `Dao.Terrain*` 导出的 public 类型集合，防止无意新增公开类型绕过契约评审。
 - plan 空态返回 false 和空集合。
 - plan 就绪态返回 POI/route 数量正确。
 - `WorldPlan`、`TryGetWorldPlan`、`SetWorldPlan` 输入和 plan facade 返回值不会泄露内部可变状态。
@@ -407,4 +421,4 @@ dotnet run --project tools\TerrainValidation\TerrainValidation.csproj -- --skip-
 
 下一批应补：
 
-- Native parity 和 tile benchmark 的目标硬件基线。
+- 将 `TileBenchmarkHardwareBaseline` 从 `dev-linux-x64-provisional` 收敛为团队确认过的正式目标硬件基线，并重新校准阈值。

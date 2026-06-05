@@ -911,6 +911,23 @@ public static class TerrainProfileHash
 
 当前验证工具已有可执行的 tile benchmark 预算。`--benchmark-tiles` 会输出 seed、profile hash、managed/native backend mode、总 ms/tile、单 tile P50/P95/P99、分配量、代表性覆盖、native speedup 和 native parity，并在超过当前阈值时失败。
 
+当前共享契约入口：
+
+```csharp
+public static class TerrainPerformanceContract
+{
+    public const string Contract = "terrain-performance-v1";
+    public const string TileBenchmarkHardwareBaseline = "dev-linux-x64-provisional";
+}
+```
+
+要求：
+
+- tile benchmark 的 shared default threshold 必须集中定义在 `dao/Scripts/Terrain/TerrainPerformanceContract.cs`。
+- `TerrainValidation` 中的 `TerrainTileBenchmarkThresholds.Default` 必须只引用 `TerrainPerformanceContract` 和 `TerrainDeterminismContract`，不得再维护一份私有常量副本。
+- runtime API smoke 必须校验 `terrain-performance-v1`、baseline 标签和关键 threshold 未漂移。
+- benchmark 输出必须打印 `terrain-performance-v1/<baseline>`，便于 CI、文档和人工分析共用同一来源。
+
 当前初始门槛：
 
 | 项目                       | 初始建议门槛                 |
@@ -930,7 +947,7 @@ public static class TerrainProfileHash
 
 注意：
 
-- 初期目标机器仍需要团队确认；当前阈值是当前开发机上的可执行回归门槛。
+- 初期目标机器仍需要团队确认；当前 `TileBenchmarkHardwareBaseline` 为 `dev-linux-x64-provisional`，表示临时共享基线而不是最终正式目标机器。
 - 当前分配预算测的是完整 `TerrainTileData` 构建路径分配，不等价于最终运行时常驻内存预算。
 - P50/P95/P99 已纳入 `--benchmark-tiles` pass/fail 判定；后续若目标硬件变化，应调整阈值而不是降级为记录项。
 
@@ -938,6 +955,7 @@ public static class TerrainProfileHash
 
 - `--benchmark-tiles` 输出并检查 P50/P95/P99。
 - benchmark report 写入 seed、profile hash、native/managed 模式。
+- benchmark report 写入 `terrain-performance-v1` 和 baseline 标签。
 - 性能回归超过阈值时 validation 会失败。
 
 ### 9.10 P1：运行时查询和诊断 API 扩展
@@ -1304,7 +1322,7 @@ public partial class TerrainAssetMapping : Resource
 
 ### P1：应尽快做
 
-- 在目标硬件上重新校准 tile benchmark average、P50/P95/P99 和 allocation 阈值。
+- 在目标硬件上将 `TileBenchmarkHardwareBaseline` 从 `dev-linux-x64-provisional` 收敛为正式基线，并重新校准 tile benchmark average、P50/P95/P99 和 allocation 阈值。
 
 ### P2：后续做
 

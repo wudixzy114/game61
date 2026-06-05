@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text.Json.Nodes;
@@ -2978,8 +2979,14 @@ static TerrainPublicApiShapeSmokeReport ValidateTerrainPublicApiShapeContracts()
         int checkedTypeCount = 0;
         int checkedMemberCount = 0;
         string? failureReason = null;
+        bool exportedTypeSetPassed = CheckExportedTerrainTypes(out failureReason);
+        if (exportedTypeSetPassed)
+        {
+            checkedTypeCount++;
+        }
 
         bool passed =
+            exportedTypeSetPassed &&
             CheckPublicShape<TerrainGenerationProfile>(
                 [
                     ("Seed", typeof(int)),
@@ -3284,6 +3291,73 @@ static TerrainPublicApiShapeSmokeReport ValidateTerrainPublicApiShapeContracts()
                 ref checkedTypeCount,
                 ref checkedMemberCount,
                 out failureReason) &&
+            CheckPublicStaticFields(
+                typeof(TerrainApiVersion),
+                [
+                    ("Major", typeof(int)),
+                    ("Minor", typeof(int)),
+                    ("Patch", typeof(int)),
+                    ("Contract", typeof(string)),
+                    ("Version", typeof(string))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicStaticFields(
+                typeof(TerrainDeterminismContract),
+                [
+                    ("Contract", typeof(string)),
+                    ("ExactFloatEpsilon", typeof(float)),
+                    ("ExactPositionEpsilon", typeof(float)),
+                    ("HeightEpsilon", typeof(float)),
+                    ("FieldEpsilon", typeof(float)),
+                    ("PositionEpsilon", typeof(float)),
+                    ("NativeHeightMaxEpsilon", typeof(float)),
+                    ("NativeHeightAverageEpsilon", typeof(float)),
+                    ("NativeFieldMaxEpsilon", typeof(float)),
+                    ("NativeFieldAverageEpsilon", typeof(float)),
+                    ("NativeTileHeightEpsilon", typeof(float)),
+                    ("NativeTileColorEpsilon", typeof(float)),
+                    ("TileParityHeightEpsilon", typeof(float)),
+                    ("TileParityColorEpsilon", typeof(float))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicStaticFields(
+                typeof(TerrainPerformanceContract),
+                [
+                    ("Contract", typeof(string)),
+                    ("TileBenchmarkHardwareBaseline", typeof(string)),
+                    ("MaxManagedMillisecondsPerTile", typeof(double)),
+                    ("MaxNativeMillisecondsPerTile", typeof(double)),
+                    ("MaxManagedP50Milliseconds", typeof(double)),
+                    ("MaxManagedP95Milliseconds", typeof(double)),
+                    ("MaxManagedP99Milliseconds", typeof(double)),
+                    ("MaxNativeP50Milliseconds", typeof(double)),
+                    ("MaxNativeP95Milliseconds", typeof(double)),
+                    ("MaxNativeP99Milliseconds", typeof(double)),
+                    ("MaxAllocatedKilobytesPerTile", typeof(double)),
+                    ("MinNativeSpeedup", typeof(double)),
+                    ("MinParityTileCount", typeof(int)),
+                    ("MinBenchmarkBiomeKinds", typeof(int)),
+                    ("MinBenchmarkLandscapeKinds", typeof(int)),
+                    ("MinBenchmarkPointOfInterestTiles", typeof(int)),
+                    ("MinBenchmarkRouteTiles", typeof(int)),
+                    ("MinBenchmarkGameplayRichTiles", typeof(int))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicStaticFields(
+                typeof(TerrainWorldPlanSerializer),
+                [
+                    ("Contract", typeof(string)),
+                    ("GeneratorVersion", typeof(string))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
             CheckPublicMethods(
                 typeof(TerrainWorld),
                 [
@@ -3430,7 +3504,7 @@ static TerrainPublicApiShapeSmokeReport ValidateTerrainPublicApiShapeContracts()
             checkedTypeCount,
             checkedMemberCount,
             passed
-                ? "public terrain data carrier shapes and facade method signatures match the stable runtime contract"
+                ? "public terrain exported type set, data carrier shapes, and facade method signatures match the stable runtime contract"
                 : failureReason ?? "terrain public API shape contract failed");
     }
     catch (Exception ex)
@@ -3472,6 +3546,128 @@ static bool CheckPublicShape<T>(
 
     checkedTypeCount++;
     checkedMemberCount += expected.Length;
+    failureReason = null;
+    return true;
+}
+
+static bool CheckExportedTerrainTypes(out string? failureReason)
+{
+    string[] expected =
+    [
+        "Dao.Terrain.Generation.NativeTerrainBridge",
+        "Dao.Terrain.Generation.ProceduralNoise",
+        "Dao.Terrain.Generation.TerrainBiomeKind",
+        "Dao.Terrain.Generation.TerrainExperienceAnalyzer",
+        "Dao.Terrain.Generation.TerrainExperienceGateResult",
+        "Dao.Terrain.Generation.TerrainExperienceReport",
+        "Dao.Terrain.Generation.TerrainExperienceThresholds",
+        "Dao.Terrain.Generation.TerrainGameplayTag",
+        "Dao.Terrain.Generation.TerrainGameplayTags",
+        "Dao.Terrain.Generation.TerrainLandmarkData",
+        "Dao.Terrain.Generation.TerrainLandmarkKind",
+        "Dao.Terrain.Generation.TerrainLandscapeKind",
+        "Dao.Terrain.Generation.TerrainMapExporter",
+        "Dao.Terrain.Generation.TerrainMapLayer",
+        "Dao.Terrain.Generation.TerrainMapRaster",
+        "Dao.Terrain.Generation.TerrainMapSample",
+        "Dao.Terrain.Generation.TerrainPointOfInterestIndex",
+        "Dao.Terrain.Generation.TerrainPointOfInterestKind",
+        "Dao.Terrain.Generation.TerrainQualityAnalyzer",
+        "Dao.Terrain.Generation.TerrainQualityGateResult",
+        "Dao.Terrain.Generation.TerrainQualityReport",
+        "Dao.Terrain.Generation.TerrainQualityThresholds",
+        "Dao.Terrain.Generation.TerrainRouteCorridorIndex",
+        "Dao.Terrain.Generation.TerrainRouteCorridorSample",
+        "Dao.Terrain.Generation.TerrainRouteCorridorSegment",
+        "Dao.Terrain.Generation.TerrainRouteKind",
+        "Dao.Terrain.Generation.TerrainSample",
+        "Dao.Terrain.Generation.TerrainSampler",
+        "Dao.Terrain.Generation.TerrainScatterInstance",
+        "Dao.Terrain.Generation.TerrainScatterKind",
+        "Dao.Terrain.Generation.TerrainSemanticClassifier",
+        "Dao.Terrain.Generation.TerrainSettlementTier",
+        "Dao.Terrain.Generation.TerrainTileBuilder",
+        "Dao.Terrain.Generation.TerrainTileCoord",
+        "Dao.Terrain.Generation.TerrainTileData",
+        "Dao.Terrain.Generation.TerrainTraversalCost",
+        "Dao.Terrain.Generation.TerrainTraversalCostGrid",
+        "Dao.Terrain.Generation.TerrainWaterKind",
+        "Dao.Terrain.Generation.TerrainWaterState",
+        "Dao.Terrain.Generation.TerrainWaterSurfaceData",
+        "Dao.Terrain.Generation.TerrainWorldField",
+        "Dao.Terrain.Generation.TerrainWorldFieldSampler",
+        "Dao.Terrain.Generation.TerrainWorldPlan",
+        "Dao.Terrain.Generation.TerrainWorldPlanArtifactResult",
+        "Dao.Terrain.Generation.TerrainWorldPlanExporter",
+        "Dao.Terrain.Generation.TerrainWorldPlanner",
+        "Dao.Terrain.Generation.TerrainWorldPlanningGateResult",
+        "Dao.Terrain.Generation.TerrainWorldPlanningReport",
+        "Dao.Terrain.Generation.TerrainWorldPlanningThresholds",
+        "Dao.Terrain.Generation.TerrainWorldPlanSerializer",
+        "Dao.Terrain.Generation.TerrainWorldPlanSnapshot",
+        "Dao.Terrain.Generation.TerrainWorldPointOfInterest",
+        "Dao.Terrain.Generation.TerrainWorldRegion",
+        "Dao.Terrain.Generation.TerrainWorldRegionKind",
+        "Dao.Terrain.Generation.TerrainWorldRoute",
+        "Dao.Terrain.Rendering.TerrainMaterialFactory",
+        "Dao.Terrain.Rendering.TerrainMeshBuilder",
+        "Dao.Terrain.Runtime.TerrainPointOfInterestArchetype",
+        "Dao.Terrain.Runtime.TerrainPointOfInterestArchetypeCatalog",
+        "Dao.Terrain.Runtime.TerrainPointOfInterestArchetypeValidationReport",
+        "Dao.Terrain.Runtime.TerrainPointOfInterestVisualKind",
+        "Dao.Terrain.Runtime.TerrainWorldAnchorBuilder",
+        "Dao.Terrain.Runtime.TerrainWorldAnchorContract",
+        "Dao.Terrain.Runtime.TerrainWorldPlanOverlay",
+        "Dao.Terrain.Runtime.TerrainWorldPointOfInterestAnchor",
+        "Dao.Terrain.Runtime.TerrainWorldPointOfInterestAnchorDescriptor",
+        "Dao.Terrain.Runtime.TerrainWorldRouteAnchor",
+        "Dao.Terrain.Runtime.TerrainWorldRouteAnchorDescriptor",
+        "Dao.Terrain.Streaming.TerrainChunk",
+        "Dao.Terrain.Streaming.TerrainWorld",
+        "Dao.Terrain.Streaming.TerrainWorldStreamingSnapshot",
+        "Dao.Terrain.TerrainApiVersion",
+        "Dao.Terrain.TerrainDeterminismContract",
+        "Dao.Terrain.TerrainGenerationProfile",
+        "Dao.Terrain.TerrainPerformanceContract",
+        "Dao.Terrain.TerrainProfileHash",
+        "Dao.Terrain.TerrainSettings"
+    ];
+
+    string[] actual = typeof(TerrainWorld).Assembly.GetExportedTypes()
+        .Where(static type =>
+            type.DeclaringType is null &&
+            type.Namespace is not null &&
+            type.Namespace.StartsWith("Dao.Terrain", StringComparison.Ordinal))
+        .Select(static type => type.FullName ?? type.Name)
+        .OrderBy(static name => name, StringComparer.Ordinal)
+        .ToArray();
+    string[] expectedSorted = expected
+        .OrderBy(static name => name, StringComparer.Ordinal)
+        .ToArray();
+
+    if (actual.Length != expectedSorted.Length)
+    {
+        string[] missing = expectedSorted.Except(actual, StringComparer.Ordinal).ToArray();
+        string[] unexpected = actual.Except(expectedSorted, StringComparer.Ordinal).ToArray();
+        failureReason =
+            $"terrain exported public type set changed (actual {actual.Length}, expected {expectedSorted.Length}); " +
+            $"missing [{string.Join(", ", missing)}], unexpected [{string.Join(", ", unexpected)}]";
+        return false;
+    }
+
+    for (int i = 0; i < expectedSorted.Length; i++)
+    {
+        if (!string.Equals(actual[i], expectedSorted[i], StringComparison.Ordinal))
+        {
+            string[] missing = expectedSorted.Except(actual, StringComparer.Ordinal).ToArray();
+            string[] unexpected = actual.Except(expectedSorted, StringComparer.Ordinal).ToArray();
+            failureReason =
+                $"terrain exported public type drifted at index {i}: actual {actual[i]}, expected {expectedSorted[i]}; " +
+                $"missing [{string.Join(", ", missing)}], unexpected [{string.Join(", ", unexpected)}]";
+            return false;
+        }
+    }
+
     failureReason = null;
     return true;
 }
@@ -3541,6 +3737,39 @@ static bool TryFindPublicMethod(Type type, PublicMethodContract contract, out Me
 
     method = null;
     return false;
+}
+
+static bool CheckPublicStaticFields(
+    Type type,
+    (string Name, Type Type)[] expected,
+    ref int checkedTypeCount,
+    ref int checkedMemberCount,
+    out string? failureReason)
+{
+    FieldInfo[] fields = type.GetFields(BindingFlags.Public | BindingFlags.Static | BindingFlags.DeclaredOnly);
+    if (fields.Length != expected.Length)
+    {
+        failureReason = $"{type.Name} public static field count changed ({fields.Length}/{expected.Length})";
+        return false;
+    }
+
+    for (int i = 0; i < expected.Length; i++)
+    {
+        FieldInfo field = fields[i];
+        if (!string.Equals(field.Name, expected[i].Name, StringComparison.Ordinal) ||
+            field.FieldType != expected[i].Type)
+        {
+            failureReason =
+                $"{type.Name} static field drift at index {i}: actual {field.Name}:{field.FieldType.Name}, " +
+                $"expected {expected[i].Name}:{expected[i].Type.Name}";
+            return false;
+        }
+    }
+
+    checkedTypeCount++;
+    checkedMemberCount += expected.Length;
+    failureReason = null;
+    return true;
 }
 
 static void PrintPublicApiShapeSmoke(TerrainPublicApiShapeSmokeReport report)
