@@ -3761,6 +3761,44 @@ static TerrainPublicApiShapeSmokeReport ValidateTerrainPublicApiShapeContracts()
                 ref checkedMemberCount,
                 out failureReason) &&
             CheckPublicMethods(
+                typeof(ITerrainQueryService),
+                [
+                    new("SampleField", false, typeof(TerrainWorldField), [typeof(Vector2)]),
+                    new("SampleSurface", false, typeof(TerrainSample), [typeof(Vector2), typeof(float)]),
+                    new("SurfacePositionAt", false, typeof(Vector3), [typeof(Vector2), typeof(float)]),
+                    new("SampleWaterState", false, typeof(TerrainWaterState), [typeof(Vector2)]),
+                    new("SampleGameplayTags", false, typeof(TerrainGameplayTags), [typeof(Vector2)]),
+                    new("SampleTraversalCost", false, typeof(TerrainTraversalCost), [typeof(Vector2), typeof(float)]),
+                    new("IsTraversable", false, typeof(bool), [typeof(Vector2), typeof(float)]),
+                    new("IsAboveWater", false, typeof(bool), [typeof(Vector2), typeof(float)])
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicMethods(
+                typeof(ITerrainPlanProvider),
+                [
+                    new("GetWorldPlanSnapshot", false, typeof(TerrainWorldPlanSnapshot), []),
+                    new("TryGetWorldPlanSnapshot", false, typeof(bool), [typeof(TerrainWorldPlanSnapshot).MakeByRefType()]),
+                    new("GetPointsOfInterest", false, typeof(TerrainWorldPointOfInterest[]), []),
+                    new("GetRoutes", false, typeof(TerrainWorldRoute[]), []),
+                    new("TryFindNearestPointOfInterest", false, typeof(bool), [typeof(Vector2), typeof(float), typeof(TerrainPointOfInterestKind?), typeof(TerrainWorldPointOfInterest).MakeByRefType()]),
+                    new("QueryPointsOfInterest", false, typeof(TerrainWorldPointOfInterest[]), [typeof(Rect2), typeof(TerrainPointOfInterestKind?)]),
+                    new("QueryRoutesNear", false, typeof(TerrainWorldRoute[]), [typeof(Vector2), typeof(float)]),
+                    new("SampleRouteCorridor", false, typeof(TerrainRouteCorridorSample), [typeof(Vector2)])
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicMethods(
+                typeof(ITerrainStreamingDiagnostics),
+                [
+                    new("GetStreamingSnapshot", false, typeof(TerrainWorldStreamingSnapshot), [])
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicMethods(
                 typeof(TerrainWorld),
                 [
                     new("SetFocus", false, typeof(void), [typeof(Node3D)]),
@@ -4075,6 +4113,9 @@ static bool CheckExportedTerrainTypes(out string? failureReason)
         "Dao.Terrain.Generation.TerrainWorldRegion",
         "Dao.Terrain.Generation.TerrainWorldRegionKind",
         "Dao.Terrain.Generation.TerrainWorldRoute",
+        "Dao.Terrain.ITerrainPlanProvider",
+        "Dao.Terrain.ITerrainQueryService",
+        "Dao.Terrain.ITerrainStreamingDiagnostics",
         "Dao.Terrain.Rendering.TerrainMaterialFactory",
         "Dao.Terrain.Rendering.TerrainMeshBuilder",
         "Dao.Terrain.Runtime.TerrainPointOfInterestArchetype",
@@ -4506,6 +4547,8 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
             TerrainPerformanceContract.MinBenchmarkPointOfInterestTiles == 8 &&
             TerrainPerformanceContract.MinBenchmarkRouteTiles == 8 &&
             TerrainPerformanceContract.MinBenchmarkGameplayRichTiles == 12;
+        bool integrationInterfacesPassed = TerrainWorldImplementsIntegrationContracts();
+        bool signalContractsPassed = TerrainWorldSignalContractMatches();
 
         TerrainWorld planWorld = CreateTerrainWorldFacadeProbe(profile, plan);
         streamingSnapshotPassed =
@@ -4704,6 +4747,8 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
             apiVersionPassed &&
             determinismContractPassed &&
             performanceContractPassed &&
+            integrationInterfacesPassed &&
+            signalContractsPassed &&
             planTryGetPassed &&
             planSnapshotTryGetPassed &&
             points.Length == plan.PointsOfInterest.Length &&
@@ -4733,6 +4778,8 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
                 apiVersionPassed,
                 determinismContractPassed,
                 performanceContractPassed,
+                integrationInterfacesPassed,
+                signalContractsPassed,
                 planTryGetPassed,
                 planSnapshotTryGetPassed,
                 points.Length,
@@ -4767,6 +4814,8 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
             apiVersionPassed,
             determinismContractPassed,
             performanceContractPassed,
+            integrationInterfacesPassed,
+            signalContractsPassed,
             pointQueryPassed,
             routeQueryPassed,
             routeCorridorQueryPassed,
@@ -4778,33 +4827,35 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
     catch (Exception ex)
     {
         return new TerrainRuntimeApiSmokeReport(
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            0,
-            0,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            $"TerrainWorld runtime facade threw {ex.GetType().Name}: {ex.Message}");
+            Passed: false,
+            SampleFieldMatchesSampler: false,
+            SampleSurfaceMatchesSampler: false,
+            SurfacePositionAxesPassed: false,
+            NoPlanTryGetPassed: false,
+            NoPlanSnapshotPassed: false,
+            EmptyPlanCollectionsPassed: false,
+            PlanTryGetPassed: false,
+            PlanSnapshotTryGetPassed: false,
+            PointOfInterestCount: 0,
+            RouteCount: 0,
+            TraversabilityQueryPassed: false,
+            AboveWaterQueryPassed: false,
+            WaterStateQueryPassed: false,
+            GameplayTagsQueryPassed: false,
+            TraversalCostQueryPassed: false,
+            StreamingSnapshotPassed: false,
+            ApiVersionPassed: false,
+            DeterminismContractPassed: false,
+            PerformanceContractPassed: false,
+            IntegrationInterfacesPassed: false,
+            SignalContractsPassed: false,
+            PointQueryPassed: false,
+            RouteQueryPassed: false,
+            RouteCorridorQueryPassed: false,
+            PointSnapshotIsolated: false,
+            RouteSnapshotIsolated: false,
+            WorldPlanSnapshotIsolated: false,
+            Reason: $"TerrainWorld runtime facade threw {ex.GetType().Name}: {ex.Message}");
     }
 }
 
@@ -5427,6 +5478,8 @@ static string RuntimeApiFailureReason(
     bool apiVersionPassed,
     bool determinismContractPassed,
     bool performanceContractPassed,
+    bool integrationInterfacesPassed,
+    bool signalContractsPassed,
     bool planTryGetPassed,
     bool planSnapshotTryGetPassed,
     int pointCount,
@@ -5515,6 +5568,16 @@ static string RuntimeApiFailureReason(
         return "TerrainPerformanceContract constants did not match terrain-performance-v1";
     }
 
+    if (!integrationInterfacesPassed)
+    {
+        return "TerrainWorld did not implement the stable ITerrainQueryService/ITerrainPlanProvider/ITerrainStreamingDiagnostics contracts";
+    }
+
+    if (!signalContractsPassed)
+    {
+        return "TerrainWorld runtime signal contract drifted from PlanReady/PlanCleared/ChunkLoaded/ChunkUnloaded/StreamingSnapshotChanged";
+    }
+
     if (!planTryGetPassed)
     {
         return "TryGetWorldPlan did not return the assigned runtime plan";
@@ -5563,6 +5626,64 @@ static string RuntimeApiFailureReason(
     return "TerrainWorld runtime facade failed";
 }
 
+static bool TerrainWorldImplementsIntegrationContracts()
+{
+    Type worldType = typeof(TerrainWorld);
+    return typeof(ITerrainQueryService).IsAssignableFrom(worldType) &&
+        typeof(ITerrainPlanProvider).IsAssignableFrom(worldType) &&
+        typeof(ITerrainStreamingDiagnostics).IsAssignableFrom(worldType);
+}
+
+static bool TerrainWorldSignalContractMatches()
+{
+    Type worldType = typeof(TerrainWorld);
+    return HasSignalDelegate(worldType, "PlanReadyEventHandler", Type.EmptyTypes) &&
+        HasSignalDelegate(worldType, "PlanClearedEventHandler", Type.EmptyTypes) &&
+        HasSignalDelegate(worldType, "ChunkLoadedEventHandler", [typeof(int), typeof(int), typeof(int), typeof(bool)]) &&
+        HasSignalDelegate(worldType, "ChunkUnloadedEventHandler", [typeof(int), typeof(int), typeof(int), typeof(bool)]) &&
+        HasSignalDelegate(worldType, "StreamingSnapshotChangedEventHandler", Type.EmptyTypes);
+}
+
+static bool HasSignalDelegate(Type declaringType, string nestedTypeName, Type[] parameterTypes)
+{
+    Type? nested = declaringType.GetNestedType(nestedTypeName, BindingFlags.Public | BindingFlags.NonPublic);
+    if (nested is null ||
+        !typeof(MulticastDelegate).IsAssignableFrom(nested))
+    {
+        return false;
+    }
+
+    bool hasSignalAttribute = nested.GetCustomAttributesData()
+        .Any(attribute => string.Equals(attribute.AttributeType.Name, "SignalAttribute", StringComparison.Ordinal));
+    if (!hasSignalAttribute)
+    {
+        return false;
+    }
+
+    MethodInfo? invoke = nested.GetMethod("Invoke", BindingFlags.Instance | BindingFlags.Public);
+    if (invoke is null ||
+        invoke.ReturnType != typeof(void))
+    {
+        return false;
+    }
+
+    ParameterInfo[] parameters = invoke.GetParameters();
+    if (parameters.Length != parameterTypes.Length)
+    {
+        return false;
+    }
+
+    for (int i = 0; i < parameters.Length; i++)
+    {
+        if (parameters[i].ParameterType != parameterTypes[i])
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 static void PrintRuntimeApiSmoke(TerrainRuntimeApiSmokeReport report)
 {
     Console.WriteLine(
@@ -5572,6 +5693,7 @@ static void PrintRuntimeApiSmoke(TerrainRuntimeApiSmokeReport report)
         $"api {TerrainApiVersion.Contract}/{TerrainApiVersion.Version}/{(report.ApiVersionPassed ? "pass" : "fail")}, " +
         $"determinism {TerrainDeterminismContract.Contract}/{(report.DeterminismContractPassed ? "pass" : "fail")}, " +
         $"performance {TerrainPerformanceContract.Contract}/{TerrainPerformanceContract.TileBenchmarkHardwareBaseline}/{(report.PerformanceContractPassed ? "pass" : "fail")}, " +
+        $"integration iface/signals {(report.IntegrationInterfacesPassed ? "pass" : "fail")}/{(report.SignalContractsPassed ? "pass" : "fail")}, " +
         $"plan empty/ready {(report.NoPlanTryGetPassed && report.NoPlanSnapshotPassed && report.EmptyPlanCollectionsPassed ? "pass" : "fail")}/{(report.PlanTryGetPassed && report.PlanSnapshotTryGetPassed ? "pass" : "fail")}, " +
         $"POIs/routes {report.PointOfInterestCount}/{report.RouteCount}, " +
         $"traversable/water {(report.TraversabilityQueryPassed ? "pass" : "fail")}/{(report.AboveWaterQueryPassed ? "pass" : "fail")}, " +
@@ -8534,6 +8656,8 @@ internal readonly record struct TerrainRuntimeApiSmokeReport(
     bool ApiVersionPassed,
     bool DeterminismContractPassed,
     bool PerformanceContractPassed,
+    bool IntegrationInterfacesPassed,
+    bool SignalContractsPassed,
     bool PointQueryPassed,
     bool RouteQueryPassed,
     bool RouteCorridorQueryPassed,
