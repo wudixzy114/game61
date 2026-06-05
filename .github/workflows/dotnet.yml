@@ -17,7 +17,18 @@ on:
       - "global.json"
       - ".github/workflows/dotnet.yml"
       - ".github/dependabot.yml"
+  schedule:
+    - cron: "17 18 * * *"
   workflow_dispatch:
+    inputs:
+      validation_tier:
+        description: Terrain validation tier to run manually
+        required: true
+        default: pr
+        type: choice
+        options:
+          - pr
+          - nightly
 
 permissions:
   contents: read
@@ -35,6 +46,7 @@ env:
 jobs:
   build:
     name: Build and validate
+    if: github.event_name != 'schedule' && (github.event_name != 'workflow_dispatch' || inputs.validation_tier == 'pr')
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -89,3 +101,37 @@ jobs:
           --skip-artifact-smoke
           --benchmark-tiles
           --benchmark-tile-count 24
+
+  nightly:
+    name: Nightly terrain validation
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.validation_tier == 'nightly')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v5
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('global.json', 'dao/**/*.csproj', 'tools/**/*.csproj') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-
+
+      - name: Restore
+        run: dotnet restore tools/TerrainValidation/TerrainValidation.csproj
+
+      - name: Build
+        run: dotnet build tools/TerrainValidation/TerrainValidation.csproj --configuration ${{ env.CONFIGURATION }} --no-restore -m:1 -p:UseSharedCompilation=false -warnaserror
+
+      - name: Validate nightly terrain generation
+        run: dotnet run --project tools/TerrainValidation/TerrainValidation.csproj --configuration ${{ env.CONFIGURATION }} --no-build -- --validation-tier nightly

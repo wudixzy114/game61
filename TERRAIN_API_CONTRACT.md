@@ -290,6 +290,11 @@ dotnet run --project tools\TerrainValidation\TerrainValidation.csproj -- --valid
 - `release`：25 个固定 seed，对每个 seed 运行全部 smoke，并启用 native parity 和 tile benchmark。
 - 显式 tier 不能与 `--skip-*`、`--seed*`、`--world-size`、`--smoke-all-seeds`、`--native-smoke`、`--benchmark-tiles` 等覆盖参数混用，避免 CI 门槛被意外削弱。
 
+当前 CI 接入：
+
+- `.github/workflows/dotnet.yml` 运行 managed `pr` 门槛，并通过 nightly schedule 或手动 `validation_tier=nightly` 运行 managed `nightly` 门槛。
+- `.github/workflows/gdextension.yml` 先构建 Linux x86_64 GDExtension native 库，再运行 native parity/benchmark；手动 `validation_tier=release` 运行完整 `release` 门槛。
+
 本次契约对应的输出项：
 
 ```text
@@ -359,5 +364,4 @@ dotnet run --project tools\TerrainValidation\TerrainValidation.csproj -- --skip-
 
 下一批应补：
 
-- 将 `--validation-tier pr/nightly/release` 接入外部 CI runner。
 - Native parity 和 tile benchmark 的目标硬件基线。

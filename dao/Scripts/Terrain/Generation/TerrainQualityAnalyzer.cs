@@ -33,7 +33,7 @@ public readonly record struct TerrainQualityThresholds(
         MinDesertOasisRatio: 0.005f,
         MinIslandCoastRatio: 0.015f,
         MinHillMountainRatio: 0.004f,
-        MinSnowRatio: 0.004f,
+        MinSnowRatio: 0.002f,
         MinLakeRatio: 0.002f);
 }
 

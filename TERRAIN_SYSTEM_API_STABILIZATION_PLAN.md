@@ -1029,6 +1029,11 @@ Tier 约束：
 - `release` 固定为 25 个 seed，并对每个 seed 运行全部 smoke，同时启用 native parity 和 tile benchmark。
 - 显式 tier 不能与 `--skip-*`、`--seed*`、`--world-size`、`--smoke-all-seeds`、`--native-smoke`、`--benchmark-tiles` 等覆盖参数混用，避免 CI 门槛被意外削弱。
 
+当前 CI 接入：
+
+- `.github/workflows/dotnet.yml` 运行 managed `pr` 门槛，并通过 nightly schedule 或手动 `validation_tier=nightly` 运行 managed `nightly` 门槛。
+- `.github/workflows/gdextension.yml` 先构建 Linux x86_64 GDExtension native 库，再运行 native parity/benchmark；手动 `validation_tier=release` 运行完整 `release` 门槛。
+
 验收标准：
 
 - PR 默认门槛快速、稳定、低误报。
@@ -1268,11 +1273,10 @@ public partial class TerrainAssetMapping : Resource
 - 增加 `TerrainWorld` 语义化查询扩展，并纳入 runtime API smoke。
 - 增加 `TerrainWorld` 运行时流送诊断快照，并纳入 runtime API smoke 的 `streaming pass`。
 - 增加 tile benchmark seed/profile/backend 身份输出和 P50/P95/P99 报告，并校准初始 average/alloc 回归阈值。
+- 增加 .NET managed PR/nightly CI 分层，并在 GDExtension workflow 中接入 native parity、benchmark 和手动 release tier。
 
 ### P1：应尽快做
 
-- 增加 CI 多 seed 校验。
-- 增加 Native parity 常规测试。
 - 将 tile benchmark P50/P95/P99 从记录项升级为目标硬件硬阈值。
 
 ### P2：后续做

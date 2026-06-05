@@ -16,6 +16,15 @@ on:
       - ".gitmodules"
       - ".github/workflows/gdextension.yml"
   workflow_dispatch:
+    inputs:
+      validation_tier:
+        description: Native validation tier to run manually
+        required: true
+        default: native
+        type: choice
+        options:
+          - native
+          - release
 
 permissions:
   contents: read
@@ -31,7 +40,7 @@ jobs:
   linux:
     name: Linux x86_64
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 45
 
     steps:
       - name: Check out repository
@@ -86,6 +95,7 @@ jobs:
         run: dotnet build tools/TerrainValidation/TerrainValidation.csproj --configuration Release --no-restore -m:1 -p:UseSharedCompilation=false -warnaserror
 
       - name: Validate native sampler parity
+        if: github.event_name != 'workflow_dispatch' || inputs.validation_tier == 'native'
         run: >
           dotnet run --project tools/TerrainValidation/TerrainValidation.csproj
           --configuration Release
@@ -102,7 +112,7 @@ jobs:
           --native-smoke
 
       - name: Benchmark release native terrain tiles
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.validation_tier == 'native')
         run: >
           dotnet run --project tools/TerrainValidation/TerrainValidation.csproj
           --configuration Release
@@ -119,3 +129,7 @@ jobs:
           --native-smoke
           --benchmark-tiles
           --benchmark-tile-count 24
+
+      - name: Validate release terrain generation
+        if: github.event_name == 'workflow_dispatch' && inputs.validation_tier == 'release'
+        run: dotnet run --project tools/TerrainValidation/TerrainValidation.csproj --configuration Release --no-build -- --validation-tier release

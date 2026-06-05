@@ -195,7 +195,7 @@ if (!skipEnumContractSmoke)
 
 if (nativeSmoke)
 {
-    nativeSmokeReport = ValidateNativeSamplerParity(profile);
+    nativeSmokeReport = ValidateNativeSamplerParity(benchmarkProfile);
     PrintNativeSamplerSmoke(nativeSmokeReport.Value);
     RecordAuxiliaryCheck(nativeSmokeReport.Value.Passed, ref totalFailures, ref auxiliaryCheckCount, ref auxiliaryFailureCount);
 }
@@ -555,6 +555,7 @@ static TerrainPoiTileSmokeReport ValidatePoiTileMaterialization(
     }
 
     int settlementLandmarkCount = SettlementLandmarkCount(kindCounts);
+    int expectedSettlementPointCount = CountSettlementPoints(plan);
     int settlementInteriorScatterCount = SettlementInteriorScatterCount(scatterKindCounts);
     int villageHouseScatterCount = scatterKindCounts[(int)TerrainLandmarkKind.VillageHouse];
     int townBlockScatterCount = scatterKindCounts[(int)TerrainLandmarkKind.TownBlock];
@@ -580,15 +581,15 @@ static TerrainPoiTileSmokeReport ValidatePoiTileMaterialization(
         kindCounts[(int)TerrainLandmarkKind.Town] > 0 &&
         scatterKindCounts[(int)TerrainLandmarkKind.Village] >= kindCounts[(int)TerrainLandmarkKind.Village] &&
         scatterKindCounts[(int)TerrainLandmarkKind.Town] >= kindCounts[(int)TerrainLandmarkKind.Town] &&
-        settlementInteriorScatterCount >= settlementLandmarkCount * 3 &&
+        settlementInteriorScatterCount >= expectedSettlementPointCount * 3 &&
         villageHouseScatterCount > 0 &&
         townBlockScatterCount > 0 &&
         settlementPlazaScatterCount > 0 &&
         villageWellScatterCount > 0 &&
         marketStallScatterCount > 0 &&
         watchTowerScatterCount > 0 &&
-        settlementServiceScatterCount >= settlementLandmarkCount &&
-        settlementGatewayScatterCount >= settlementLandmarkCount &&
+        settlementServiceScatterCount >= expectedSettlementPointCount &&
+        settlementGatewayScatterCount >= expectedSettlementPointCount &&
         (kindCounts[(int)TerrainLandmarkKind.OasisHub] == 0 ||
             (oasisCanopyScatterCount > 0 && oasisPoolScatterCount > 0 && oasisGardenScatterCount > 0)) &&
         landmarkScatterCount >= expected.Count &&
@@ -611,6 +612,7 @@ static TerrainPoiTileSmokeReport ValidatePoiTileMaterialization(
         scatterKindCounts[(int)TerrainLandmarkKind.Town],
         scatterKindCounts[(int)TerrainLandmarkKind.OasisHub],
         settlementLandmarkCount,
+        expectedSettlementPointCount,
         settlementInteriorScatterCount,
         villageHouseScatterCount,
         townBlockScatterCount,
@@ -732,10 +734,10 @@ static void PrintPoiTileSmoke(TerrainPoiTileSmokeReport report)
         $"tiles {report.TileCount}, kinds {report.DistinctLandmarkKinds}/{report.DistinctScatterLandmarkKinds}, " +
         $"village/town/oasis hub landmarks {report.VillageLandmarkCount}/{report.TownLandmarkCount}/{report.OasisHubLandmarkCount}, " +
         $"scatter {report.VillageScatterCount}/{report.TownScatterCount}/{report.OasisHubScatterCount}, " +
-        $"interior scatter {report.SettlementInteriorScatterCount}/{report.SettlementLandmarkCount}, " +
+        $"interior scatter {report.SettlementInteriorScatterCount}/{report.ExpectedSettlementPointCount}, " +
         $"interior kinds H/B/C/P/W {report.VillageHouseScatterCount}/{report.TownBlockScatterCount}/{report.OasisCanopyScatterCount}/{report.SettlementPlazaScatterCount}/{report.OasisPoolScatterCount}, " +
         $"services well/market/tower/garden {report.VillageWellScatterCount}/{report.MarketStallScatterCount}/{report.WatchTowerScatterCount}/{report.OasisGardenScatterCount}, " +
-        $"gateways {report.SettlementGatewayScatterCount}, " +
+        $"gateways {report.SettlementGatewayScatterCount}/{report.ExpectedSettlementPointCount}, " +
         $"footprint vertices {report.FootprintInfluencedVertexCount}, max footprint delta {report.FootprintMaxHeightDelta:0.000}/{report.FootprintMaxColorDelta:0.000}, " +
         $"layout color vertices {report.LayoutColorVertexCount}, max layout color {report.LayoutMaxColorDelta:0.000}, " +
         $"landmark scatter {report.LandmarkScatterCount} ({report.Reason})");
@@ -746,6 +748,20 @@ static int SettlementLandmarkCount(Span<int> kindCounts)
     return kindCounts[(int)TerrainLandmarkKind.Village] +
         kindCounts[(int)TerrainLandmarkKind.Town] +
         kindCounts[(int)TerrainLandmarkKind.OasisHub];
+}
+
+static int CountSettlementPoints(TerrainWorldPlan plan)
+{
+    int count = 0;
+    foreach (TerrainWorldPointOfInterest point in plan.PointsOfInterest)
+    {
+        if (point.SettlementTier is TerrainSettlementTier.Village or TerrainSettlementTier.Town or TerrainSettlementTier.OasisHub)
+        {
+            count++;
+        }
+    }
+
+    return count;
 }
 
 static int SettlementInteriorScatterCount(Span<int> scatterKindCounts)
@@ -901,10 +917,17 @@ static TerrainBiomeScatterSmokeReport ValidateBiomeScatterMaterialization(
 {
     var coords = new HashSet<TerrainTileCoord>();
     AddBiomeScatterCandidateCoords(plan, profile, coords, maxCoords: 96);
+    foreach (TerrainWorldPointOfInterest point in plan.PointsOfInterest)
+    {
+        if (point.SettlementTier == TerrainSettlementTier.OasisHub)
+        {
+            AddPoiFootprintCoords(coords, point, profile);
+        }
+    }
 
     if (coords.Count == 0)
     {
-        return new TerrainBiomeScatterSmokeReport(false, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "no biome scatter candidate tiles found");
+        return new TerrainBiomeScatterSmokeReport(false, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "no biome scatter candidate tiles found");
     }
 
     TerrainPointOfInterestIndex poiIndex = TerrainPointOfInterestIndex.FromPlan(plan, profile);
@@ -961,31 +984,87 @@ static TerrainBiomeScatterSmokeReport ValidateBiomeScatterMaterialization(
         lakeReedCount +
         waterLilyCount;
     int totalWaterCellCount = lakeWaterCellCount + riverWaterCellCount + oasisWaterCellCount;
+    bool expectsGrass = HasBiomeSource(plan, static region =>
+        region.BiomeKind is TerrainBiomeKind.Plains or TerrainBiomeKind.Grassland ||
+        region.RegionKind is TerrainWorldRegionKind.Plains or TerrainWorldRegionKind.Grassland);
+    bool expectsDesert = HasBiomeSource(plan, static region =>
+        region.BiomeKind is TerrainBiomeKind.Desert or TerrainBiomeKind.Oasis ||
+        region.RegionKind is TerrainWorldRegionKind.Desert or TerrainWorldRegionKind.Oasis);
+    bool expectsWetland = HasBiomeSource(plan, static region =>
+        region.BiomeKind is TerrainBiomeKind.Wetland or TerrainBiomeKind.Lake or TerrainBiomeKind.Oasis ||
+        region.LandscapeKind is TerrainLandscapeKind.Wetland or TerrainLandscapeKind.Lake ||
+        region.RegionKind is TerrainWorldRegionKind.Wetland or TerrainWorldRegionKind.Lake or TerrainWorldRegionKind.Oasis);
+    bool expectsSnow = HasBiomeSource(plan, static region =>
+        region.BiomeKind == TerrainBiomeKind.Snowfield ||
+        region.LandscapeKind == TerrainLandscapeKind.Snowfield ||
+        region.RegionKind == TerrainWorldRegionKind.Snow);
+    bool expectsCoast = HasBiomeSource(plan, static region =>
+        region.BiomeKind is TerrainBiomeKind.Coast or TerrainBiomeKind.Island ||
+        region.LandscapeKind == TerrainLandscapeKind.Coast ||
+        region.RegionKind is TerrainWorldRegionKind.Coast or TerrainWorldRegionKind.Island);
+    bool expectsLake = HasBiomeSource(plan, static region =>
+        region.BiomeKind == TerrainBiomeKind.Lake ||
+        region.LandscapeKind == TerrainLandscapeKind.Lake ||
+        region.RegionKind == TerrainWorldRegionKind.Lake);
+    bool expectsRiver = HasBiomeSource(plan, static region =>
+        region.River > 0.62f ||
+        region.LandscapeKind == TerrainLandscapeKind.RiverValley ||
+        region.RegionKind == TerrainWorldRegionKind.RiverValley);
+    bool expectsOasis = HasBiomeSource(plan, static region =>
+        region.BiomeKind == TerrainBiomeKind.Oasis ||
+        region.RegionKind == TerrainWorldRegionKind.Oasis) ||
+        HasOasisHub(plan);
+    bool grassPassed = !expectsGrass || grassTuftCount > 0;
+    bool desertPassed = !expectsDesert || desertShrubCount + cactusClusterCount > 0;
+    bool wetlandPassed = !expectsWetland || reedClusterCount + lakeReedCount + waterLilyCount + mangroveRootCount > 0;
+    bool snowPassed = !expectsSnow || snowClumpCount + alpinePineCount > 0;
+    bool coastPassed = !expectsCoast || coastalPalmCount + driftwoodCount + mangroveRootCount > 0;
+    bool lakePassed = !expectsLake || lakeWaterCellCount > 0 || lakeReedCount + waterLilyCount > 0;
+    bool riverPassed = !expectsRiver || riverWaterCellCount > 0;
+    bool oasisPassed = !expectsOasis || oasisWaterCellCount > 0 || reedClusterCount > 0;
+    int requiredCategoryCount = CountTrue(
+        expectsGrass,
+        expectsDesert,
+        expectsWetland,
+        expectsSnow,
+        expectsCoast,
+        expectsLake,
+        expectsRiver,
+        expectsOasis);
+    int materializedCategoryCount = CountTrue(
+        expectsGrass && grassPassed,
+        expectsDesert && desertPassed,
+        expectsWetland && wetlandPassed,
+        expectsSnow && snowPassed,
+        expectsCoast && coastPassed,
+        expectsLake && lakePassed,
+        expectsRiver && riverPassed,
+        expectsOasis && oasisPassed);
     bool passed =
-        grassTuftCount > 0 &&
-        desertShrubCount > 0 &&
-        cactusClusterCount > 0 &&
-        reedClusterCount > 0 &&
-        snowClumpCount > 0 &&
-        alpinePineCount > 0 &&
-        coastalPalmCount > 0 &&
-        driftwoodCount > 0 &&
-        mangroveRootCount > 0 &&
-        lakeReedCount > 0 &&
-        waterLilyCount > 0 &&
+        requiredCategoryCount > 0 &&
+        materializedCategoryCount == requiredCategoryCount &&
         biomeScatterCount >= 72 &&
-        lakeWaterCellCount > 0 &&
-        riverWaterCellCount > 0 &&
-        oasisWaterCellCount > 0 &&
         totalWaterCellCount >= 48;
     string reason = passed
-        ? "biome scatter and local water surfaces materialized across plains, desert, wetland, lake, river, oasis, snowfield, coast, island, and alpine terrain"
-        : "one or more biome scatter or local water surface kinds did not materialize";
+        ? "biome scatter and local water surfaces materialized for this seed's planned biome and water coverage"
+        : BiomeScatterFailureReason(
+            grassPassed,
+            desertPassed,
+            wetlandPassed,
+            snowPassed,
+            coastPassed,
+            lakePassed,
+            riverPassed,
+            oasisPassed,
+            biomeScatterCount,
+            totalWaterCellCount);
 
     return new TerrainBiomeScatterSmokeReport(
         passed,
         coords.Count,
         sampledTiles,
+        requiredCategoryCount,
+        materializedCategoryCount,
         grassTuftCount,
         desertShrubCount,
         cactusClusterCount,
@@ -1003,6 +1082,112 @@ static TerrainBiomeScatterSmokeReport ValidateBiomeScatterMaterialization(
         oasisWaterCellCount,
         totalWaterCellCount,
         reason);
+}
+
+static bool HasBiomeSource(TerrainWorldPlan plan, Predicate<TerrainWorldRegion> predicate)
+{
+    foreach (TerrainWorldRegion region in plan.Regions)
+    {
+        if (predicate(region))
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static bool HasOasisHub(TerrainWorldPlan plan)
+{
+    foreach (TerrainWorldPointOfInterest point in plan.PointsOfInterest)
+    {
+        if (point.SettlementTier == TerrainSettlementTier.OasisHub)
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static int CountTrue(params bool[] values)
+{
+    int count = 0;
+    foreach (bool value in values)
+    {
+        if (value)
+        {
+            count++;
+        }
+    }
+
+    return count;
+}
+
+static string BiomeScatterFailureReason(
+    bool grassPassed,
+    bool desertPassed,
+    bool wetlandPassed,
+    bool snowPassed,
+    bool coastPassed,
+    bool lakePassed,
+    bool riverPassed,
+    bool oasisPassed,
+    int biomeScatterCount,
+    int totalWaterCellCount)
+{
+    var missing = new List<string>();
+    if (!grassPassed)
+    {
+        missing.Add("grass");
+    }
+
+    if (!desertPassed)
+    {
+        missing.Add("desert");
+    }
+
+    if (!wetlandPassed)
+    {
+        missing.Add("wetland");
+    }
+
+    if (!snowPassed)
+    {
+        missing.Add("snow");
+    }
+
+    if (!coastPassed)
+    {
+        missing.Add("coast");
+    }
+
+    if (!lakePassed)
+    {
+        missing.Add("lake");
+    }
+
+    if (!riverPassed)
+    {
+        missing.Add("river");
+    }
+
+    if (!oasisPassed)
+    {
+        missing.Add("oasis");
+    }
+
+    if (biomeScatterCount < 72)
+    {
+        missing.Add("biome scatter density");
+    }
+
+    if (totalWaterCellCount < 48)
+    {
+        missing.Add("local water surface cells");
+    }
+
+    return $"missing biome/water materialization for {string.Join(", ", missing)}";
 }
 
 static void AddBiomeScatterCandidateCoords(
@@ -1120,7 +1305,7 @@ static void PrintBiomeScatterSmoke(TerrainBiomeScatterSmokeReport report)
 {
     Console.WriteLine(
         $"Biome scatter smoke: {(report.Passed ? "PASS" : "FAIL")} " +
-        $"tiles {report.SampledTileCount}/{report.CandidateTileCount}, " +
+        $"tiles {report.SampledTileCount}/{report.CandidateTileCount}, categories {report.MaterializedCategoryCount}/{report.RequiredCategoryCount}, " +
         $"grass/desert/cactus/reeds/snow/alpine/palms/driftwood/mangrove/lake reeds/lilies " +
         $"{report.GrassTuftCount}/{report.DesertShrubCount}/{report.CactusClusterCount}/{report.ReedClusterCount}/{report.SnowClumpCount}/{report.AlpinePineCount}/{report.CoastalPalmCount}/{report.DriftwoodCount}/{report.MangroveRootCount}/{report.LakeReedCount}/{report.WaterLilyCount}, " +
         $"water cells lake/river/oasis {report.LakeWaterCellCount}/{report.RiverWaterCellCount}/{report.OasisWaterCellCount}, " +
@@ -3820,6 +4005,8 @@ static TerrainNativeSamplerSmokeReport ValidateNativeSamplerParity(TerrainGenera
     {
         return new TerrainNativeSamplerSmokeReport(
             false,
+            profile.Seed,
+            profile.StableHash(),
             false,
             coord,
             resolution,
@@ -3952,6 +4139,8 @@ static TerrainNativeSamplerSmokeReport ValidateNativeSamplerParity(TerrainGenera
 
     return new TerrainNativeSamplerSmokeReport(
         passed,
+        profile.Seed,
+        profile.StableHash(),
         true,
         coord,
         resolution,
@@ -3987,6 +4176,7 @@ static void PrintNativeSamplerSmoke(TerrainNativeSamplerSmokeReport report)
 {
     Console.WriteLine(
         $"Native sampler smoke: {(report.Passed ? "PASS" : "FAIL")} " +
+        $"seed {report.Seed}, profile {report.ProfileHash}, " +
         $"available {report.Available}, tile {report.Coord}, resolution {report.Resolution}, " +
         $"field v2 {report.FieldGridAvailable}/{report.FieldGridContainsDerivedData}, " +
         $"samples {report.ComparedSampleCount}, max delta {report.MaxHeightDelta:0.000}, " +
@@ -5134,6 +5324,7 @@ internal readonly record struct TerrainPoiTileSmokeReport(
     int TownScatterCount,
     int OasisHubScatterCount,
     int SettlementLandmarkCount,
+    int ExpectedSettlementPointCount,
     int SettlementInteriorScatterCount,
     int VillageHouseScatterCount,
     int TownBlockScatterCount,
@@ -5179,6 +5370,8 @@ internal readonly record struct TerrainBiomeScatterSmokeReport(
     bool Passed,
     int CandidateTileCount,
     int SampledTileCount,
+    int RequiredCategoryCount,
+    int MaterializedCategoryCount,
     int GrassTuftCount,
     int DesertShrubCount,
     int CactusClusterCount,
@@ -5334,6 +5527,8 @@ internal readonly record struct GameplayScatterRegionCandidate(
 /// <summary>Reports whether native sampler height grids and tile output match the managed sampler within tolerance.</summary>
 internal readonly record struct TerrainNativeSamplerSmokeReport(
     bool Passed,
+    int Seed,
+    string ProfileHash,
     bool Available,
     TerrainTileCoord Coord,
     int Resolution,
