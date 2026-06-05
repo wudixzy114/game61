@@ -20,7 +20,8 @@ public enum TerrainMapLayer
     ResourcePotential = 8,
     HazardPotential = 9,
     EncounterPotential = 10,
-    Landscape = 11
+    Landscape = 11,
+    TraversalCost = 12
 }
 
 /// <summary>A single terrain sample ready for map export with pre-computed color.</summary>
@@ -41,19 +42,75 @@ public readonly record struct TerrainMapSample(
     Color Color);
 
 /// <summary>Pure managed RGBA terrain map raster used for deterministic CLI and runtime artifact export.</summary>
-public readonly record struct TerrainMapRaster(
-    int Width,
-    int Height,
-    Color[] Pixels)
+public readonly struct TerrainMapRaster
 {
+    private readonly Color[] _pixels;
+
+    public TerrainMapRaster(int width, int height, Color[] pixels)
+    {
+        Width = width;
+        Height = height;
+        _pixels = pixels is null ? [] : (Color[])pixels.Clone();
+    }
+
+    public int Width { get; }
+    public int Height { get; }
+    public int PixelCount => _pixels?.Length ?? 0;
+    public ReadOnlySpan<Color> Pixels => _pixels is null ? ReadOnlySpan<Color>.Empty : _pixels;
+
     public Color GetPixel(int x, int y)
     {
-        return Pixels[(y * Width) + x];
+        Color[] pixels = _pixels ?? throw new InvalidOperationException("Terrain map raster has no pixels.");
+        return pixels[(y * Width) + x];
     }
 
     public void SetPixel(int x, int y, Color color)
     {
-        Pixels[(y * Width) + x] = color;
+        Color[] pixels = _pixels ?? throw new InvalidOperationException("Terrain map raster has no pixels.");
+        pixels[(y * Width) + x] = color;
+    }
+
+    public Color[] ToPixelArray()
+    {
+        return _pixels is null ? [] : (Color[])_pixels.Clone();
+    }
+}
+
+/// <summary>Structured traversal cost samples over a world-space square, for navigation and AI tools to consume without pathfinding.</summary>
+public readonly struct TerrainTraversalCostGrid
+{
+    private readonly TerrainTraversalCost[] _samples;
+
+    public TerrainTraversalCostGrid(
+        int width,
+        int height,
+        Vector2 center,
+        float worldSize,
+        TerrainTraversalCost[] samples)
+    {
+        Width = width;
+        Height = height;
+        Center = center;
+        WorldSize = worldSize;
+        _samples = samples is null ? [] : (TerrainTraversalCost[])samples.Clone();
+    }
+
+    public int Width { get; }
+    public int Height { get; }
+    public Vector2 Center { get; }
+    public float WorldSize { get; }
+    public int SampleCount => _samples?.Length ?? 0;
+    public ReadOnlySpan<TerrainTraversalCost> Samples => _samples is null ? ReadOnlySpan<TerrainTraversalCost>.Empty : _samples;
+
+    public TerrainTraversalCost GetSample(int x, int y)
+    {
+        TerrainTraversalCost[] samples = _samples ?? throw new InvalidOperationException("Terrain traversal cost grid has no samples.");
+        return samples[(y * Width) + x];
+    }
+
+    public TerrainTraversalCost[] ToSampleArray()
+    {
+        return _samples is null ? [] : (TerrainTraversalCost[])_samples.Clone();
     }
 }
 
@@ -128,11 +185,41 @@ public static class TerrainMapExporter
                 Vector2 world = new(
                     center.X + (tx - 0.5f) * safeWorldSize,
                     center.Y + (ty - 0.5f) * safeWorldSize);
-                pixels[(y * size) + x] = ColorForLayer(SampleWorld(world, profile), profile, layer);
+                pixels[(y * size) + x] = layer == TerrainMapLayer.TraversalCost
+                    ? ColorForTraversalCost(SampleTraversalCost(world, profile, spacing: 24.0f))
+                    : ColorForLayer(SampleWorld(world, profile), profile, layer);
             }
         }
 
         return new TerrainMapRaster(size, size, pixels);
+    }
+
+    /// <summary>Creates a structured traversal-cost grid over a world-space square without building navigation paths.</summary>
+    public static TerrainTraversalCostGrid CreateTraversalCostGrid(
+        TerrainGenerationProfile profile,
+        Vector2 center,
+        float worldSize,
+        int gridSize,
+        float spacing = 24.0f)
+    {
+        int size = Mathf.Clamp(gridSize, 2, 4096);
+        float safeWorldSize = Mathf.Max(1.0f, worldSize);
+        var samples = new TerrainTraversalCost[size * size];
+
+        for (int y = 0; y < size; y++)
+        {
+            for (int x = 0; x < size; x++)
+            {
+                float tx = x / (float)(size - 1);
+                float ty = y / (float)(size - 1);
+                Vector2 world = new(
+                    center.X + (tx - 0.5f) * safeWorldSize,
+                    center.Y + (ty - 0.5f) * safeWorldSize);
+                samples[(y * size) + x] = SampleTraversalCost(world, profile, spacing);
+            }
+        }
+
+        return new TerrainTraversalCostGrid(size, size, center, safeWorldSize, samples);
     }
 
     /// <summary>Creates a Godot image from a managed terrain raster for runtime preview use.</summary>
@@ -239,6 +326,32 @@ public static class TerrainMapExporter
         };
     }
 
+    private static TerrainTraversalCost SampleTraversalCost(
+        Vector2 world,
+        TerrainGenerationProfile profile,
+        float spacing)
+    {
+        TerrainWorldField field = TerrainWorldFieldSampler.Sample(world, profile);
+        TerrainSample surface = TerrainSampler.SampleWithSlope(world, profile, spacing);
+        return TerrainSemanticClassifier.ClassifyTraversalCost(field, surface, profile);
+    }
+
+    private static Color ColorForTraversalCost(TerrainTraversalCost traversal)
+    {
+        if (traversal.IsBlocked)
+        {
+            return new Color(0.08f, 0.07f, 0.09f);
+        }
+
+        float t = Mathf.Clamp((traversal.Cost - 1.0f) / 7.0f, 0.0f, 1.0f);
+        if (t < 0.45f)
+        {
+            return new Color(0.12f, 0.50f, 0.22f).Lerp(new Color(0.72f, 0.64f, 0.22f), t / 0.45f);
+        }
+
+        return new Color(0.72f, 0.64f, 0.22f).Lerp(new Color(0.78f, 0.18f, 0.14f), (t - 0.45f) / 0.55f);
+    }
+
     private static Color ColorForHeight(float height, TerrainGenerationProfile profile)
     {
         float low = profile.SeaLevel - profile.HeightScale * 0.52f;
@@ -297,7 +410,7 @@ public static class TerrainMapExporter
 
     private static void WritePng(Stream stream, TerrainMapRaster raster)
     {
-        if (raster.Width <= 0 || raster.Height <= 0 || raster.Pixels.Length < raster.Width * raster.Height)
+        if (raster.Width <= 0 || raster.Height <= 0 || raster.PixelCount < raster.Width * raster.Height)
         {
             throw new ArgumentException("Terrain PNG raster dimensions are invalid.", nameof(raster));
         }

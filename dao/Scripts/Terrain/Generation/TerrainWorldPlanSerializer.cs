@@ -49,9 +49,9 @@ public static class TerrainWorldPlanSerializer
                 return false;
             }
 
-            if (!string.Equals(dto.ApiVersion, TerrainApiVersion.Version, StringComparison.Ordinal))
+            if (!TerrainApiVersion.IsSupportedPlanApiVersion(dto.ApiVersion))
             {
-                error = $"unsupported terrain API version '{dto.ApiVersion}', expected '{TerrainApiVersion.Version}'";
+                error = $"unsupported terrain API version '{dto.ApiVersion}', expected '{TerrainApiVersion.Version}' or compatible terrain-api-v1 plan version";
                 return false;
             }
 

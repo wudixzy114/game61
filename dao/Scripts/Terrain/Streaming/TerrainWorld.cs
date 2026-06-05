@@ -431,6 +431,15 @@ public partial class TerrainWorld : Node3D
         return TerrainSemanticClassifier.ClassifyGameplayTags(field, profile);
     }
 
+    /// <summary>Samples local traversal cost semantics for navigation, AI, encounters, and placement filters without pathfinding.</summary>
+    public TerrainTraversalCost SampleTraversalCost(Vector2 world, float spacing = 4.0f)
+    {
+        TerrainGenerationProfile profile = CurrentProfile;
+        TerrainWorldField field = TerrainWorldFieldSampler.Sample(world, profile);
+        TerrainSample surface = TerrainSampler.SampleWithSlope(world, profile, spacing);
+        return TerrainSemanticClassifier.ClassifyTraversalCost(field, surface, profile);
+    }
+
     /// <summary>Returns whether the sampled terrain field meets the requested traversability threshold.</summary>
     public bool IsTraversable(Vector2 world, float minTraversability = 0.45f)
     {

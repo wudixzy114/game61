@@ -1,3 +1,4 @@
+using System;
 using Dao.Terrain.Generation;
 using Godot;
 
@@ -158,14 +159,54 @@ public readonly record struct TerrainWorldPointOfInterestAnchorDescriptor(
     float InteractionRadius,
     int EncounterBudget);
 
-public readonly record struct TerrainWorldRouteAnchorDescriptor(
-    string Name,
-    string GroupName,
-    int FromPointId,
-    int ToPointId,
-    TerrainRouteKind Kind,
-    float Cost,
-    float AverageScenicPotential,
-    float AverageTraversability,
-    Vector2 WorldMidpoint2D,
-    Vector2[] Waypoints);
+public readonly struct TerrainWorldRouteAnchorDescriptor
+{
+    private readonly Vector2[] _waypoints;
+
+    public TerrainWorldRouteAnchorDescriptor(
+        string Name,
+        string GroupName,
+        int FromPointId,
+        int ToPointId,
+        TerrainRouteKind Kind,
+        float Cost,
+        float AverageScenicPotential,
+        float AverageTraversability,
+        Vector2 WorldMidpoint2D,
+        Vector2[] Waypoints)
+    {
+        this.Name = Name;
+        this.GroupName = GroupName;
+        this.FromPointId = FromPointId;
+        this.ToPointId = ToPointId;
+        this.Kind = Kind;
+        this.Cost = Cost;
+        this.AverageScenicPotential = AverageScenicPotential;
+        this.AverageTraversability = AverageTraversability;
+        this.WorldMidpoint2D = WorldMidpoint2D;
+        _waypoints = Waypoints is null ? [] : (Vector2[])Waypoints.Clone();
+    }
+
+    public string Name { get; }
+    public string GroupName { get; }
+    public int FromPointId { get; }
+    public int ToPointId { get; }
+    public TerrainRouteKind Kind { get; }
+    public float Cost { get; }
+    public float AverageScenicPotential { get; }
+    public float AverageTraversability { get; }
+    public Vector2 WorldMidpoint2D { get; }
+    public int WaypointCount => _waypoints?.Length ?? 0;
+    public Vector2[] Waypoints => ToWaypointArray();
+
+    public Vector2 GetWaypoint(int index)
+    {
+        Vector2[] waypoints = _waypoints ?? throw new InvalidOperationException("Terrain route anchor descriptor has no waypoints.");
+        return waypoints[index];
+    }
+
+    public Vector2[] ToWaypointArray()
+    {
+        return _waypoints is null ? [] : (Vector2[])_waypoints.Clone();
+    }
+}

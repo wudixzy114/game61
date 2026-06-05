@@ -72,6 +72,22 @@ public readonly record struct TerrainGameplayTags(
     public bool HasWaterAccess => Has(TerrainGameplayTag.WaterAccess);
 }
 
+/// <summary>Local terrain traversal semantics for AI, navigation graph weighting, encounters, and placement filters.</summary>
+public readonly record struct TerrainTraversalCost(
+    Vector2 WorldPosition,
+    bool IsBlocked,
+    float Cost,
+    float Traversability,
+    float Slope,
+    float HazardPotential,
+    TerrainWaterKind WaterKind,
+    TerrainBiomeKind BiomeKind,
+    TerrainLandscapeKind LandscapeKind)
+{
+    public bool IsPreferred => !IsBlocked && Cost <= 1.35f;
+    public bool IsDifficult => !IsBlocked && Cost >= 2.25f;
+}
+
 /// <summary>Pure terrain semantic classifiers shared by runtime facade APIs and validation tools.</summary>
 public static class TerrainSemanticClassifier
 {
@@ -178,6 +194,47 @@ public static class TerrainSemanticClassifier
             field.ResourcePotential,
             field.HazardPotential,
             field.EncounterPotential);
+    }
+
+    public static TerrainTraversalCost ClassifyTraversalCost(TerrainWorldField field, TerrainSample surface, TerrainGenerationProfile profile)
+    {
+        TerrainWaterState water = ClassifyWater(field, profile);
+        float traversability = Mathf.Clamp(field.Traversability, 0.0f, 1.0f);
+        float slope = Mathf.Clamp(surface.Slope, 0.0f, 1.0f);
+        float hazard = Mathf.Clamp(field.HazardPotential, 0.0f, 1.0f);
+        bool blocked =
+            traversability < 0.18f ||
+            slope > 0.88f ||
+            water.Kind == TerrainWaterKind.Ocean ||
+            (water.Kind == TerrainWaterKind.Lake && water.Depth > 0.40f);
+
+        float traversabilityPenalty = (1.0f - traversability) * 2.4f;
+        float slopePenalty = slope * slope * 2.2f;
+        float hazardPenalty = hazard * 0.85f;
+        float waterPenalty = water.Kind switch
+        {
+            TerrainWaterKind.None => 0.0f,
+            TerrainWaterKind.Coast => 0.55f,
+            TerrainWaterKind.River => 0.72f,
+            TerrainWaterKind.Oasis => 0.38f,
+            TerrainWaterKind.Lake => 1.15f,
+            TerrainWaterKind.Ocean => 4.0f,
+            _ => 0.0f
+        };
+        float cost = blocked
+            ? float.PositiveInfinity
+            : Mathf.Clamp(1.0f + traversabilityPenalty + slopePenalty + hazardPenalty + waterPenalty, 1.0f, 8.0f);
+
+        return new TerrainTraversalCost(
+            field.WorldPosition,
+            blocked,
+            cost,
+            traversability,
+            slope,
+            hazard,
+            water.Kind,
+            field.BiomeKind,
+            field.LandscapeKind);
     }
 
     private static TerrainWaterKind ClassifyWaterKind(TerrainWorldField field, TerrainGenerationProfile profile)

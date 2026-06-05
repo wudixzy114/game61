@@ -2,7 +2,7 @@
 
 日期：2026-06-04  
 适用项目：`d:\game61`  
-当前契约范围：`TerrainWorld` 运行时查询 facade、运行时流送诊断快照、开放世界 plan 只读访问、基础地形语义采样、route corridor 语义采样、确定性 epsilon 边界、runtime gameplay anchor group/meta 契约、`terrain-plan-v1` JSON 持久化契约。
+当前契约范围：`TerrainWorld` 运行时查询 facade、运行时流送诊断快照、开放世界 plan 只读访问、基础地形语义采样、route corridor 语义采样、局部通行成本语义、基础 map artifact 图层、确定性 epsilon 边界、runtime gameplay anchor group/meta 契约、`terrain-plan-v1` JSON 持久化契约。
 
 ## 1. 契约目标
 
@@ -17,6 +17,7 @@
 - 运行时流送状态的只读诊断快照。
 - POI 和 route 快照读取、范围查询和近邻查询。
 - 静态水体语义和 gameplay tag 采样。
+- 局部通行成本语义和 traversal cost map layer。
 - deterministic、native parity 和快照/序列化比较 epsilon。
 - POI 和 route gameplay anchor group/meta descriptor。
 - `terrain-plan-v1` plan JSON 导出/读取、profile hash 校验和 roundtrip 验证。
@@ -41,6 +42,7 @@
 - `dao/Scripts/Terrain/Runtime/TerrainWorldAnchorContract.cs`
 - `dao/Scripts/Terrain/Runtime/TerrainWorldAnchorBuilder.cs`
 - `dao/Scripts/Terrain/Generation/TerrainSemanticQueryData.cs`
+- `dao/Scripts/Terrain/Generation/TerrainMapExporter.cs`
 - `dao/Scripts/Terrain/Generation/TerrainWorldPlanSerializer.cs`
 - `dao/Scripts/Terrain/TerrainProfileHash.cs`
 
@@ -63,6 +65,9 @@ TerrainWorldRoute[] nearbyRoutes = terrainWorld.QueryRoutesNear(world, radius);
 TerrainRouteCorridorSample routeCorridor = terrainWorld.SampleRouteCorridor(world);
 TerrainWaterState water = terrainWorld.SampleWaterState(world);
 TerrainGameplayTags tags = terrainWorld.SampleGameplayTags(world);
+TerrainTraversalCost traversal = terrainWorld.SampleTraversalCost(world);
+TerrainMapRaster traversalMap = TerrainMapExporter.CreateRaster(profile, center, worldSize, imageSize, TerrainMapLayer.TraversalCost);
+TerrainTraversalCostGrid traversalGrid = TerrainMapExporter.CreateTraversalCostGrid(profile, center, worldSize, gridSize);
 bool traversable = terrainWorld.IsTraversable(world);
 bool aboveWater = terrainWorld.IsAboveWater(world);
 string contract = TerrainApiVersion.Contract;
@@ -206,6 +211,29 @@ bool loaded = TerrainWorldPlanSerializer.TryFromJson(planJson, profile, out Terr
 - 同时返回 tag 来源分数，便于上层模块做二次阈值判断。
 - 不要求 plan 已生成，不触发 tile 生成，不触发同步 plan 生成。
 
+### `SampleTraversalCost(Vector2 world, float spacing = 4.0f)`
+
+- 使用当前 `Profile`、`TerrainWorldFieldSampler.Sample(...)`、`TerrainSampler.SampleWithSlope(...)` 和 `TerrainSemanticClassifier.ClassifyTraversalCost(...)`。
+- 返回局部通行成本语义，包括是否阻塞、有限成本、通行性、坡度、危险潜力、水体类型、生物群系和地貌。
+- `Cost` 是给导航图、AI、遭遇和落点筛选使用的局部权重，不是路径结果；阻塞点返回 `float.PositiveInfinity`。
+- 不要求 plan 已生成，不触发 tile 生成，不触发同步 plan 生成，不执行 navmesh、A* 或角色级寻路。
+
+### `TerrainMapLayer.TraversalCost`
+
+- 作为 `TerrainMapExporter.CreateRaster(...)` / `SaveMap(...)` 的稳定追加图层，enum 数值固定为 `12`。
+- `TerrainMapRaster.Pixels` 为只读视图；需要数组时使用 `ToPixelArray()` 获取快照，调用方修改快照不会影响 raster 内部像素。
+- 使用 `TerrainSemanticClassifier.ClassifyTraversalCost(...)` 生成颜色化 traversal cost raster。
+- 用于导航、AI、遭遇、任务和调试工具读取或检查局部通行成本分布；不等价于 navigation graph、navmesh、A* 或角色级寻路。
+- artifact smoke 会导出并检查 `terrain_traversal_cost.png`，防止图层变成空图或缺少阻塞区域表达，并验证 raster 像素快照隔离。
+
+### `TerrainMapExporter.CreateTraversalCostGrid(...)`
+
+- 返回结构化 `TerrainTraversalCostGrid`，包含固定尺寸网格、世界中心、世界尺寸和每个采样点的 `TerrainTraversalCost`。
+- `TerrainTraversalCostGrid.Samples` 为只读视图；需要数组时使用 `ToSampleArray()` 获取快照，调用方修改快照不会影响 grid 内部样本。
+- 使用与 `SampleTraversalCost(...)` 和 `TerrainMapLayer.TraversalCost` 相同的共享 classifier。
+- 面向导航、AI、遭遇、任务和验证工具的机器可读成本输入；不生成 navigation graph，不烘焙 navmesh，不执行 A*。
+- artifact smoke 抽样验证 grid 与共享 classifier 一致，并检查有限成本、阻塞样本、成本范围和样本快照隔离。
+
 ### `IsTraversable(Vector2 world, float minTraversability = 0.45f)`
 
 - 使用 `SampleField(world).Traversability`。
@@ -221,8 +249,8 @@ bool loaded = TerrainWorldPlanSerializer.TryFromJson(planJson, profile, out Terr
 ### `TerrainApiVersion`
 
 - `TerrainApiVersion.Contract` 当前固定为 `terrain-api-v1`。
-- `TerrainApiVersion.Version` 当前固定为 `1.0.0`。
-- `Major/Minor/Patch` 当前为 `1/0/0`。
+- `TerrainApiVersion.Version` 当前固定为 `1.1.0`。
+- `Major/Minor/Patch` 当前为 `1/1/0`。
 - plan 文本报告必须输出 API contract/version、plan contract、generator version、determinism contract 和 profile hash。
 - 破坏性 API 变更必须提升 major 版本，并同步更新本契约和验证工具。
 
@@ -248,7 +276,7 @@ bool loaded = TerrainWorldPlanSerializer.TryFromJson(planJson, profile, out Terr
 - `TerrainWorldPlanSerializer.Contract` 当前固定为 `terrain-plan-v1`。
 - `TerrainWorldPlanSerializer.GeneratorVersion` 当前固定为 `1.0.0`。
 - `ToJson(plan, profile)` 输出当前 plan 的稳定 JSON schema。
-- `TryFromJson(json, out plan, out error)` 只接受当前 plan/API/generator 版本。
+- `TryFromJson(json, out plan, out error)` 只接受当前 plan/API contract 和 generator 版本；`terrain-api-v1` 的 plan JSON 兼容读取 API `1.0.0` 和当前 `1.1.0`。
 - `TryFromJson(json, expectedProfile, out plan, out error)` 还会检查 seed 和 profile hash。
 - `SaveJson(...)` 和 `TryLoadJson(...)` 使用同一 schema。
 - `Vector2` 固定序列化为 `{ "x": number, "z": number }`，避免 XZ/XY 混淆。
@@ -273,9 +301,9 @@ bool loaded = TerrainWorldPlanSerializer.TryFromJson(planJson, profile, out Terr
 - `TerrainWorldStreamingSnapshot` 必须复制 chunk/job 坐标数组，不暴露内部 set、dictionary 或 LRU 状态。
 - anchor group/meta 名称以 `TerrainWorldAnchorContract` 为准。
 - `TerrainWorldPointOfInterestAnchor` 和 `TerrainWorldRouteAnchor` 的公开常量必须与 `TerrainWorldAnchorContract` 保持一致。
-- anchor descriptor 不得泄露 route waypoint 内部可变数组。
+- route anchor descriptor 和 `TerrainWorldRouteAnchor` 不得泄露 route waypoint 内部可变数组；`Waypoints` 返回快照，稳定读取优先使用 `WaypointCount`、`GetWaypoint(...)` 和 `ToWaypointArray()`。
 - plan JSON 必须写入 `contract`、`apiContract`、`apiVersion`、`generatorVersion`、`seed`、`profileHash`。
-- plan JSON 当前只读取 `terrain-plan-v1` / `terrain-api-v1` / API `1.0.0` / generator `1.0.0`；不兼容 contract 或 version 必须返回明确错误。
+- plan JSON 当前只读取 `terrain-plan-v1` / `terrain-api-v1` / API `1.0.0` 或 `1.1.0` / generator `1.0.0`；不兼容 contract 或 version 必须返回明确错误。
 - plan JSON enum name/value 不得漂移。
 
 ## 5. 验证命令
@@ -317,7 +345,7 @@ Terrain anchor contract smoke: PASS
 - `SampleField` 与底层 sampler 一致。
 - `SampleSurface` 与底层 sampler 一致。
 - `SurfacePositionAt` 坐标轴正确。
-- `TerrainApiVersion` 为 `terrain-api-v1` / `1.0.0`。
+- `TerrainApiVersion` 为 `terrain-api-v1` / `1.1.0`。
 - `TerrainDeterminismContract` 为 `terrain-determinism-v1`，关键 epsilon 未漂移。
 - plan 空态返回 false 和空集合。
 - plan 就绪态返回 POI/route 数量正确。
@@ -327,6 +355,9 @@ Terrain anchor contract smoke: PASS
 - `SampleRouteCorridor` 与当前 plan 的 route corridor 索引一致，plan 未就绪时返回无影响样本。
 - `SampleWaterState` 与共享地形语义分类器一致。
 - `SampleGameplayTags` 与共享地形语义分类器一致。
+- `SampleTraversalCost` 与共享地形语义分类器一致，且只表达局部通行成本，不执行寻路。
+- `TerrainMapLayer.TraversalCost` 导出 traversal cost raster，且 artifact smoke 检查图层有颜色变化、阻塞区域表达和 raster 像素快照隔离。
+- `CreateTraversalCostGrid` 导出机器可读 traversal cost grid，且 artifact smoke 抽样验证 grid 与共享 classifier 一致并验证样本快照隔离。
 - `GetStreamingSnapshot` 返回稳定、隔离的流送诊断快照，且 cache/job 上限判断未漂移。
 - POI 数组、route 数组和 route waypoint 数组不会泄露内部可变状态。
 - `TerrainWorldPlanSnapshot` 的 region、POI、route 和 route waypoint 数组不会泄露内部可变状态。
@@ -349,7 +380,7 @@ anchor contract smoke 覆盖：
 - anchor 节点公开常量与 `TerrainWorldAnchorContract` 一致。
 - POI/route descriptor 数量与 plan 一致。
 - POI/route descriptor 的 group、name、archetype、route 字段与 plan 一致。
-- route descriptor 的 waypoint 数组不会泄露 plan 内部可变状态。
+- route descriptor 的 waypoint 构造输入、`Waypoints` 快照和 `TerrainWorldRouteAnchor.Waypoints` 快照不会泄露内部可变状态。
 - descriptor 可重复构建且结果稳定。
 
 如需要临时跳过该检查，可使用：

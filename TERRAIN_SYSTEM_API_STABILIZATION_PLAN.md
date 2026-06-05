@@ -142,6 +142,8 @@
 | `TerrainWorldPlanner.ValidateOpenWorldPlanning(...)`      | `dao/Scripts/Terrain/Generation/TerrainWorldPlanner.cs`       | 验证规划质量                    |
 | `TerrainQualityAnalyzer.ValidateOpenWorldDefault(...)`    | `dao/Scripts/Terrain/Generation/TerrainQualityAnalyzer.cs`    | 验证地形质量                    |
 | `TerrainExperienceAnalyzer.ValidateOpenWorldDefault(...)` | `dao/Scripts/Terrain/Generation/TerrainExperienceAnalyzer.cs` | 验证体验指标                    |
+| `TerrainMapExporter.CreateRaster(..., TerrainMapLayer.TraversalCost)` | `dao/Scripts/Terrain/Generation/TerrainMapExporter.cs` | 导出局部通行成本图层 |
+| `TerrainMapExporter.CreateTraversalCostGrid(...)` | `dao/Scripts/Terrain/Generation/TerrainMapExporter.cs` | 导出机器可读通行成本网格 |
 | `TerrainWorldPlanOverlay.ApplyPlan(...)`                  | `dao/Scripts/Terrain/Runtime/TerrainWorldPlanOverlay.cs`      | 当前阶段生成可视化和玩法 anchor |
 | `TerrainMapExporter.SaveMap(...)`                         | `dao/Scripts/Terrain/Generation/TerrainMapExporter.cs`        | 导出地形图层                    |
 | `TerrainWorldPlanExporter.SaveOpenWorldArtifacts(...)`    | `dao/Scripts/Terrain/Generation/TerrainWorldPlanExporter.cs`  | 导出 plan 地图和报告            |
@@ -395,9 +397,10 @@ namespace Dao.Terrain;
 public static class TerrainApiVersion
 {
     public const int Major = 1;
-    public const int Minor = 0;
+    public const int Minor = 1;
     public const int Patch = 0;
     public const string Contract = "terrain-api-v1";
+    public const string Version = "1.1.0";
 }
 ```
 
@@ -411,7 +414,7 @@ public static class TerrainApiVersion
 
 ```text
 Terrain API Contract: terrain-api-v1
-Terrain API Version: 1.0.0
+Terrain API Version: 1.1.0
 ```
 
 ## 8. 其他模块对接方案
@@ -653,7 +656,7 @@ public TerrainWorldRoute[] GetRoutes();
 - `TerrainWorldAnchorBuilder` 已新增，负责从 plan 生成 gameplay anchors。
 - `TerrainWorldPlanOverlay` 已改为复用 builder，debug marker/ribbon 与 anchor 生成逻辑不再写在同一段实现里。
 - `TerrainWorldAnchorContract` 已固定 `terrain_poi`、`terrain_route` group 和必需 meta key。
-- 默认验证已加入 `Terrain anchor contract smoke`，检查 group/meta 名称、anchor 节点常量、descriptor 数量、字段一致性和 route waypoint 隔离。
+- 默认验证已加入 `Terrain anchor contract smoke`，检查 group/meta 名称、anchor 节点常量、descriptor 数量、字段一致性、route descriptor waypoint 快照隔离和 route anchor 节点 waypoint 快照隔离。
 
 商业级要求：
 
@@ -702,6 +705,7 @@ public partial class TerrainWorldAnchorBuilder : Node3D
 - JSON 顶层已写入 plan/API/generator version、seed、profile hash、center、world size、grid resolution、regions、POI、routes 和 reports。
 - `Vector2` 已固定为 `{ "x": number, "z": number }`。
 - enum 已固定为 `{ "name": string, "value": int }`，读取时同时校验 name/value。
+- 当前导出写入 API `1.1.0`；读取兼容同一 `terrain-api-v1` contract 下的 API `1.0.0` plan JSON，因为该 minor 追加只扩展 runtime facade，不改变 plan schema。
 - 带 `expectedProfile` 的读取入口会拒绝 seed 或 profile hash 不匹配的 plan。
 - route waypoint roundtrip 后不会共享原 plan 内部数组。
 - 默认验证已加入 `Plan JSON roundtrip smoke`，覆盖 string/file roundtrip、metadata、seed/hash/version drift、enum drift 和隔离性。
@@ -718,7 +722,7 @@ JSON 顶层字段：
 {
   "contract": "terrain-plan-v1",
   "apiContract": "terrain-api-v1",
-  "apiVersion": "1.0.0",
+  "apiVersion": "1.1.0",
   "generatorVersion": "1.0.0",
   "seed": 613061,
   "profileHash": "stable-hash",
@@ -916,7 +920,8 @@ public static class TerrainProfileHash
 | native tile build average  | 不超过 8 ms/tile             |
 | tile build 分配            | 不超过 2048 KB/tile          |
 | native speedup             | 不低于 1.00x                 |
-| tile build P50/P95/P99     | 已输出，暂不作为硬阈值       |
+| managed tile build P50/P95/P99 | 不超过 24/48/72 ms       |
+| native tile build P50/P95/P99  | 不超过 8/16/24 ms        |
 | main thread tile apply P95 | 单帧不超过 4 ms              |
 | completed tile apply count | 默认不超过 profile 配置上限  |
 | runtime facade sample      | 不触发分配，不触发 tile 生成 |
@@ -927,11 +932,11 @@ public static class TerrainProfileHash
 
 - 初期目标机器仍需要团队确认；当前阈值是当前开发机上的可执行回归门槛。
 - 当前分配预算测的是完整 `TerrainTileData` 构建路径分配，不等价于最终运行时常驻内存预算。
-- 一旦进入内容接入阶段，应将 P95/P99 门槛纳入发布检查。
+- P50/P95/P99 已纳入 `--benchmark-tiles` pass/fail 判定；后续若目标硬件变化，应调整阈值而不是降级为记录项。
 
 验收标准：
 
-- `--benchmark-tiles` 输出 P50/P95/P99。
+- `--benchmark-tiles` 输出并检查 P50/P95/P99。
 - benchmark report 写入 seed、profile hash、native/managed 模式。
 - 性能回归超过阈值时 validation 会失败。
 
@@ -961,6 +966,8 @@ public TerrainRouteCorridorSample SampleRouteCorridor(Vector2 world);
 public TerrainWaterState SampleWaterState(Vector2 world);
 
 public TerrainGameplayTags SampleGameplayTags(Vector2 world);
+
+public TerrainTraversalCost SampleTraversalCost(Vector2 world, float spacing = 4.0f);
 ```
 
 实现文件：
@@ -989,13 +996,19 @@ public TerrainGameplayTags SampleGameplayTags(Vector2 world);
 - `SampleRouteCorridor` 返回当前位置受规划路线 corridor 影响的语义样本，适合导航、AI、任务和调试系统做局部判断。
 - 该入口不等价于 navmesh、A* 或角色级寻路；它只表达地形规划路线语义。
 
+`SampleTraversalCost` 应补足 `IsTraversable` 的不足：
+
+- `IsTraversable` 只返回布尔初筛。
+- `SampleTraversalCost` 返回局部通行成本、阻塞状态、坡度、危险潜力和水体类型，供导航图权重、AI、遭遇和落点筛选使用。
+- 该入口不等价于 navmesh、A* 或角色级寻路；它只表达单点地形通行语义。
+
 复杂度和分配约定：
 
 - `TryFindNearestPointOfInterest` 为 POI 数量线性扫描，不分配数组。
 - `QueryPointsOfInterest` 为 POI 数量线性扫描，返回新的数组。
 - `QueryRoutesNear` 为 route 数量乘以 waypoint 段数扫描，返回新的 route 数组，并深拷贝 route waypoint。
 - `SampleRouteCorridor` 使用当前 plan 的 route corridor 索引，不触发 tile 生成，不分配数组，plan 未就绪时返回 `TerrainRouteCorridorSample.None`。
-- `SampleWaterState` 和 `SampleGameplayTags` 是纯采样，不依赖 plan。
+- `SampleWaterState`、`SampleGameplayTags` 和 `SampleTraversalCost` 是纯采样，不依赖 plan。
 - `GetStreamingSnapshot` 返回新的坐标数组，不暴露内部 set、dictionary 或 LRU 状态。
 
 验收标准：
@@ -1006,7 +1019,7 @@ public TerrainGameplayTags SampleGameplayTags(Vector2 world);
 - 诊断快照不触发 tile/job/cache 状态变化。
 - 诊断快照数组隔离，且 cache/job 上限判断被验证工具覆盖。
 - 查询复杂度和分配行为写入文档。
-- 默认验证输出 `Runtime TerrainWorld API smoke: PASS`，其中 `semantic POI/route/corridor/water/tags pass/pass/pass/pass/pass` 且 `streaming pass`。
+- 默认验证输出 `Runtime TerrainWorld API smoke: PASS`，其中 `semantic POI/route/corridor/water/tags/traversal pass/pass/pass/pass/pass/pass` 且 `streaming pass`。
 
 ### 9.11 P1：CI 分层
 
@@ -1056,7 +1069,8 @@ Tier 约束：
 建议只预留数据出口：
 
 - 资产系统：读取 scatter/landmark kind，自行映射 prefab。
-- 导航系统：读取 traversability、slope、route waypoints，自行生成 navmesh/graph。
+- 导航系统：读取 traversability、slope、route waypoints 和 `SampleTraversalCost(...)`，自行生成 navmesh/graph。
+- 导航/AI 工具：读取 `TerrainMapLayer.TraversalCost` raster 或 `CreateTraversalCostGrid(...)`，检查局部成本和阻塞区域分布。
 - 存档系统：保存 seed、profile hash、plan JSON、玩家改造 delta。
 - 任务系统：读取 POI/route snapshot 或 gameplay anchor。
 - AI/遭遇系统：读取 encounter/hazard/resource/traversability field。
@@ -1136,7 +1150,7 @@ Tier 约束：
 - POI descriptor 数量等于 plan POI 数量。
 - route descriptor 数量等于 plan route 数量。
 - POI/route group 与必需 meta key 未漂移。
-- route descriptor waypoint 数组不泄露 plan 内部数组。
+- route descriptor waypoint 构造输入、`Waypoints` 快照和 `TerrainWorldRouteAnchor.Waypoints` 快照不泄露内部数组。
 
 验收标准：
 
@@ -1196,7 +1210,7 @@ public static class TerrainWorldPlanSerializer
 - Godot `Vector2` 已固定为 `{ "x": number, "z": number }`。
 - enum 已固定为 `{ "name": string, "value": int }`。
 - 已写入 API contract、API version、generator version、seed 和 profile hash。
-- 当前只支持当前版本读取，并拒绝不兼容版本。
+- 当前写入 API `1.1.0`，读取兼容同一 `terrain-api-v1` contract 下的 API `1.0.0` plan JSON，并拒绝不兼容 contract/version。
 - profile-aware 读取会拒绝 seed/profile hash mismatch。
 
 验收标准：
@@ -1215,6 +1229,7 @@ public static class TerrainWorldPlanSerializer
 - anchor contract smoke。
 - facade query smoke。
 - plan serialization smoke。
+- artifact smoke 中的 plan map、report、traversal cost map layer、raster 像素快照隔离和结构化 traversal cost grid。
 - `--validation-tier pr/nightly/release` 固定 CI 分层门槛。
 
 建议命令：
@@ -1281,17 +1296,18 @@ public partial class TerrainAssetMapping : Resource
 - 收紧 `TerrainWorldPlan`、`WorldPlan`、`TryGetWorldPlan(...)` 和 `SetWorldPlan(...)` 的复制/隔离契约，防止外部修改内部 plan 数组。
 - 增加 `TerrainWorld` 语义化查询扩展，并纳入 runtime API smoke。
 - 增加 `TerrainWorld` 运行时流送诊断快照，并纳入 runtime API smoke 的 `streaming pass`。
-- 增加 tile benchmark seed/profile/backend 身份输出和 P50/P95/P99 报告，并校准初始 average/alloc 回归阈值。
+- 增加 `TerrainMapLayer.TraversalCost` 导航成本图层和 `CreateTraversalCostGrid(...)` 机器可读网格，并纳入默认 artifact smoke，包括 raster 像素快照隔离、classifier 一致性和样本快照隔离检查。
+- 增加 tile benchmark seed/profile/backend 身份输出和 P50/P95/P99 报告，并校准初始 average/alloc/percentile 回归阈值。
 - 增加 .NET managed PR/nightly CI 分层，并在 GDExtension workflow 中接入 native parity、benchmark 和手动 release tier。
 
 ### P1：应尽快做
 
-- 将 tile benchmark P50/P95/P99 从记录项升级为目标硬件硬阈值。
+- 在目标硬件上重新校准 tile benchmark average、P50/P95/P99 和 allocation 阈值。
 
 ### P2：后续做
 
 - 资产映射资源。
-- 导航成本图导出。
+- 导航成本图的工具化、格式化和下游导航图导入流程。
 - 更多地图图层导出。
 - world origin / 大世界坐标策略。
 - tile 性能 benchmark 仪表盘。

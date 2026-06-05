@@ -23,7 +23,9 @@ public partial class TerrainWorldRouteAnchor : Node3D
     public float AverageScenicPotential { get; private set; }
     public float AverageTraversability { get; private set; }
     public Vector2 WorldMidpoint2D { get; private set; }
-    public Vector2[] Waypoints { get; private set; } = [];
+    private Vector2[] _waypoints = [];
+    public int WaypointCount => _waypoints.Length;
+    public Vector2[] Waypoints => ToWaypointArray();
 
     /// <summary>Configures this anchor from route plan data and places it at the midpoint.</summary>
     public void Configure(TerrainWorldRoute route, Vector3 worldPosition)
@@ -41,9 +43,7 @@ public partial class TerrainWorldRouteAnchor : Node3D
         Cost = descriptor.Cost;
         AverageScenicPotential = descriptor.AverageScenicPotential;
         AverageTraversability = descriptor.AverageTraversability;
-        Waypoints = descriptor.Waypoints.Length == 0
-            ? []
-            : (Vector2[])descriptor.Waypoints.Clone();
+        _waypoints = CreateWaypointSnapshot(descriptor);
         WorldMidpoint2D = descriptor.WorldMidpoint2D;
 
         Name = descriptor.Name;
@@ -55,5 +55,22 @@ public partial class TerrainWorldRouteAnchor : Node3D
         SetMeta(MetaKeyCost, Cost);
         SetMeta(MetaKeyScenic, AverageScenicPotential);
         SetMeta(MetaKeyTraversability, AverageTraversability);
+    }
+
+    public Vector2 GetWaypoint(int index)
+    {
+        return _waypoints[index];
+    }
+
+    public Vector2[] ToWaypointArray()
+    {
+        return _waypoints.Length == 0 ? [] : (Vector2[])_waypoints.Clone();
+    }
+
+    public static Vector2[] CreateWaypointSnapshot(TerrainWorldRouteAnchorDescriptor descriptor)
+    {
+        return descriptor.WaypointCount == 0
+            ? []
+            : descriptor.ToWaypointArray();
     }
 }
