@@ -24,7 +24,7 @@ public partial class TerrainWorldPlanOverlay : Node3D
     private TerrainWorldAnchorBuilder? _anchorBuilder;
     private TerrainWorldPlan? _plan;
 
-    public TerrainWorldPlan? Plan => _plan;
+    public TerrainWorldPlan? Plan => _plan is null ? null : TerrainWorldPlan.CopyOf(_plan);
 
     public override void _Ready()
     {
@@ -34,23 +34,23 @@ public partial class TerrainWorldPlanOverlay : Node3D
     /// <summary>Applies a world plan, rebuilding the overlay markers and route ribbons.</summary>
     public void ApplyPlan(TerrainWorldPlan plan, TerrainGenerationProfile profile)
     {
-        _plan = plan;
+        _plan = TerrainWorldPlan.CopyOf(plan);
 
         ClearRuntimeObjects();
 
         if (ShowRouteRibbons)
         {
-            BuildRouteRibbons(plan, profile);
+            BuildRouteRibbons(_plan, profile);
         }
 
         if (ShowPointMarkers)
         {
-            BuildPointMarkers(plan, profile);
+            BuildPointMarkers(_plan, profile);
         }
 
         if (BuildGameplayAnchors)
         {
-            BuildAnchors(plan, profile);
+            BuildAnchors(_plan, profile);
         }
     }
 

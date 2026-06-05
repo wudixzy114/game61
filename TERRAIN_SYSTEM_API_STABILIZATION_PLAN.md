@@ -397,10 +397,10 @@ namespace Dao.Terrain;
 public static class TerrainApiVersion
 {
     public const int Major = 1;
-    public const int Minor = 1;
+    public const int Minor = 2;
     public const int Patch = 0;
     public const string Contract = "terrain-api-v1";
-    public const string Version = "1.1.0";
+    public const string Version = "1.2.0";
 }
 ```
 
@@ -414,7 +414,7 @@ public static class TerrainApiVersion
 
 ```text
 Terrain API Contract: terrain-api-v1
-Terrain API Version: 1.1.0
+Terrain API Version: 1.2.0
 ```
 
 ## 8. 其他模块对接方案
@@ -656,7 +656,7 @@ public TerrainWorldRoute[] GetRoutes();
 - `TerrainWorldAnchorBuilder` 已新增，负责从 plan 生成 gameplay anchors。
 - `TerrainWorldPlanOverlay` 已改为复用 builder，debug marker/ribbon 与 anchor 生成逻辑不再写在同一段实现里。
 - `TerrainWorldAnchorContract` 已固定 `terrain_poi`、`terrain_route` group 和必需 meta key。
-- 默认验证已加入 `Terrain anchor contract smoke`，检查 group/meta 名称、anchor 节点常量、descriptor 数量、字段一致性、route descriptor waypoint 快照隔离和 route anchor 节点 waypoint 快照隔离。
+- 默认验证已加入 `Terrain anchor contract smoke`，检查 group/meta 名称、anchor 节点常量、descriptor 数量、字段一致性、route descriptor waypoint 快照隔离、route anchor 节点 waypoint 快照隔离、`TerrainWorldAnchorBuilder.Plan` 快照隔离和 `TerrainWorldPlanOverlay.Plan` 快照隔离。
 
 商业级要求：
 
@@ -705,7 +705,7 @@ public partial class TerrainWorldAnchorBuilder : Node3D
 - JSON 顶层已写入 plan/API/generator version、seed、profile hash、center、world size、grid resolution、regions、POI、routes 和 reports。
 - `Vector2` 已固定为 `{ "x": number, "z": number }`。
 - enum 已固定为 `{ "name": string, "value": int }`，读取时同时校验 name/value。
-- 当前导出写入 API `1.1.0`；读取兼容同一 `terrain-api-v1` contract 下的 API `1.0.0` plan JSON，因为该 minor 追加只扩展 runtime facade，不改变 plan schema。
+- 当前导出写入 API `1.2.0`；读取兼容同一 `terrain-api-v1` contract 下的 API `1.0.0`、`1.1.0` plan JSON，因为这些 minor 追加只扩展 runtime facade，不改变 plan schema。
 - 带 `expectedProfile` 的读取入口会拒绝 seed 或 profile hash 不匹配的 plan。
 - route waypoint roundtrip 后不会共享原 plan 内部数组。
 - 默认验证已加入 `Plan JSON roundtrip smoke`，覆盖 string/file roundtrip、metadata、seed/hash/version drift、enum drift 和隔离性。
@@ -722,7 +722,7 @@ JSON 顶层字段：
 {
   "contract": "terrain-plan-v1",
   "apiContract": "terrain-api-v1",
-  "apiVersion": "1.1.0",
+  "apiVersion": "1.2.0",
   "generatorVersion": "1.0.0",
   "seed": 613061,
   "profileHash": "stable-hash",
@@ -1151,6 +1151,8 @@ Tier 约束：
 - route descriptor 数量等于 plan route 数量。
 - POI/route group 与必需 meta key 未漂移。
 - route descriptor waypoint 构造输入、`Waypoints` 快照和 `TerrainWorldRouteAnchor.Waypoints` 快照不泄露内部数组。
+- `TerrainWorldAnchorBuilder.Plan` 返回隔离副本，不泄露 builder 内部 plan 数组或 route waypoint 数组。
+- `TerrainWorldPlanOverlay.Plan` 返回隔离副本，不泄露 debug overlay 内部 plan 数组或 route waypoint 数组。
 
 验收标准：
 
@@ -1210,7 +1212,7 @@ public static class TerrainWorldPlanSerializer
 - Godot `Vector2` 已固定为 `{ "x": number, "z": number }`。
 - enum 已固定为 `{ "name": string, "value": int }`。
 - 已写入 API contract、API version、generator version、seed 和 profile hash。
-- 当前写入 API `1.1.0`，读取兼容同一 `terrain-api-v1` contract 下的 API `1.0.0` plan JSON，并拒绝不兼容 contract/version。
+- 当前写入 API `1.2.0`，读取兼容同一 `terrain-api-v1` contract 下的 API `1.0.0`、`1.1.0` plan JSON，并拒绝不兼容 contract/version。
 - profile-aware 读取会拒绝 seed/profile hash mismatch。
 
 验收标准：

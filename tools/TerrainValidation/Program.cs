@@ -2072,7 +2072,8 @@ static TerrainPlanJsonSmokeReport ValidateTerrainPlanJsonRoundtrip(
             profile with { ChunkSize = profile.ChunkSize + 1.0f },
             out _,
             out _);
-        bool legacyApiVersionAccepted = AcceptsLegacyApiVersion(json, profile);
+        bool legacyApiVersionAccepted = AcceptsCompatibleApiVersion(json, profile, "1.0.0");
+        bool previousApiVersionAccepted = AcceptsCompatibleApiVersion(json, profile, "1.1.0");
         bool versionDriftRejected = RejectsVersionDrift(json, profile);
         bool enumNameDriftRejected = RejectsEnumNameDrift(json, profile);
         bool enumValueDriftRejected = RejectsEnumValueDrift(json, profile);
@@ -2088,6 +2089,7 @@ static TerrainPlanJsonSmokeReport ValidateTerrainPlanJsonRoundtrip(
             seedMismatchRejected &&
             profileHashMismatchRejected &&
             legacyApiVersionAccepted &&
+            previousApiVersionAccepted &&
             versionDriftRejected &&
             enumNameDriftRejected &&
             enumValueDriftRejected;
@@ -2104,6 +2106,7 @@ static TerrainPlanJsonSmokeReport ValidateTerrainPlanJsonRoundtrip(
                 seedMismatchRejected,
                 profileHashMismatchRejected,
                 legacyApiVersionAccepted,
+                previousApiVersionAccepted,
                 versionDriftRejected,
                 enumNameDriftRejected,
                 enumValueDriftRejected,
@@ -2121,6 +2124,7 @@ static TerrainPlanJsonSmokeReport ValidateTerrainPlanJsonRoundtrip(
             seedMismatchRejected,
             profileHashMismatchRejected,
             legacyApiVersionAccepted,
+            previousApiVersionAccepted,
             versionDriftRejected,
             enumNameDriftRejected,
             enumValueDriftRejected,
@@ -2133,6 +2137,7 @@ static TerrainPlanJsonSmokeReport ValidateTerrainPlanJsonRoundtrip(
     catch (Exception ex)
     {
         return new TerrainPlanJsonSmokeReport(
+            false,
             false,
             false,
             false,
@@ -2235,7 +2240,10 @@ static bool RejectsVersionDrift(string json, TerrainGenerationProfile profile)
         RejectsStringPropertyDrift(json, profile, "generatorVersion", "99.0.0");
 }
 
-static bool AcceptsLegacyApiVersion(string json, TerrainGenerationProfile profile)
+static bool AcceptsCompatibleApiVersion(
+    string json,
+    TerrainGenerationProfile profile,
+    string apiVersion)
 {
     JsonObject? root = JsonNode.Parse(json) as JsonObject;
     if (root is null || root["apiVersion"] is null)
@@ -2243,7 +2251,7 @@ static bool AcceptsLegacyApiVersion(string json, TerrainGenerationProfile profil
         return false;
     }
 
-    root["apiVersion"] = "1.0.0";
+    root["apiVersion"] = apiVersion;
     return TerrainWorldPlanSerializer.TryFromJson(root.ToJsonString(), profile, out TerrainWorldPlan? plan, out _) &&
         plan is not null;
 }
@@ -2489,6 +2497,7 @@ static string PlanJsonFailureReason(
     bool seedMismatchRejected,
     bool profileHashMismatchRejected,
     bool legacyApiVersionAccepted,
+    bool previousApiVersionAccepted,
     bool versionDriftRejected,
     bool enumNameDriftRejected,
     bool enumValueDriftRejected,
@@ -2546,6 +2555,11 @@ static string PlanJsonFailureReason(
         return "plan JSON rejected a compatible terrain-api-v1 1.0.0 plan";
     }
 
+    if (!previousApiVersionAccepted)
+    {
+        return "plan JSON rejected a compatible terrain-api-v1 1.1.0 plan";
+    }
+
     if (!versionDriftRejected)
     {
         return "plan JSON accepted an incompatible contract or version drift";
@@ -2571,7 +2585,7 @@ static void PrintPlanJsonSmoke(TerrainPlanJsonSmokeReport report)
         $"json {report.JsonBytes / 1024.0:0.0} KB, file {report.FileBytes / 1024.0:0.0} KB, " +
         $"metadata {(report.MetadataPassed ? "pass" : "fail")}, " +
         $"string/file {(report.StringLoadPassed && report.StringRoundtripMatches ? "pass" : "fail")}/{(report.FileLoadPassed && report.FileRoundtripMatches ? "pass" : "fail")}, " +
-        $"compat legacy-api {(report.LegacyApiVersionAccepted ? "pass" : "fail")}, " +
+        $"compat api 1.0/1.1 {(report.LegacyApiVersionAccepted ? "pass" : "fail")}/{(report.PreviousApiVersionAccepted ? "pass" : "fail")}, " +
         $"drift seed/hash/version/enum {(report.SeedMismatchRejected ? "pass" : "fail")}/{(report.ProfileHashMismatchRejected ? "pass" : "fail")}/{(report.VersionDriftRejected ? "pass" : "fail")}/{(report.EnumNameDriftRejected && report.EnumValueDriftRejected ? "pass" : "fail")}, " +
         $"isolation/runtime {(report.RoundtripIsolationPassed ? "pass" : "fail")}/{(report.SetWorldPlanPassed ? "pass" : "fail")} ({report.Reason})");
 }
@@ -2957,10 +2971,10 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
                 expectedQueuedCoords: [new TerrainTileCoord(-4, -3), new TerrainTileCoord(8, -2)]);
         bool apiVersionPassed =
             TerrainApiVersion.Major == 1 &&
-            TerrainApiVersion.Minor == 1 &&
+            TerrainApiVersion.Minor == 2 &&
             TerrainApiVersion.Patch == 0 &&
             string.Equals(TerrainApiVersion.Contract, "terrain-api-v1", StringComparison.Ordinal) &&
-            string.Equals(TerrainApiVersion.Version, "1.1.0", StringComparison.Ordinal);
+            string.Equals(TerrainApiVersion.Version, "1.2.0", StringComparison.Ordinal);
         bool determinismContractPassed =
             string.Equals(TerrainDeterminismContract.Contract, "terrain-determinism-v1", StringComparison.Ordinal) &&
             ExactFloatEquals(TerrainDeterminismContract.HeightEpsilon, 0.05f) &&
@@ -3557,9 +3571,170 @@ static bool StreamingSnapshotValuesMatch(
         snapshot.StreamTerrainBeforeOpenWorldPlanReady &&
         snapshot.TileCacheWithinLimit &&
         snapshot.TileJobQueueWithinLimit &&
+        !snapshot.CanStreamTerrain &&
+        !snapshot.FocusTileLoaded &&
+        !snapshot.DesiredChunksLoaded &&
+        !snapshot.FocusAreaReady &&
+        StreamingReadinessContractMatches(profile) &&
         TileCoordsMatch(snapshot.DesiredChunks, expectedDesiredCoords) &&
         TileCoordsMatch(snapshot.LoadedChunks, expectedLoadedCoords) &&
         TileCoordsMatch(snapshot.QueuedTileJobs, expectedQueuedCoords);
+}
+
+static bool StreamingReadinessContractMatches(TerrainGenerationProfile profile)
+{
+    TerrainTileCoord focusCoord = new(4, -2);
+    TerrainTileCoord neighborCoord = new(5, -2);
+    Vector3 focusPosition = new(
+        focusCoord.X * profile.ChunkSize + profile.ChunkSize * 0.5f,
+        0.0f,
+        focusCoord.Z * profile.ChunkSize + profile.ChunkSize * 0.5f);
+    TerrainTileCoord[] desired = [focusCoord, neighborCoord];
+    TerrainTileCoord[] loaded = [focusCoord, neighborCoord];
+
+    TerrainWorldStreamingSnapshot waitingForPlan = CreateStreamingReadinessSnapshot(
+        profile,
+        hasFocus: true,
+        focusPosition,
+        focusCoord,
+        desired,
+        loaded,
+        queuedJobs: [],
+        retiredJobCount: 0,
+        tileCacheCount: 0,
+        hasWorldPlan: false,
+        isWorldPlanGenerationPending: true,
+        streamTerrainBeforeOpenWorldPlanReady: false);
+    if (waitingForPlan.CanStreamTerrain || waitingForPlan.FocusAreaReady)
+    {
+        return false;
+    }
+
+    TerrainWorldStreamingSnapshot queued = CreateStreamingReadinessSnapshot(
+        profile,
+        hasFocus: true,
+        focusPosition,
+        focusCoord,
+        desired,
+        loaded,
+        queuedJobs: [neighborCoord],
+        retiredJobCount: 0,
+        tileCacheCount: 1,
+        hasWorldPlan: true,
+        isWorldPlanGenerationPending: false,
+        streamTerrainBeforeOpenWorldPlanReady: false);
+    if (!queued.CanStreamTerrain ||
+        !queued.FocusTileLoaded ||
+        !queued.DesiredChunksLoaded ||
+        queued.FocusAreaReady)
+    {
+        return false;
+    }
+
+    TerrainWorldStreamingSnapshot ready = CreateStreamingReadinessSnapshot(
+        profile,
+        hasFocus: true,
+        focusPosition,
+        focusCoord,
+        desired,
+        loaded,
+        queuedJobs: [],
+        retiredJobCount: 0,
+        tileCacheCount: 1,
+        hasWorldPlan: true,
+        isWorldPlanGenerationPending: false,
+        streamTerrainBeforeOpenWorldPlanReady: false);
+    if (!ready.CanStreamTerrain ||
+        !ready.FocusTileLoaded ||
+        !ready.DesiredChunksLoaded ||
+        !ready.FocusAreaReady)
+    {
+        return false;
+    }
+
+    TerrainWorldStreamingSnapshot missingFocusTile = CreateStreamingReadinessSnapshot(
+        profile,
+        hasFocus: true,
+        focusPosition,
+        focusCoord,
+        desired,
+        loaded: [neighborCoord],
+        queuedJobs: [],
+        retiredJobCount: 0,
+        tileCacheCount: 1,
+        hasWorldPlan: true,
+        isWorldPlanGenerationPending: false,
+        streamTerrainBeforeOpenWorldPlanReady: false);
+    if (missingFocusTile.FocusTileLoaded ||
+        missingFocusTile.DesiredChunksLoaded ||
+        missingFocusTile.FocusAreaReady)
+    {
+        return false;
+    }
+
+    TerrainWorldStreamingSnapshot overBudget = CreateStreamingReadinessSnapshot(
+        profile,
+        hasFocus: true,
+        focusPosition,
+        focusCoord,
+        desired,
+        loaded,
+        queuedJobs: CreateTileCoordArray(Mathf.Max(0, profile.MaxQueuedTileJobs) + 1, focusCoord),
+        retiredJobCount: 0,
+        tileCacheCount: Mathf.Max(0, profile.MaxCachedTileData) + 1,
+        hasWorldPlan: true,
+        isWorldPlanGenerationPending: false,
+        streamTerrainBeforeOpenWorldPlanReady: false);
+    return !overBudget.TileJobQueueWithinLimit &&
+        !overBudget.CanStreamTerrain &&
+        !overBudget.FocusAreaReady;
+}
+
+static TerrainTileCoord[] CreateTileCoordArray(int count, TerrainTileCoord start)
+{
+    var coords = new TerrainTileCoord[count];
+    for (int i = 0; i < coords.Length; i++)
+    {
+        coords[i] = new TerrainTileCoord(start.X + i, start.Z);
+    }
+
+    return coords;
+}
+
+static TerrainWorldStreamingSnapshot CreateStreamingReadinessSnapshot(
+    TerrainGenerationProfile profile,
+    bool hasFocus,
+    Vector3 focusPosition,
+    TerrainTileCoord focusCoord,
+    TerrainTileCoord[] desired,
+    TerrainTileCoord[] loaded,
+    TerrainTileCoord[] queuedJobs,
+    int retiredJobCount,
+    int tileCacheCount,
+    bool hasWorldPlan,
+    bool isWorldPlanGenerationPending,
+    bool streamTerrainBeforeOpenWorldPlanReady)
+{
+    return new TerrainWorldStreamingSnapshot(
+        profile,
+        hasFocus,
+        focusPosition,
+        focusCoord,
+        profile.StreamRadiusChunks,
+        desired.Length,
+        desired,
+        loaded.Length,
+        loaded,
+        queuedJobs.Length,
+        queuedJobs,
+        retiredJobCount,
+        tileCacheCount,
+        Mathf.Max(0, profile.MaxCachedTileData),
+        profile.MaxQueuedTileJobs,
+        profile.MaxCompletedTilesPerFrame,
+        hasWorldPlan,
+        isWorldPlanGenerationPending,
+        streamTerrainBeforeOpenWorldPlanReady);
 }
 
 static bool TileCoordsMatch(TerrainTileCoord[] actual, TerrainTileCoord[] expected)
@@ -3799,7 +3974,7 @@ static string RuntimeApiFailureReason(
 
     if (!apiVersionPassed)
     {
-        return "TerrainApiVersion constants did not match terrain-api-v1 version 1.1.0";
+        return "TerrainApiVersion constants did not match terrain-api-v1 version 1.2.0";
     }
 
     if (!determinismContractPassed)
@@ -3920,6 +4095,8 @@ static TerrainAnchorContractSmokeReport ValidateTerrainAnchorContract(
         bool routeGroupMetaPassed = routeCountPassed && RouteDescriptorsHaveRequiredContract(routes, plan);
         bool descriptorRebuildPassed = ValidateAnchorDescriptorRebuild(plan, points, routes);
         bool routeWaypointSnapshotPassed = RouteDescriptorWaypointsAreIsolated(routes, plan);
+        bool builderPlanSnapshotPassed = AnchorBuilderPlanSnapshotIsolated(plan);
+        bool overlayPlanSnapshotPassed = PlanOverlaySnapshotIsolated(plan);
 
         bool passed =
             poiContractNamesPassed &&
@@ -3930,7 +4107,9 @@ static TerrainAnchorContractSmokeReport ValidateTerrainAnchorContract(
             poiGroupMetaPassed &&
             routeGroupMetaPassed &&
             routeWaypointSnapshotPassed &&
-            descriptorRebuildPassed;
+            descriptorRebuildPassed &&
+            builderPlanSnapshotPassed &&
+            overlayPlanSnapshotPassed;
         string reason = passed
             ? "anchor descriptors expose stable gameplay anchor group/meta contracts without requiring debug overlay nodes"
             : AnchorContractFailureReason(
@@ -3943,6 +4122,8 @@ static TerrainAnchorContractSmokeReport ValidateTerrainAnchorContract(
                 routeGroupMetaPassed,
                 routeWaypointSnapshotPassed,
                 descriptorRebuildPassed,
+                builderPlanSnapshotPassed,
+                overlayPlanSnapshotPassed,
                 points.Length,
                 plan.PointsOfInterest.Length,
                 routes.Length,
@@ -3958,6 +4139,8 @@ static TerrainAnchorContractSmokeReport ValidateTerrainAnchorContract(
             routeContractNamesPassed,
             routeWaypointSnapshotPassed,
             descriptorRebuildPassed,
+            builderPlanSnapshotPassed,
+            overlayPlanSnapshotPassed,
             anchorNodeConstantsPassed,
             points.Length,
             routes.Length,
@@ -3966,6 +4149,8 @@ static TerrainAnchorContractSmokeReport ValidateTerrainAnchorContract(
     catch (Exception ex)
     {
         return new TerrainAnchorContractSmokeReport(
+            false,
+            false,
             false,
             false,
             false,
@@ -4183,6 +4368,113 @@ static bool ValidateAnchorDescriptorRebuild(
     return true;
 }
 
+static bool AnchorBuilderPlanSnapshotIsolated(TerrainWorldPlan plan)
+{
+    TerrainWorldPlan assignedPlan = TerrainWorldPlan.CopyOf(plan);
+    var builder = (TerrainWorldAnchorBuilder)RuntimeHelpers.GetUninitializedObject(typeof(TerrainWorldAnchorBuilder));
+    SetPrivateField(builder, "_plan", TerrainWorldPlan.CopyOf(assignedPlan));
+    return PlanSnapshotIsolated(plan, assignedPlan, builder.Plan, () => builder.Plan);
+}
+
+static bool PlanOverlaySnapshotIsolated(TerrainWorldPlan plan)
+{
+    TerrainWorldPlan assignedPlan = TerrainWorldPlan.CopyOf(plan);
+    var overlay = (TerrainWorldPlanOverlay)RuntimeHelpers.GetUninitializedObject(typeof(TerrainWorldPlanOverlay));
+    SetPrivateField(overlay, "_plan", TerrainWorldPlan.CopyOf(assignedPlan));
+    return PlanSnapshotIsolated(plan, assignedPlan, overlay.Plan, () => overlay.Plan);
+}
+
+static bool PlanSnapshotIsolated(
+    TerrainWorldPlan plan,
+    TerrainWorldPlan assignedPlan,
+    TerrainWorldPlan? snapshot,
+    Func<TerrainWorldPlan?> readSnapshot)
+{
+    if (snapshot is null ||
+        ReferenceEquals(snapshot, assignedPlan) ||
+        snapshot.PointsOfInterest.Length != plan.PointsOfInterest.Length ||
+        snapshot.Routes.Length != plan.Routes.Length ||
+        snapshot.Regions.Length != plan.Regions.Length)
+    {
+        return false;
+    }
+
+    TerrainWorldRegion? originalRegion = plan.Regions.Length == 0 ? null : plan.Regions[0];
+    TerrainWorldPointOfInterest? originalPoint = plan.PointsOfInterest.Length == 0 ? null : plan.PointsOfInterest[0];
+    TerrainWorldRoute? originalRoute = plan.Routes.Length == 0 ? null : plan.Routes[0];
+    Vector2? originalWaypoint = originalRoute?.Waypoints.Length > 0 ? originalRoute.Value.Waypoints[0] : null;
+
+    if (snapshot.Regions.Length > 0)
+    {
+        snapshot.Regions[0] = snapshot.Regions[0] with { Height = snapshot.Regions[0].Height + 54321.0f };
+    }
+
+    if (snapshot.PointsOfInterest.Length > 0)
+    {
+        snapshot.PointsOfInterest[0] = snapshot.PointsOfInterest[0] with { Id = snapshot.PointsOfInterest[0].Id + 100000 };
+    }
+
+    if (snapshot.Routes.Length > 0)
+    {
+        if (snapshot.Routes[0].Waypoints.Length > 0)
+        {
+            snapshot.Routes[0].Waypoints[0] += new Vector2(1111.0f, -1111.0f);
+        }
+
+        snapshot.Routes[0] = snapshot.Routes[0] with { FromPointId = snapshot.Routes[0].FromPointId + 100000 };
+    }
+
+    if (assignedPlan.Regions.Length > 0)
+    {
+        assignedPlan.Regions[0] = assignedPlan.Regions[0] with { Height = assignedPlan.Regions[0].Height - 43210.0f };
+    }
+
+    if (assignedPlan.PointsOfInterest.Length > 0)
+    {
+        assignedPlan.PointsOfInterest[0] = assignedPlan.PointsOfInterest[0] with { Id = assignedPlan.PointsOfInterest[0].Id - 100000 };
+    }
+
+    if (assignedPlan.Routes.Length > 0)
+    {
+        if (assignedPlan.Routes[0].Waypoints.Length > 0)
+        {
+            assignedPlan.Routes[0].Waypoints[0] += new Vector2(-2222.0f, 2222.0f);
+        }
+
+        assignedPlan.Routes[0] = assignedPlan.Routes[0] with { ToPointId = assignedPlan.Routes[0].ToPointId - 100000 };
+    }
+
+    TerrainWorldPlan? secondSnapshot = readSnapshot();
+    if (secondSnapshot is null ||
+        secondSnapshot.PointsOfInterest.Length != plan.PointsOfInterest.Length ||
+        secondSnapshot.Routes.Length != plan.Routes.Length ||
+        secondSnapshot.Regions.Length != plan.Regions.Length)
+    {
+        return false;
+    }
+
+    bool regionIsolated = originalRegion is null ||
+        (secondSnapshot.Regions.Length > 0 &&
+            secondSnapshot.Regions[0].GridX == originalRegion.Value.GridX &&
+            secondSnapshot.Regions[0].GridY == originalRegion.Value.GridY &&
+            ExactFloatEquals(secondSnapshot.Regions[0].Height, originalRegion.Value.Height));
+    bool pointIsolated = originalPoint is null ||
+        (secondSnapshot.PointsOfInterest.Length > 0 &&
+            secondSnapshot.PointsOfInterest[0].Id == originalPoint.Value.Id &&
+            secondSnapshot.PointsOfInterest[0].Kind == originalPoint.Value.Kind);
+    bool routeIsolated = originalRoute is null ||
+        (secondSnapshot.Routes.Length > 0 &&
+            secondSnapshot.Routes[0].FromPointId == originalRoute.Value.FromPointId &&
+            secondSnapshot.Routes[0].ToPointId == originalRoute.Value.ToPointId &&
+            secondSnapshot.Routes[0].Waypoints.Length == originalRoute.Value.Waypoints.Length);
+    bool waypointIsolated = originalWaypoint is null ||
+        (secondSnapshot.Routes.Length > 0 &&
+            secondSnapshot.Routes[0].Waypoints.Length > 0 &&
+            ExactPositionEquals(secondSnapshot.Routes[0].Waypoints[0], originalWaypoint.Value));
+
+    return regionIsolated && pointIsolated && routeIsolated && waypointIsolated;
+}
+
 static bool RoutesMatch(TerrainWorldRouteAnchorDescriptor a, TerrainWorldRouteAnchorDescriptor b)
 {
     if (a.FromPointId != b.FromPointId ||
@@ -4216,6 +4508,8 @@ static string AnchorContractFailureReason(
     bool routeGroupMetaPassed,
     bool routeWaypointSnapshotPassed,
     bool descriptorRebuildPassed,
+    bool builderPlanSnapshotPassed,
+    bool overlayPlanSnapshotPassed,
     int pointCount,
     int expectedPointCount,
     int routeCount,
@@ -4261,6 +4555,16 @@ static string AnchorContractFailureReason(
         return "anchor descriptors were not stable across repeated construction";
     }
 
+    if (!builderPlanSnapshotPassed)
+    {
+        return "TerrainWorldAnchorBuilder.Plan exposed mutable plan array state";
+    }
+
+    if (!overlayPlanSnapshotPassed)
+    {
+        return "TerrainWorldPlanOverlay.Plan exposed mutable plan array state";
+    }
+
     return "terrain anchor contract failed";
 }
 
@@ -4272,7 +4576,7 @@ static void PrintAnchorContractSmoke(TerrainAnchorContractSmokeReport report)
         $"counts {(report.PointCountPassed ? "pass" : "fail")}/{(report.RouteCountPassed ? "pass" : "fail")}, " +
         $"groups/meta {(report.PoiGroupMetaPassed ? "pass" : "fail")}/{(report.RouteGroupMetaPassed ? "pass" : "fail")}, " +
         $"names {(report.PoiContractNamesPassed ? "pass" : "fail")}/{(report.RouteContractNamesPassed ? "pass" : "fail")}, " +
-        $"waypoints/rebuild/constants {(report.RouteWaypointSnapshotPassed ? "pass" : "fail")}/{(report.DescriptorRebuildPassed ? "pass" : "fail")}/{(report.AnchorNodeConstantsPassed ? "pass" : "fail")} " +
+        $"waypoints/rebuild/builder/overlay/constants {(report.RouteWaypointSnapshotPassed ? "pass" : "fail")}/{(report.DescriptorRebuildPassed ? "pass" : "fail")}/{(report.BuilderPlanSnapshotPassed ? "pass" : "fail")}/{(report.OverlayPlanSnapshotPassed ? "pass" : "fail")}/{(report.AnchorNodeConstantsPassed ? "pass" : "fail")} " +
         $"({report.Reason})");
 }
 
@@ -6271,6 +6575,7 @@ internal readonly record struct TerrainPlanJsonSmokeReport(
     bool SeedMismatchRejected,
     bool ProfileHashMismatchRejected,
     bool LegacyApiVersionAccepted,
+    bool PreviousApiVersionAccepted,
     bool VersionDriftRejected,
     bool EnumNameDriftRejected,
     bool EnumValueDriftRejected,
@@ -6327,6 +6632,8 @@ internal readonly record struct TerrainAnchorContractSmokeReport(
     bool RouteContractNamesPassed,
     bool RouteWaypointSnapshotPassed,
     bool DescriptorRebuildPassed,
+    bool BuilderPlanSnapshotPassed,
+    bool OverlayPlanSnapshotPassed,
     bool AnchorNodeConstantsPassed,
     int PointAnchorCount,
     int RouteAnchorCount,

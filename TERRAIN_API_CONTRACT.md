@@ -249,8 +249,8 @@ bool loaded = TerrainWorldPlanSerializer.TryFromJson(planJson, profile, out Terr
 ### `TerrainApiVersion`
 
 - `TerrainApiVersion.Contract` 当前固定为 `terrain-api-v1`。
-- `TerrainApiVersion.Version` 当前固定为 `1.1.0`。
-- `Major/Minor/Patch` 当前为 `1/1/0`。
+- `TerrainApiVersion.Version` 当前固定为 `1.2.0`。
+- `Major/Minor/Patch` 当前为 `1/2/0`。
 - plan 文本报告必须输出 API contract/version、plan contract、generator version、determinism contract 和 profile hash。
 - 破坏性 API 变更必须提升 major 版本，并同步更新本契约和验证工具。
 
@@ -276,7 +276,7 @@ bool loaded = TerrainWorldPlanSerializer.TryFromJson(planJson, profile, out Terr
 - `TerrainWorldPlanSerializer.Contract` 当前固定为 `terrain-plan-v1`。
 - `TerrainWorldPlanSerializer.GeneratorVersion` 当前固定为 `1.0.0`。
 - `ToJson(plan, profile)` 输出当前 plan 的稳定 JSON schema。
-- `TryFromJson(json, out plan, out error)` 只接受当前 plan/API contract 和 generator 版本；`terrain-api-v1` 的 plan JSON 兼容读取 API `1.0.0` 和当前 `1.1.0`。
+- `TryFromJson(json, out plan, out error)` 只接受当前 plan/API contract 和 generator 版本；`terrain-api-v1` 的 plan JSON 兼容读取 API `1.0.0`、`1.1.0` 和当前 `1.2.0`。
 - `TryFromJson(json, expectedProfile, out plan, out error)` 还会检查 seed 和 profile hash。
 - `SaveJson(...)` 和 `TryLoadJson(...)` 使用同一 schema。
 - `Vector2` 固定序列化为 `{ "x": number, "z": number }`，避免 XZ/XY 混淆。
@@ -303,7 +303,7 @@ bool loaded = TerrainWorldPlanSerializer.TryFromJson(planJson, profile, out Terr
 - `TerrainWorldPointOfInterestAnchor` 和 `TerrainWorldRouteAnchor` 的公开常量必须与 `TerrainWorldAnchorContract` 保持一致。
 - route anchor descriptor 和 `TerrainWorldRouteAnchor` 不得泄露 route waypoint 内部可变数组；`Waypoints` 返回快照，稳定读取优先使用 `WaypointCount`、`GetWaypoint(...)` 和 `ToWaypointArray()`。
 - plan JSON 必须写入 `contract`、`apiContract`、`apiVersion`、`generatorVersion`、`seed`、`profileHash`。
-- plan JSON 当前只读取 `terrain-plan-v1` / `terrain-api-v1` / API `1.0.0` 或 `1.1.0` / generator `1.0.0`；不兼容 contract 或 version 必须返回明确错误。
+- plan JSON 当前只读取 `terrain-plan-v1` / `terrain-api-v1` / API `1.0.0`、`1.1.0` 或 `1.2.0` / generator `1.0.0`；不兼容 contract 或 version 必须返回明确错误。
 - plan JSON enum name/value 不得漂移。
 
 ## 5. 验证命令
@@ -345,7 +345,7 @@ Terrain anchor contract smoke: PASS
 - `SampleField` 与底层 sampler 一致。
 - `SampleSurface` 与底层 sampler 一致。
 - `SurfacePositionAt` 坐标轴正确。
-- `TerrainApiVersion` 为 `terrain-api-v1` / `1.1.0`。
+- `TerrainApiVersion` 为 `terrain-api-v1` / `1.2.0`。
 - `TerrainDeterminismContract` 为 `terrain-determinism-v1`，关键 epsilon 未漂移。
 - plan 空态返回 false 和空集合。
 - plan 就绪态返回 POI/route 数量正确。
@@ -358,7 +358,7 @@ Terrain anchor contract smoke: PASS
 - `SampleTraversalCost` 与共享地形语义分类器一致，且只表达局部通行成本，不执行寻路。
 - `TerrainMapLayer.TraversalCost` 导出 traversal cost raster，且 artifact smoke 检查图层有颜色变化、阻塞区域表达和 raster 像素快照隔离。
 - `CreateTraversalCostGrid` 导出机器可读 traversal cost grid，且 artifact smoke 抽样验证 grid 与共享 classifier 一致并验证样本快照隔离。
-- `GetStreamingSnapshot` 返回稳定、隔离的流送诊断快照，且 cache/job 上限判断未漂移。
+- `GetStreamingSnapshot` 返回稳定、隔离的流送诊断快照，且 cache/job 上限判断和焦点区域 readiness 判断未漂移。
 - POI 数组、route 数组和 route waypoint 数组不会泄露内部可变状态。
 - `TerrainWorldPlanSnapshot` 的 region、POI、route 和 route waypoint 数组不会泄露内部可变状态。
 - 导出的 open world plan report 包含 API contract/version、plan contract、generator version、determinism contract 和 profile hash。
@@ -381,6 +381,8 @@ anchor contract smoke 覆盖：
 - POI/route descriptor 数量与 plan 一致。
 - POI/route descriptor 的 group、name、archetype、route 字段与 plan 一致。
 - route descriptor 的 waypoint 构造输入、`Waypoints` 快照和 `TerrainWorldRouteAnchor.Waypoints` 快照不会泄露内部可变状态。
+- `TerrainWorldAnchorBuilder.Plan` 返回隔离副本，调用方修改返回 plan、数组、route 或 waypoint 不会改变 builder 内部状态。
+- `TerrainWorldPlanOverlay.Plan` 返回隔离副本，debug overlay 不暴露内部 plan 数组或 route waypoint 数组。
 - descriptor 可重复构建且结果稳定。
 
 如需要临时跳过该检查，可使用：

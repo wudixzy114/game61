@@ -12,7 +12,8 @@ public partial class TerrainWorldAnchorBuilder : Node3D
     [Export] public NodePath TerrainWorldPath { get; set; } = new();
     [Export(PropertyHint.Range, "0,80,1")] public float AnchorHeightOffset { get; set; } = 3.0f;
 
-    public TerrainWorldPlan? Plan { get; private set; }
+    private TerrainWorldPlan? _plan;
+    public TerrainWorldPlan? Plan => _plan is null ? null : TerrainWorldPlan.CopyOf(_plan);
 
     public override void _Ready()
     {
@@ -36,15 +37,15 @@ public partial class TerrainWorldAnchorBuilder : Node3D
     public void ApplyPlan(TerrainWorldPlan plan, TerrainGenerationProfile profile)
     {
         ClearAnchors();
-        Plan = plan;
-        BuildPointOfInterestAnchors(plan, profile);
-        BuildRouteAnchors(plan, profile);
+        _plan = TerrainWorldPlan.CopyOf(plan);
+        BuildPointOfInterestAnchors(_plan, profile);
+        BuildRouteAnchors(_plan, profile);
     }
 
     /// <summary>Removes all previously generated gameplay anchors and clears the assigned plan.</summary>
     public void ClearAnchors()
     {
-        Plan = null;
+        _plan = null;
         foreach (Node child in GetChildren())
         {
             RemoveChild(child);
