@@ -3029,7 +3029,8 @@ static TerrainPublicApiShapeSmokeReport ValidateTerrainPublicApiShapeContracts()
                     ("MaxQueuedTileJobs", typeof(int)),
                     ("MaxCachedTileData", typeof(int)),
                     ("GenerateCollision", typeof(bool)),
-                    ("UseNativeSamplerWhenAvailable", typeof(bool))
+                    ("UseNativeSamplerWhenAvailable", typeof(bool)),
+                    ("ScenicLandmarkRuleSetHash", typeof(string))
                 ],
                 ref checkedTypeCount,
                 ref checkedMemberCount,
@@ -3134,6 +3135,83 @@ static TerrainPublicApiShapeSmokeReport ValidateTerrainPublicApiShapeContracts()
                     ("AverageScenicPotential", typeof(float)),
                     ("AverageTraversability", typeof(float)),
                     ("Waypoints", typeof(Vector2[]))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicShape<TerrainWorldSettingsResource>(
+                [
+                    ("Seed", typeof(int)),
+                    ("ChunkSize", typeof(float)),
+                    ("BaseResolution", typeof(int))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicShape<TerrainShapeSettingsResource>(
+                [
+                    ("HeightScale", typeof(float)),
+                    ("SeaLevel", typeof(float)),
+                    ("ContinentScale", typeof(float)),
+                    ("MountainScale", typeof(float)),
+                    ("MountainWeight", typeof(float)),
+                    ("ValleyWeight", typeof(float)),
+                    ("DetailWeight", typeof(float))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicShape<TerrainGameplaySettingsResource>(
+                [
+                    ("VistaFrequency", typeof(float)),
+                    ("RiverStrength", typeof(float)),
+                    ("RiverCarveDepth", typeof(float)),
+                    ("TerraceStrength", typeof(float))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicShape<TerrainStreamingSettingsResource>(
+                [
+                    ("StreamRadiusChunks", typeof(int)),
+                    ("CollisionRadiusChunks", typeof(int)),
+                    ("MaxLod", typeof(int)),
+                    ("MaxCompletedTilesPerFrame", typeof(int)),
+                    ("MaxQueuedTileJobs", typeof(int)),
+                    ("MaxCachedTileData", typeof(int)),
+                    ("GenerateCollision", typeof(bool)),
+                    ("UseNativeSamplerWhenAvailable", typeof(bool))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicShape<TerrainRenderingSettingsResource>(
+                [
+                    ("SkirtDepth", typeof(float))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicShape<TerrainNaturalLandmarkRuleResource>(
+                [
+                    ("Threshold", typeof(float)),
+                    ("BaseScale", typeof(float)),
+                    ("ScoreScale", typeof(float)),
+                    ("BaseColor", typeof(Color))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicShape<TerrainScenicLandmarkRuleSet>(
+                [
+                    ("Waterfall", typeof(TerrainNaturalLandmarkRuleResource)),
+                    ("DuneCrest", typeof(TerrainNaturalLandmarkRuleResource)),
+                    ("DesertMonolith", typeof(TerrainNaturalLandmarkRuleResource)),
+                    ("CanyonNeedle", typeof(TerrainNaturalLandmarkRuleResource)),
+                    ("IceSpire", typeof(TerrainNaturalLandmarkRuleResource)),
+                    ("NaturalArch", typeof(TerrainNaturalLandmarkRuleResource)),
+                    ("GeothermalSpring", typeof(TerrainNaturalLandmarkRuleResource)),
+                    ("GlacialRidge", typeof(TerrainNaturalLandmarkRuleResource))
                 ],
                 ref checkedTypeCount,
                 ref checkedMemberCount,
@@ -3650,6 +3728,14 @@ static TerrainPublicApiShapeSmokeReport ValidateTerrainPublicApiShapeContracts()
                 ref checkedTypeCount,
                 ref checkedMemberCount,
                 out failureReason) &&
+            CheckPublicMethods(
+                typeof(TerrainScenicLandmarkRuleSet),
+                [
+                    new("StableHash", false, typeof(string), [])
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
             CheckPublicStaticFields(
                 typeof(TerrainApiVersion),
                 [
@@ -4117,9 +4203,11 @@ static bool CheckExportedTerrainTypes(out string? failureReason)
         "Dao.Terrain.ITerrainQueryService",
         "Dao.Terrain.ITerrainStreamingDiagnostics",
         "Dao.Terrain.TerrainGameplaySettingsResource",
+        "Dao.Terrain.TerrainNaturalLandmarkRuleResource",
         "Dao.Terrain.Rendering.TerrainMaterialFactory",
         "Dao.Terrain.Rendering.TerrainMeshBuilder",
         "Dao.Terrain.TerrainRenderingSettingsResource",
+        "Dao.Terrain.TerrainScenicLandmarkRuleSet",
         "Dao.Terrain.TerrainShapeSettingsResource",
         "Dao.Terrain.Runtime.TerrainPointOfInterestArchetype",
         "Dao.Terrain.Runtime.TerrainPointOfInterestArchetypeCatalog",
@@ -4326,7 +4414,7 @@ static void PrintPublicApiShapeSmoke(TerrainPublicApiShapeSmokeReport report)
 
 static TerrainProfileHashSmokeReport ValidateTerrainProfileHashContract(TerrainGenerationProfile profile)
 {
-    const string ExpectedDemoProfileHash = "ac345f3689fb64c811213a6294375db7e6ff80e10cd3cfe64c5dca1c669668d2";
+    const string ExpectedDemoProfileHash = "1935cb338e79a294c89306bf6cbb6ad2046420521f42e190d1dc2318b2192dc2";
     string hash = profile.StableHash();
     bool formatPassed =
         hash.Length == 64 &&
@@ -4358,7 +4446,8 @@ static TerrainProfileHashSmokeReport ValidateTerrainProfileHashContract(TerrainG
         ("MaxQueuedTileJobs", profile with { MaxQueuedTileJobs = profile.MaxQueuedTileJobs + 1 }),
         ("MaxCachedTileData", profile with { MaxCachedTileData = profile.MaxCachedTileData + 1 }),
         ("GenerateCollision", profile with { GenerateCollision = !profile.GenerateCollision }),
-        ("UseNativeSamplerWhenAvailable", profile with { UseNativeSamplerWhenAvailable = !profile.UseNativeSamplerWhenAvailable })
+        ("UseNativeSamplerWhenAvailable", profile with { UseNativeSamplerWhenAvailable = !profile.UseNativeSamplerWhenAvailable }),
+        ("ScenicLandmarkRuleSetHash", profile with { ScenicLandmarkRuleSetHash = "alt-scenic-rule-set" })
     ];
 
     int sensitiveFieldCount = 0;

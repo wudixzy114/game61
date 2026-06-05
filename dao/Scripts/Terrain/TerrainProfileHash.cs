@@ -34,6 +34,7 @@ public static class TerrainProfileHash
         Append(builder, nameof(profile.MaxCachedTileData), profile.MaxCachedTileData);
         Append(builder, nameof(profile.GenerateCollision), profile.GenerateCollision);
         Append(builder, nameof(profile.UseNativeSamplerWhenAvailable), profile.UseNativeSamplerWhenAvailable);
+        Append(builder, nameof(profile.ScenicLandmarkRuleSetHash), NormalizeRuleSetHash(profile.ScenicLandmarkRuleSetHash));
 
         byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes(builder.ToString()));
         return Convert.ToHexString(hash).ToLowerInvariant();
@@ -52,5 +53,17 @@ public static class TerrainProfileHash
     private static void Append(StringBuilder builder, string name, bool value)
     {
         builder.Append(name).Append('=').Append(value ? "true" : "false").Append(';');
+    }
+
+    private static void Append(StringBuilder builder, string name, string value)
+    {
+        builder.Append(name).Append('=').Append(value).Append(';');
+    }
+
+    private static string NormalizeRuleSetHash(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value)
+            ? Dao.Terrain.Generation.TerrainScenicLandmarkRuleCatalog.DefaultHash
+            : value;
     }
 }

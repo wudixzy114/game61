@@ -1,3 +1,4 @@
+using Dao.Terrain.Generation;
 using Godot;
 
 namespace Dao.Terrain;
@@ -12,6 +13,7 @@ public partial class TerrainSettings : Resource
     [Export] public TerrainGameplaySettingsResource? GameplayProfile { get; set; }
     [Export] public TerrainStreamingSettingsResource? StreamingProfile { get; set; }
     [Export] public TerrainRenderingSettingsResource? RenderingProfile { get; set; }
+    [Export] public TerrainScenicLandmarkRuleSet? ScenicLandmarkRuleSet { get; set; }
 
     [ExportGroup("World")]
     [Export] public int Seed { get; set; } = 613_061;
@@ -52,6 +54,7 @@ public partial class TerrainSettings : Resource
         TerrainGameplaySettingsResource? gameplay = GameplayProfile;
         TerrainStreamingSettingsResource? streaming = StreamingProfile;
         TerrainRenderingSettingsResource? rendering = RenderingProfile;
+        string scenicLandmarkRuleSetHash = TerrainScenicLandmarkRuleCatalog.Register(ScenicLandmarkRuleSet);
 
         return new TerrainGenerationProfile(
             world?.Seed ?? Seed,
@@ -76,7 +79,8 @@ public partial class TerrainSettings : Resource
             Mathf.Max(1, streaming?.MaxQueuedTileJobs ?? MaxQueuedTileJobs),
             Mathf.Clamp(streaming?.MaxCachedTileData ?? MaxCachedTileData, 0, 2048),
             streaming?.GenerateCollision ?? GenerateCollision,
-            streaming?.UseNativeSamplerWhenAvailable ?? UseNativeSamplerWhenAvailable);
+            streaming?.UseNativeSamplerWhenAvailable ?? UseNativeSamplerWhenAvailable,
+            scenicLandmarkRuleSetHash);
     }
 }
 
@@ -104,7 +108,8 @@ public readonly record struct TerrainGenerationProfile(
     int MaxQueuedTileJobs,
     int MaxCachedTileData,
     bool GenerateCollision,
-    bool UseNativeSamplerWhenAvailable)
+    bool UseNativeSamplerWhenAvailable,
+    string ScenicLandmarkRuleSetHash = "")
 {
     /// <summary>Computes the stable content identity hash for this generation profile.</summary>
     public string StableHash()

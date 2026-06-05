@@ -16,8 +16,8 @@ public static partial class TerrainTileBuilder
     {
         landmarks.Add(landmark);
         float rotation = Hash01(coord.X, coord.Z, rotationSalt, profile.Seed + seedOffset) * Mathf.Pi * 2.0f;
-        float scale = NaturalLandmarkScale(landmark.Kind, landmark.Score);
-        Color tint = NaturalLandmarkColor(landmark.Kind, landmark.Score);
+        float scale = NaturalLandmarkScale(profile, landmark.Kind, landmark.Score);
+        Color tint = NaturalLandmarkColor(profile, landmark.Kind, landmark.Score);
         scatter.Add(new TerrainScatterInstance(TerrainScatterKind.Landmark, landmark.LocalPosition, rotation, scale, tint, landmark.Kind));
     }
 

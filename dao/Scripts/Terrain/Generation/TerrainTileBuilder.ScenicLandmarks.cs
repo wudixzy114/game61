@@ -213,14 +213,14 @@ public static partial class TerrainTileBuilder
         }
 
         bool addedLandmark = false;
-        if (bestScore >= NaturalLandmarkThreshold(best.Kind))
+        if (bestScore >= NaturalLandmarkThreshold(profile, best.Kind))
         {
             AddNaturalLandmarkInstance(coord, profile, best, 1621, 313, scatter, landmarks);
             addedLandmark = true;
         }
 
         if (best.Kind != TerrainLandmarkKind.Waterfall &&
-            bestWaterfallScore >= NaturalLandmarkThreshold(TerrainLandmarkKind.Waterfall) &&
+            bestWaterfallScore >= NaturalLandmarkThreshold(profile, TerrainLandmarkKind.Waterfall) &&
             IsDistinctNaturalLandmark(bestWaterfall.LocalPosition, landmarks))
         {
             AddNaturalLandmarkInstance(coord, profile, bestWaterfall, 1643, 315, scatter, landmarks);
@@ -228,7 +228,7 @@ public static partial class TerrainTileBuilder
         }
 
         if (best.Kind != TerrainLandmarkKind.DesertMonolith &&
-            bestDesertMonolithScore >= NaturalLandmarkThreshold(TerrainLandmarkKind.DesertMonolith) &&
+            bestDesertMonolithScore >= NaturalLandmarkThreshold(profile, TerrainLandmarkKind.DesertMonolith) &&
             IsDistinctNaturalLandmark(bestDesertMonolith.LocalPosition, landmarks))
         {
             AddNaturalLandmarkInstance(coord, profile, bestDesertMonolith, 1657, 323, scatter, landmarks);
@@ -236,7 +236,7 @@ public static partial class TerrainTileBuilder
         }
 
         if (best.Kind != TerrainLandmarkKind.CanyonNeedle &&
-            bestCanyonNeedleScore >= NaturalLandmarkThreshold(TerrainLandmarkKind.CanyonNeedle) &&
+            bestCanyonNeedleScore >= NaturalLandmarkThreshold(profile, TerrainLandmarkKind.CanyonNeedle) &&
             IsDistinctNaturalLandmark(bestCanyonNeedle.LocalPosition, landmarks))
         {
             AddNaturalLandmarkInstance(coord, profile, bestCanyonNeedle, 1663, 317, scatter, landmarks);
@@ -244,7 +244,7 @@ public static partial class TerrainTileBuilder
         }
 
         if (best.Kind != TerrainLandmarkKind.NaturalArch &&
-            bestNaturalArchScore >= NaturalLandmarkThreshold(TerrainLandmarkKind.NaturalArch) &&
+            bestNaturalArchScore >= NaturalLandmarkThreshold(profile, TerrainLandmarkKind.NaturalArch) &&
             IsDistinctNaturalLandmark(bestNaturalArch.LocalPosition, landmarks))
         {
             AddNaturalLandmarkInstance(coord, profile, bestNaturalArch, 1667, 321, scatter, landmarks);
@@ -252,7 +252,7 @@ public static partial class TerrainTileBuilder
         }
 
         if (best.Kind != TerrainLandmarkKind.GlacialRidge &&
-            bestGlacialRidgeScore >= NaturalLandmarkThreshold(TerrainLandmarkKind.GlacialRidge) &&
+            bestGlacialRidgeScore >= NaturalLandmarkThreshold(profile, TerrainLandmarkKind.GlacialRidge) &&
             IsDistinctNaturalLandmark(bestGlacialRidge.LocalPosition, landmarks))
         {
             AddNaturalLandmarkInstance(coord, profile, bestGlacialRidge, 1699, 319, scatter, landmarks);

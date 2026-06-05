@@ -206,20 +206,20 @@ public static partial class TerrainTileBuilder
             field.Moisture < 0.62f;
     }
 
-    private static float NaturalLandmarkThreshold(TerrainLandmarkKind kind)
+    private static float NaturalLandmarkThreshold(TerrainGenerationProfile profile, TerrainLandmarkKind kind)
     {
-        return GetNaturalLandmarkRule(kind).Threshold;
+        return GetNaturalLandmarkRule(profile, kind).Threshold;
     }
 
-    private static float NaturalLandmarkScale(TerrainLandmarkKind kind, float score)
+    private static float NaturalLandmarkScale(TerrainGenerationProfile profile, TerrainLandmarkKind kind, float score)
     {
-        NaturalLandmarkRule rule = GetNaturalLandmarkRule(kind);
+        TerrainScenicLandmarkRule rule = GetNaturalLandmarkRule(profile, kind);
         return rule.BaseScale + score * rule.ScoreScale;
     }
 
-    private static Color NaturalLandmarkColor(TerrainLandmarkKind kind, float score)
+    private static Color NaturalLandmarkColor(TerrainGenerationProfile profile, TerrainLandmarkKind kind, float score)
     {
-        NaturalLandmarkRule rule = GetNaturalLandmarkRule(kind);
+        TerrainScenicLandmarkRule rule = GetNaturalLandmarkRule(profile, kind);
         return rule.BaseColor.Lerp(Colors.White, Mathf.Clamp(score * 0.18f, 0.0f, 0.18f));
     }
 }
