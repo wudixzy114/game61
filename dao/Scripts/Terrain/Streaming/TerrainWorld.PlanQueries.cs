@@ -150,6 +150,27 @@ public partial class TerrainWorld
         return points.Count == 0 ? Array.Empty<TerrainWorldPointOfInterest>() : points.ToArray();
     }
 
+    /// <summary>Returns bounded gameplay-tag region summaries from the current world plan without exposing full plan-region arrays.</summary>
+    public TerrainGameplayTagRegionSummary[] QueryGameplayTagRegions(
+        Rect2 worldBounds,
+        TerrainGameplayTag requiredTags,
+        TerrainGameplayTag excludedTags = TerrainGameplayTag.None,
+        int maxResults = 32)
+    {
+        if (_worldPlan is null)
+        {
+            return Array.Empty<TerrainGameplayTagRegionSummary>();
+        }
+
+        return TerrainGameplayTagRegionQuery.QueryRegions(
+            _worldPlan,
+            CurrentProfile,
+            worldBounds,
+            requiredTags,
+            excludedTags,
+            maxResults);
+    }
+
     /// <summary>Returns planned routes whose waypoint polyline comes within the requested radius. Route waypoint arrays are copied.</summary>
     public TerrainWorldRoute[] QueryRoutesNear(Vector2 world, float radius)
     {

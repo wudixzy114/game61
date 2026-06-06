@@ -24,6 +24,11 @@ public interface ITerrainPlanProvider
     TerrainWorldPointOfInterest[] QueryPointsOfInterest(
         Rect2 worldBounds,
         TerrainPointOfInterestKind? kind = null);
+    TerrainGameplayTagRegionSummary[] QueryGameplayTagRegions(
+        Rect2 worldBounds,
+        TerrainGameplayTag requiredTags,
+        TerrainGameplayTag excludedTags = TerrainGameplayTag.None,
+        int maxResults = 32);
     TerrainWorldRoute[] QueryRoutesNear(Vector2 world, float radius);
     TerrainWorldRouteSummary[] QueryRouteSummariesNear(Vector2 world, float radius, int maxResults);
     TerrainRouteCorridorSample SampleRouteCorridor(Vector2 world);

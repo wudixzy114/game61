@@ -39,9 +39,7 @@ public partial class TerrainWorld : Node3D, ITerrainQueryService, ITerrainPlanPr
 
     private readonly Dictionary<TerrainTileCoord, TerrainChunk> _chunks = new();
     private readonly Dictionary<TerrainTileCoord, PendingTileJob> _jobs = new();
-    private readonly Dictionary<TerrainTileCacheKey, TerrainTileData> _tileCache = new();
-    private readonly Dictionary<TerrainTileCacheKey, LinkedListNode<TerrainTileCacheKey>> _tileCacheNodes = new();
-    private readonly LinkedList<TerrainTileCacheKey> _tileCacheLru = new();
+    private readonly TerrainTileDataCache _tileCache = new();
     private readonly List<PendingTileJob> _retiredJobs = new();
     private readonly HashSet<TerrainTileCoord> _desiredCoords = new();
     private PendingWorldPlanJob? _worldPlanJob;
@@ -493,27 +491,4 @@ public partial class TerrainWorld : Node3D, ITerrainQueryService, ITerrainPlanPr
             TaskScheduler.Default);
     }
 
-    private sealed record PendingTileJob(
-        TerrainTileCoord Coord,
-        int Lod,
-        bool IncludeCollision,
-        TerrainGenerationProfile Profile,
-        int TerrainFeatureKey,
-        CancellationTokenSource Cancellation,
-        Task<TerrainTileData> Task);
-
-    private sealed record PendingWorldPlanJob(
-        int Version,
-        TerrainGenerationProfile Profile,
-        float WorldSize,
-        CancellationTokenSource Cancellation,
-        Task<TerrainWorldPlan> Task);
-
-    private readonly record struct DesiredTileRequest(int Lod, bool IncludeCollision);
-    private readonly record struct TerrainTileCacheKey(
-        TerrainTileCoord Coord,
-        int Lod,
-        bool IncludeCollision,
-        TerrainGenerationProfile Profile,
-        int TerrainFeatureKey);
 }

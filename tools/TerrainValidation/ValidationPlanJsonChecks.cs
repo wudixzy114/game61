@@ -71,6 +71,7 @@ internal static class TerrainValidationPlanJsonChecks
                 out _);
             bool legacyApiVersionAccepted = AcceptsCompatibleApiVersion(json, profile, "1.0.0");
             bool previousApiVersionAccepted = AcceptsCompatibleApiVersion(json, profile, "1.1.0");
+            bool currentApiMinusOneVersionAccepted = AcceptsCompatibleApiVersion(json, profile, "1.2.0");
             bool versionDriftRejected = RejectsVersionDrift(json, profile);
             bool enumNameDriftRejected = RejectsEnumNameDrift(json, profile);
             bool enumValueDriftRejected = RejectsEnumValueDrift(json, profile);
@@ -88,6 +89,7 @@ internal static class TerrainValidationPlanJsonChecks
                 profileHashMismatchRejected &&
                 legacyApiVersionAccepted &&
                 previousApiVersionAccepted &&
+                currentApiMinusOneVersionAccepted &&
                 versionDriftRejected &&
                 enumNameDriftRejected &&
                 enumValueDriftRejected;
@@ -106,6 +108,7 @@ internal static class TerrainValidationPlanJsonChecks
                     profileHashMismatchRejected,
                     legacyApiVersionAccepted,
                     previousApiVersionAccepted,
+                    currentApiMinusOneVersionAccepted,
                     versionDriftRejected,
                     enumNameDriftRejected,
                     enumValueDriftRejected,
@@ -125,6 +128,7 @@ internal static class TerrainValidationPlanJsonChecks
                 profileHashMismatchRejected,
                 legacyApiVersionAccepted,
                 previousApiVersionAccepted,
+                currentApiMinusOneVersionAccepted,
                 versionDriftRejected,
                 enumNameDriftRejected,
                 enumValueDriftRejected,
@@ -137,6 +141,7 @@ internal static class TerrainValidationPlanJsonChecks
         catch (Exception ex)
         {
             return new TerrainPlanJsonSmokeReport(
+                false,
                 false,
                 false,
                 false,
@@ -665,6 +670,7 @@ internal static class TerrainValidationPlanJsonChecks
         bool profileHashMismatchRejected,
         bool legacyApiVersionAccepted,
         bool previousApiVersionAccepted,
+        bool currentApiMinusOneVersionAccepted,
         bool versionDriftRejected,
         bool enumNameDriftRejected,
         bool enumValueDriftRejected,
@@ -730,6 +736,11 @@ internal static class TerrainValidationPlanJsonChecks
         if (!previousApiVersionAccepted)
         {
             return "plan JSON rejected a compatible terrain-api-v1 1.1.0 plan";
+        }
+
+        if (!currentApiMinusOneVersionAccepted)
+        {
+            return "plan JSON rejected a compatible terrain-api-v1 1.2.0 plan";
         }
 
         if (!versionDriftRejected)

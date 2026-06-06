@@ -1,6 +1,6 @@
 # Terrain Runtime Integration Contract
 
-Updated: 2026-06-05
+Updated: 2026-06-06
 
 This document defines the gameplay-facing integration surface for the terrain runtime.
 It is intentionally narrower than the full public terrain API and should be the default
@@ -32,6 +32,7 @@ Use for open-world plan snapshots and semantic world-layout queries.
 - `QueryNearestPointsOfInterest(Vector2 world, float radius, int maxResults, TerrainPointOfInterestKind? kind = null)`
 - `TryFindNearestPointOfInterest(Vector2 world, float radius, TerrainPointOfInterestKind? kind, out TerrainWorldPointOfInterest point)`
 - `QueryPointsOfInterest(Rect2 worldBounds, TerrainPointOfInterestKind? kind = null)`
+- `QueryGameplayTagRegions(Rect2 worldBounds, TerrainGameplayTag requiredTags, TerrainGameplayTag excludedTags = TerrainGameplayTag.None, int maxResults = 32)`
 - `QueryRoutesNear(Vector2 world, float radius)`
 - `QueryRouteSummariesNear(Vector2 world, float radius, int maxResults)`
 - `SampleRouteCorridor(Vector2 world)`
@@ -41,6 +42,9 @@ for low-allocation nearest-POI lookups when full point payload copies are unnece
 
 `QueryRouteSummariesNear(...)` returns compact `TerrainWorldRouteSummary` rows for nearby-route
 queries without copying waypoint arrays.
+
+`QueryGameplayTagRegions(...)` returns compact `TerrainGameplayTagRegionSummary` rows for bounded
+region-level gameplay-tag lookups without exposing the full planning-grid array.
 
 ### `ITerrainStreamingDiagnostics`
 
@@ -105,7 +109,7 @@ New gameplay systems should not read `TerrainTileBuilder` internals directly.
 The PR terrain validation tier now verifies:
 
 - `TerrainWorld` implements the stable runtime interfaces
-- limited-result POI and route summary queries return stable isolated results
+- limited-result POI, gameplay-tag region, and route summary queries return stable isolated results
 - placement candidates respect requested tags, traversal filters, and route-influence requirements
 - route-graph snapshots and traversal-cost grid handoff are stable and isolated
 - runtime signal delegates exist with the expected signatures

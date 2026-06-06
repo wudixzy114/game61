@@ -25,3 +25,19 @@ public readonly record struct TerrainWorldRouteSummary(
     float AverageScenicPotential,
     float AverageTraversability,
     int WaypointCount);
+
+/// <summary>Compact gameplay-facing region summary for bounded gameplay-tag queries without exposing the full plan grid.</summary>
+public readonly record struct TerrainGameplayTagRegionSummary(
+    int GridX,
+    int GridY,
+    Vector2 WorldPosition,
+    Rect2 WorldBounds,
+    TerrainGameplayTag Flags,
+    TerrainBiomeKind BiomeKind,
+    TerrainLandscapeKind LandscapeKind,
+    TerrainWorldRegionKind RegionKind,
+    float Traversability,
+    float ScenicPotential,
+    float ResourcePotential,
+    float HazardPotential,
+    float EncounterPotential);

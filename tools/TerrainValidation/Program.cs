@@ -2049,6 +2049,7 @@ static TerrainPlanJsonSmokeReport ValidateTerrainPlanJsonRoundtrip(
             out _);
         bool legacyApiVersionAccepted = AcceptsCompatibleApiVersion(json, profile, "1.0.0");
         bool previousApiVersionAccepted = AcceptsCompatibleApiVersion(json, profile, "1.1.0");
+        bool currentApiMinusOneVersionAccepted = AcceptsCompatibleApiVersion(json, profile, "1.2.0");
         bool versionDriftRejected = RejectsVersionDrift(json, profile);
         bool enumNameDriftRejected = RejectsEnumNameDrift(json, profile);
         bool enumValueDriftRejected = RejectsEnumValueDrift(json, profile);
@@ -2066,6 +2067,7 @@ static TerrainPlanJsonSmokeReport ValidateTerrainPlanJsonRoundtrip(
             profileHashMismatchRejected &&
             legacyApiVersionAccepted &&
             previousApiVersionAccepted &&
+            currentApiMinusOneVersionAccepted &&
             versionDriftRejected &&
             enumNameDriftRejected &&
             enumValueDriftRejected;
@@ -2084,6 +2086,7 @@ static TerrainPlanJsonSmokeReport ValidateTerrainPlanJsonRoundtrip(
                 profileHashMismatchRejected,
                 legacyApiVersionAccepted,
                 previousApiVersionAccepted,
+                currentApiMinusOneVersionAccepted,
                 versionDriftRejected,
                 enumNameDriftRejected,
                 enumValueDriftRejected,
@@ -2103,6 +2106,7 @@ static TerrainPlanJsonSmokeReport ValidateTerrainPlanJsonRoundtrip(
             profileHashMismatchRejected,
             legacyApiVersionAccepted,
             previousApiVersionAccepted,
+            currentApiMinusOneVersionAccepted,
             versionDriftRejected,
             enumNameDriftRejected,
             enumValueDriftRejected,
@@ -2115,6 +2119,7 @@ static TerrainPlanJsonSmokeReport ValidateTerrainPlanJsonRoundtrip(
     catch (Exception ex)
     {
         return new TerrainPlanJsonSmokeReport(
+            false,
             false,
             false,
             false,
@@ -2576,9 +2581,101 @@ static bool ExactPositionEquals(Vector2 expected, Vector2 actual)
     return expected.DistanceSquaredTo(actual) <= TerrainDeterminismContract.Squared(TerrainDeterminismContract.ExactPositionEpsilon);
 }
 
+static bool ExactRectEquals(Rect2 expected, Rect2 actual)
+{
+    return ExactPositionEquals(expected.Position, actual.Position) &&
+        ExactPositionEquals(expected.Size, actual.Size);
+}
+
 static bool ContractPositionEquals(Vector2 expected, Vector2 actual)
 {
     return expected.DistanceSquaredTo(actual) <= TerrainDeterminismContract.Squared(TerrainDeterminismContract.PositionEpsilon);
+}
+
+static Rect2 ComputeExpectedGameplayTagRegionBounds(TerrainWorldPlan plan, TerrainWorldRegion region)
+{
+    float cellSize = plan.WorldSize / plan.GridResolution;
+    Vector2 min = new(
+        plan.Center.X - plan.WorldSize * 0.5f + region.GridX * cellSize,
+        plan.Center.Y - plan.WorldSize * 0.5f + region.GridY * cellSize);
+    return new Rect2(min, new Vector2(cellSize, cellSize));
+}
+
+static TerrainGameplayTag ComputeExpectedGameplayTagFlags(
+    TerrainWorldRegion region,
+    TerrainGenerationProfile profile)
+{
+    TerrainGameplayTag flags = TerrainGameplayTag.None;
+
+    if (region.Traversability >= 0.45f)
+    {
+        flags |= TerrainGameplayTag.Traversable;
+    }
+
+    if (region.ScenicPotential >= 0.62f)
+    {
+        flags |= TerrainGameplayTag.Scenic;
+    }
+
+    if (region.ResourcePotential >= 0.50f)
+    {
+        flags |= TerrainGameplayTag.ResourceRich;
+    }
+
+    if (region.HazardPotential >= 0.42f)
+    {
+        flags |= TerrainGameplayTag.Hazardous;
+    }
+
+    if (region.EncounterPotential >= 0.52f)
+    {
+        flags |= TerrainGameplayTag.EncounterRich;
+    }
+
+    if (region.River >= 0.34f ||
+        region.BiomeKind is TerrainBiomeKind.Coast or TerrainBiomeKind.Lake or TerrainBiomeKind.Oasis ||
+        region.LandscapeKind is TerrainLandscapeKind.Coast or TerrainLandscapeKind.Lake or TerrainLandscapeKind.RiverValley ||
+        region.RegionKind is TerrainWorldRegionKind.Coast or TerrainWorldRegionKind.Lake or TerrainWorldRegionKind.Oasis or TerrainWorldRegionKind.RiverValley)
+    {
+        flags |= TerrainGameplayTag.WaterAccess;
+    }
+
+    if (region.BiomeKind == TerrainBiomeKind.Coast ||
+        region.LandscapeKind == TerrainLandscapeKind.Coast ||
+        region.RegionKind == TerrainWorldRegionKind.Coast)
+    {
+        flags |= TerrainGameplayTag.Coastal;
+    }
+
+    if (region.Traversability >= 0.54f &&
+        region.ResourcePotential >= 0.38f &&
+        region.HazardPotential < 0.65f &&
+        region.Height >= profile.SeaLevel + 8.0f)
+    {
+        flags |= TerrainGameplayTag.SettlementFriendly;
+    }
+
+    if (region.Height > profile.SeaLevel + profile.HeightScale * 0.55f ||
+        region.LandscapeKind is TerrainLandscapeKind.Highlands or TerrainLandscapeKind.MountainMassif or TerrainLandscapeKind.Snowfield or TerrainLandscapeKind.VistaPlateau ||
+        region.RegionKind is TerrainWorldRegionKind.Highlands or TerrainWorldRegionKind.Mountains or TerrainWorldRegionKind.Snow or TerrainWorldRegionKind.ScenicPlateau)
+    {
+        flags |= TerrainGameplayTag.HighElevation;
+    }
+
+    if (region.BiomeKind == TerrainBiomeKind.Snowfield ||
+        region.LandscapeKind == TerrainLandscapeKind.Snowfield ||
+        region.RegionKind == TerrainWorldRegionKind.Snow)
+    {
+        flags |= TerrainGameplayTag.Cold;
+    }
+
+    if (region.BiomeKind is TerrainBiomeKind.Desert or TerrainBiomeKind.Oasis ||
+        region.RegionKind is TerrainWorldRegionKind.Desert or TerrainWorldRegionKind.Oasis)
+    {
+        flags |= TerrainGameplayTag.Arid;
+    }
+
+    return flags;
 }
 
 static string PlanJsonFailureReason(
@@ -2594,6 +2691,7 @@ static string PlanJsonFailureReason(
     bool profileHashMismatchRejected,
     bool legacyApiVersionAccepted,
     bool previousApiVersionAccepted,
+    bool currentApiMinusOneVersionAccepted,
     bool versionDriftRejected,
     bool enumNameDriftRejected,
     bool enumValueDriftRejected,
@@ -2659,6 +2757,11 @@ static string PlanJsonFailureReason(
     if (!previousApiVersionAccepted)
     {
         return "plan JSON rejected a compatible terrain-api-v1 1.1.0 plan";
+    }
+
+    if (!currentApiMinusOneVersionAccepted)
+    {
+        return "plan JSON rejected a compatible terrain-api-v1 1.2.0 plan";
     }
 
     if (!versionDriftRejected)
@@ -2858,6 +2961,25 @@ static TerrainPublicApiShapeSmokeReport ValidateTerrainPublicApiShapeContracts()
                     ("AverageScenicPotential", typeof(float)),
                     ("AverageTraversability", typeof(float)),
                     ("WaypointCount", typeof(int))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicShape<TerrainGameplayTagRegionSummary>(
+                [
+                    ("GridX", typeof(int)),
+                    ("GridY", typeof(int)),
+                    ("WorldPosition", typeof(Vector2)),
+                    ("WorldBounds", typeof(Rect2)),
+                    ("Flags", typeof(TerrainGameplayTag)),
+                    ("BiomeKind", typeof(TerrainBiomeKind)),
+                    ("LandscapeKind", typeof(TerrainLandscapeKind)),
+                    ("RegionKind", typeof(TerrainWorldRegionKind)),
+                    ("Traversability", typeof(float)),
+                    ("ScenicPotential", typeof(float)),
+                    ("ResourcePotential", typeof(float)),
+                    ("HazardPotential", typeof(float)),
+                    ("EncounterPotential", typeof(float))
                 ],
                 ref checkedTypeCount,
                 ref checkedMemberCount,
@@ -3976,6 +4098,7 @@ static TerrainPublicApiShapeSmokeReport ValidateTerrainPublicApiShapeContracts()
                     new("QueryNearestPointsOfInterest", false, typeof(TerrainWorldPointOfInterestSummary[]), [typeof(Vector2), typeof(float), typeof(int), typeof(TerrainPointOfInterestKind?)]),
                     new("TryFindNearestPointOfInterest", false, typeof(bool), [typeof(Vector2), typeof(float), typeof(TerrainPointOfInterestKind?), typeof(TerrainWorldPointOfInterest).MakeByRefType()]),
                     new("QueryPointsOfInterest", false, typeof(TerrainWorldPointOfInterest[]), [typeof(Rect2), typeof(TerrainPointOfInterestKind?)]),
+                    new("QueryGameplayTagRegions", false, typeof(TerrainGameplayTagRegionSummary[]), [typeof(Rect2), typeof(TerrainGameplayTag), typeof(TerrainGameplayTag), typeof(int)]),
                     new("QueryRoutesNear", false, typeof(TerrainWorldRoute[]), [typeof(Vector2), typeof(float)]),
                     new("QueryRouteSummariesNear", false, typeof(TerrainWorldRouteSummary[]), [typeof(Vector2), typeof(float), typeof(int)]),
                     new("SampleRouteCorridor", false, typeof(TerrainRouteCorridorSample), [typeof(Vector2)])
@@ -4028,6 +4151,7 @@ static TerrainPublicApiShapeSmokeReport ValidateTerrainPublicApiShapeContracts()
                     new("QueryNearestPointsOfInterest", false, typeof(TerrainWorldPointOfInterestSummary[]), [typeof(Vector2), typeof(float), typeof(int), typeof(TerrainPointOfInterestKind?)]),
                     new("TryFindNearestPointOfInterest", false, typeof(bool), [typeof(Vector2), typeof(float), typeof(TerrainPointOfInterestKind?), typeof(TerrainWorldPointOfInterest).MakeByRefType()]),
                     new("QueryPointsOfInterest", false, typeof(TerrainWorldPointOfInterest[]), [typeof(Rect2), typeof(TerrainPointOfInterestKind?)]),
+                    new("QueryGameplayTagRegions", false, typeof(TerrainGameplayTagRegionSummary[]), [typeof(Rect2), typeof(TerrainGameplayTag), typeof(TerrainGameplayTag), typeof(int)]),
                     new("QueryRoutesNear", false, typeof(TerrainWorldRoute[]), [typeof(Vector2), typeof(float)]),
                     new("QueryRouteSummariesNear", false, typeof(TerrainWorldRouteSummary[]), [typeof(Vector2), typeof(float), typeof(int)]),
                     new("SampleRouteCorridor", false, typeof(TerrainRouteCorridorSample), [typeof(Vector2)]),
@@ -4283,6 +4407,7 @@ static bool CheckExportedTerrainTypes(out string? failureReason)
         "Dao.Terrain.Generation.TerrainExperienceReport",
         "Dao.Terrain.Generation.TerrainExperienceThresholds",
         "Dao.Terrain.Generation.TerrainGameplayTag",
+        "Dao.Terrain.Generation.TerrainGameplayTagRegionSummary",
         "Dao.Terrain.Generation.TerrainGameplayTags",
         "Dao.Terrain.Generation.TerrainLandmarkData",
         "Dao.Terrain.Generation.TerrainLandmarkKind",
@@ -4589,6 +4714,11 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
             noPlanWorld.QueryNearestPointsOfInterest(query, profile.ChunkSize, 4).Length == 0 &&
             !noPlanWorld.TryFindNearestPointOfInterest(query, profile.ChunkSize, kind: null, out _) &&
             noPlanWorld.QueryPointsOfInterest(new Rect2(query - new Vector2(1.0f, 1.0f), new Vector2(2.0f, 2.0f))).Length == 0 &&
+            noPlanWorld.QueryGameplayTagRegions(
+                new Rect2(query - new Vector2(1.0f, 1.0f), new Vector2(2.0f, 2.0f)),
+                TerrainGameplayTag.Traversable,
+                TerrainGameplayTag.None,
+                4).Length == 0 &&
             noPlanWorld.QueryRoutesNear(query, profile.ChunkSize).Length == 0 &&
             noPlanWorld.QueryRouteSummariesNear(query, profile.ChunkSize, 4).Length == 0 &&
             !noPlanWorld.SampleRouteCorridor(query).HasInfluence;
@@ -4679,10 +4809,10 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
                 expectedQueuedCoords: [new TerrainTileCoord(-4, -3), new TerrainTileCoord(8, -2)]);
         bool apiVersionPassed =
             TerrainApiVersion.Major == 1 &&
-            TerrainApiVersion.Minor == 2 &&
+            TerrainApiVersion.Minor == 3 &&
             TerrainApiVersion.Patch == 0 &&
             string.Equals(TerrainApiVersion.Contract, "terrain-api-v1", StringComparison.Ordinal) &&
-            string.Equals(TerrainApiVersion.Version, "1.2.0", StringComparison.Ordinal);
+            string.Equals(TerrainApiVersion.Version, "1.3.0", StringComparison.Ordinal);
         bool determinismContractPassed =
             string.Equals(TerrainDeterminismContract.Contract, "terrain-determinism-v1", StringComparison.Ordinal) &&
             ExactFloatEquals(TerrainDeterminismContract.HeightEpsilon, 0.05f) &&
@@ -4825,6 +4955,7 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
 
         bool pointQueryPassed = plan.PointsOfInterest.Length == 0;
         bool pointSummaryQueryPassed = plan.PointsOfInterest.Length == 0;
+        bool gameplayTagRegionQueryPassed = plan.Regions.Length == 0;
         if (plan.PointsOfInterest.Length > 0)
         {
             TerrainWorldPointOfInterest expectedPoint = plan.PointsOfInterest[0];
@@ -4876,6 +5007,48 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
             }
 
             pointSummaryQueryPassed = pointSummaryMatches;
+        }
+
+        if (plan.Regions.Length > 0)
+        {
+            foreach (TerrainWorldRegion expectedRegion in plan.Regions)
+            {
+                TerrainGameplayTag expectedFlags = ComputeExpectedGameplayTagFlags(expectedRegion, profile);
+                if (expectedFlags == TerrainGameplayTag.None)
+                {
+                    continue;
+                }
+
+                Rect2 regionBounds = new(
+                    expectedRegion.WorldPosition - new Vector2(1.0f, 1.0f),
+                    new Vector2(2.0f, 2.0f));
+                TerrainGameplayTagRegionSummary[] regionSummaries = planWorld.QueryGameplayTagRegions(
+                    regionBounds,
+                    expectedFlags,
+                    TerrainGameplayTag.None,
+                    maxResults: 4);
+                bool regionMatches =
+                    regionSummaries.Length == 1 &&
+                    ContainsGameplayTagRegionSummary(regionSummaries, plan, expectedRegion, expectedFlags);
+                if (regionMatches)
+                {
+                    regionSummaries[0] = default;
+                    TerrainGameplayTagRegionSummary[] secondRegionSummaries = planWorld.QueryGameplayTagRegions(
+                        regionBounds,
+                        expectedFlags,
+                        TerrainGameplayTag.None,
+                        maxResults: 4);
+                    regionMatches =
+                        secondRegionSummaries.Length == 1 &&
+                        ContainsGameplayTagRegionSummary(secondRegionSummaries, plan, expectedRegion, expectedFlags);
+                }
+
+                gameplayTagRegionQueryPassed = regionMatches;
+                if (gameplayTagRegionQueryPassed)
+                {
+                    break;
+                }
+            }
         }
 
         bool routeQueryPassed = plan.Routes.Length == 0;
@@ -5039,6 +5212,7 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
             routes.Length == plan.Routes.Length &&
             pointQueryPassed &&
             pointSummaryQueryPassed &&
+            gameplayTagRegionQueryPassed &&
             routeQueryPassed &&
             routeSummaryQueryPassed &&
             routeCorridorQueryPassed &&
@@ -5081,6 +5255,7 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
                 plan.Routes.Length,
                 pointQueryPassed,
                 pointSummaryQueryPassed,
+                gameplayTagRegionQueryPassed,
                 routeQueryPassed,
                 routeSummaryQueryPassed,
                 routeCorridorQueryPassed,
@@ -5120,6 +5295,7 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
             signalContractsPassed,
             pointQueryPassed,
             pointSummaryQueryPassed,
+            gameplayTagRegionQueryPassed,
             routeQueryPassed,
             routeSummaryQueryPassed,
             routeCorridorQueryPassed,
@@ -5162,6 +5338,7 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
             SignalContractsPassed: false,
             PointQueryPassed: false,
             PointSummaryQueryPassed: false,
+            GameplayTagRegionQueryPassed: false,
             RouteQueryPassed: false,
             RouteSummaryQueryPassed: false,
             RouteCorridorQueryPassed: false,
@@ -5347,6 +5524,36 @@ static bool ContainsPointOfInterestSummary(
             point.SettlementTier == expected.SettlementTier &&
             point.BiomeKind == expected.BiomeKind &&
             point.LandscapeKind == expected.LandscapeKind)
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static bool ContainsGameplayTagRegionSummary(
+    TerrainGameplayTagRegionSummary[] regions,
+    TerrainWorldPlan plan,
+    TerrainWorldRegion expected,
+    TerrainGameplayTag expectedFlags)
+{
+    Rect2 expectedBounds = ComputeExpectedGameplayTagRegionBounds(plan, expected);
+    foreach (TerrainGameplayTagRegionSummary region in regions)
+    {
+        if (region.GridX == expected.GridX &&
+            region.GridY == expected.GridY &&
+            ExactPositionEquals(region.WorldPosition, expected.WorldPosition) &&
+            ExactRectEquals(region.WorldBounds, expectedBounds) &&
+            region.Flags == expectedFlags &&
+            region.BiomeKind == expected.BiomeKind &&
+            region.LandscapeKind == expected.LandscapeKind &&
+            region.RegionKind == expected.RegionKind &&
+            ExactFloatEquals(region.Traversability, expected.Traversability) &&
+            ExactFloatEquals(region.ScenicPotential, expected.ScenicPotential) &&
+            ExactFloatEquals(region.ResourcePotential, expected.ResourcePotential) &&
+            ExactFloatEquals(region.HazardPotential, expected.HazardPotential) &&
+            ExactFloatEquals(region.EncounterPotential, expected.EncounterPotential))
         {
             return true;
         }
@@ -5620,6 +5827,7 @@ static string RuntimeApiFailureReason(
     int expectedRouteCount,
     bool pointQueryPassed,
     bool pointSummaryQueryPassed,
+    bool gameplayTagRegionQueryPassed,
     bool routeQueryPassed,
     bool routeSummaryQueryPassed,
     bool routeCorridorQueryPassed,
@@ -5712,7 +5920,7 @@ static string RuntimeApiFailureReason(
 
     if (!apiVersionPassed)
     {
-        return "TerrainApiVersion constants did not match terrain-api-v1 version 1.2.0";
+        return "TerrainApiVersion constants did not match terrain-api-v1 version 1.3.0";
     }
 
     if (!determinismContractPassed)
@@ -5758,6 +5966,11 @@ static string RuntimeApiFailureReason(
     if (!pointSummaryQueryPassed)
     {
         return "limited POI summary query did not return stable nearest results";
+    }
+
+    if (!gameplayTagRegionQueryPassed)
+    {
+        return "bounded gameplay-tag region query did not return stable isolated region summaries";
     }
 
     if (!routeQueryPassed)

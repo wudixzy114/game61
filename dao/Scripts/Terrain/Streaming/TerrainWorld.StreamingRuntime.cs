@@ -46,27 +46,7 @@ public partial class TerrainWorld
 
     private void BuildDesiredSet(TerrainTileCoord center)
     {
-        TerrainTileCoord[] before = _desiredCoords.Count == 0
-            ? Array.Empty<TerrainTileCoord>()
-            : _desiredCoords.ToArray();
-        _desiredCoords.Clear();
-        int radius = _profile.StreamRadiusChunks;
-        int radiusSquared = radius * radius;
-
-        for (int z = -radius; z <= radius; z++)
-        {
-            for (int x = -radius; x <= radius; x++)
-            {
-                if ((x * x) + (z * z) > radiusSquared)
-                {
-                    continue;
-                }
-
-                _desiredCoords.Add(new TerrainTileCoord(center.X + x, center.Z + z));
-            }
-        }
-
-        if (before.Length != _desiredCoords.Count || !before.All(_desiredCoords.Contains))
+        if (TerrainStreamingSetBuilder.RebuildDesiredSet(_desiredCoords, center, _profile.StreamRadiusChunks))
         {
             MarkStreamingSnapshotDirty();
         }
@@ -90,7 +70,7 @@ public partial class TerrainWorld
 
         foreach (TerrainTileCoord coord in sorted)
         {
-            DesiredTileRequest request = GetDesiredRequest(coord, center);
+            TerrainTileRequest request = TerrainStreamingSetBuilder.GetDesiredRequest(coord, center, _profile);
             TerrainTileCacheKey cacheKey = new(coord, request.Lod, request.IncludeCollision, _profile, terrainFeatureKey);
 
             if (_chunks.TryGetValue(coord, out TerrainChunk? chunk) &&
@@ -247,7 +227,7 @@ public partial class TerrainWorld
                 continue;
             }
 
-            DesiredTileRequest request = GetDesiredRequest(job.Coord, center);
+            TerrainTileRequest request = TerrainStreamingSetBuilder.GetDesiredRequest(job.Coord, center, _profile);
             if (request.Lod != job.Lod ||
                 request.IncludeCollision != job.IncludeCollision ||
                 !job.Profile.Equals(_profile) ||
@@ -258,14 +238,6 @@ public partial class TerrainWorld
                 RetireJob(job);
             }
         }
-    }
-
-    private DesiredTileRequest GetDesiredRequest(TerrainTileCoord coord, TerrainTileCoord center)
-    {
-        int distance = coord.ChebyshevDistanceTo(center);
-        bool includeCollision = _profile.GenerateCollision && distance <= _profile.CollisionRadiusChunks;
-        int lod = includeCollision ? 0 : Mathf.Clamp((distance - 1) / 2, 0, _profile.MaxLod);
-        return new DesiredTileRequest(lod, includeCollision);
     }
 
     private void CreateWater()
@@ -306,13 +278,7 @@ public partial class TerrainWorld
 
     private TerrainTileData? GetCachedTile(TerrainTileCacheKey key)
     {
-        if (!_tileCache.TryGetValue(key, out TerrainTileData? tileData))
-        {
-            return null;
-        }
-
-        TouchCacheKey(key);
-        return tileData;
+        return _tileCache.TryGet(key);
     }
 
     private void StoreCachedTile(
@@ -321,60 +287,19 @@ public partial class TerrainWorld
         bool includeCollision,
         int terrainFeatureKey)
     {
-        int limit = Mathf.Max(0, _profile.MaxCachedTileData);
-        if (limit == 0)
-        {
-            return;
-        }
-
         TerrainTileCacheKey key = new(data.Coord, data.Lod, includeCollision, profile, terrainFeatureKey);
-        if (_tileCache.ContainsKey(key))
+        if (_tileCache.Store(data, key, _profile.MaxCachedTileData))
         {
-            _tileCache[key] = data;
-            TouchCacheKey(key);
-            return;
-        }
-
-        _tileCache[key] = data;
-        _tileCacheNodes[key] = _tileCacheLru.AddLast(key);
-        TrimTileCache(limit);
-        MarkStreamingSnapshotDirty();
-    }
-
-    private void TouchCacheKey(TerrainTileCacheKey key)
-    {
-        if (!_tileCacheNodes.TryGetValue(key, out LinkedListNode<TerrainTileCacheKey>? node))
-        {
-            return;
-        }
-
-        _tileCacheLru.Remove(node);
-        _tileCacheLru.AddLast(node);
-    }
-
-    private void TrimTileCache(int limit)
-    {
-        while (_tileCache.Count > limit && _tileCacheLru.First is not null)
-        {
-            TerrainTileCacheKey oldest = _tileCacheLru.First.Value;
-            _tileCacheLru.RemoveFirst();
-            _tileCacheNodes.Remove(oldest);
-            _tileCache.Remove(oldest);
             MarkStreamingSnapshotDirty();
         }
     }
 
     private void ClearTileCache()
     {
-        if (_tileCache.Count == 0 && _tileCacheNodes.Count == 0 && _tileCacheLru.Count == 0)
+        if (_tileCache.Clear())
         {
-            return;
+            MarkStreamingSnapshotDirty();
         }
-
-        _tileCache.Clear();
-        _tileCacheNodes.Clear();
-        _tileCacheLru.Clear();
-        MarkStreamingSnapshotDirty();
     }
 
     private void ClearChunks()

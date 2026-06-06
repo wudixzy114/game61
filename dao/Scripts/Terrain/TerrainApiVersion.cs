@@ -4,15 +4,16 @@ namespace Dao.Terrain;
 public static class TerrainApiVersion
 {
     public const int Major = 1;
-    public const int Minor = 2;
+    public const int Minor = 3;
     public const int Patch = 0;
     public const string Contract = "terrain-api-v1";
-    public const string Version = "1.2.0";
+    public const string Version = "1.3.0";
 
     public static bool IsSupportedPlanApiVersion(string? version)
     {
         return string.Equals(version, "1.0.0", System.StringComparison.Ordinal) ||
             string.Equals(version, "1.1.0", System.StringComparison.Ordinal) ||
+            string.Equals(version, "1.2.0", System.StringComparison.Ordinal) ||
             string.Equals(version, Version, System.StringComparison.Ordinal);
     }
 }
