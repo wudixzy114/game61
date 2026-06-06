@@ -112,7 +112,7 @@ PR 级地形验证结果：
 - 支持规则集 Resource：scatter、settlement visual、POI、route、scenic landmark。
 - `TerrainGenerationProfile` 是不可变快照，适合后台任务和 deterministic generation。
 - `TerrainProfileHash` 覆盖 28 个 profile 字段和规则集 hash。
-- `TerrainApiVersion` 当前为 `terrain-api-v1` / `1.3.0`，兼容 plan API `1.0.0`、`1.1.0`、`1.2.0`、`1.3.0`。
+- `TerrainApiVersion` 当前为 `terrain-api-v1` / `1.4.0`，兼容 plan API `1.0.0`、`1.1.0`、`1.2.0`、`1.3.0`、`1.4.0`。
 - `TerrainDeterminismContract` 集中定义 deterministic、native parity、tile parity 阈值。
 - `TerrainPerformanceContract` 定义 tile benchmark 阈值。
 

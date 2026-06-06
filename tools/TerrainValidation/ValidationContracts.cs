@@ -234,6 +234,7 @@ internal readonly record struct TerrainPlanJsonSmokeReport(
     bool ProfileHashMismatchRejected,
     bool LegacyApiVersionAccepted,
     bool PreviousApiVersionAccepted,
+    bool CurrentApiMinusTwoVersionAccepted,
     bool CurrentApiMinusOneVersionAccepted,
     bool VersionDriftRejected,
     bool EnumNameDriftRejected,

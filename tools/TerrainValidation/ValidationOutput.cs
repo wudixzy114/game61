@@ -135,7 +135,7 @@ internal static class TerrainValidationOutput
             $"json {report.JsonBytes / 1024.0:0.0} KB, file {report.FileBytes / 1024.0:0.0} KB, " +
             $"metadata/schema {(report.MetadataPassed ? "pass" : "fail")}/{(report.SchemaShapePassed ? "pass" : "fail")}, " +
             $"string/file {(report.StringLoadPassed && report.StringRoundtripMatches ? "pass" : "fail")}/{(report.FileLoadPassed && report.FileRoundtripMatches ? "pass" : "fail")}, " +
-            $"compat api 1.0/1.1/1.2 {(report.LegacyApiVersionAccepted ? "pass" : "fail")}/{(report.PreviousApiVersionAccepted ? "pass" : "fail")}/{(report.CurrentApiMinusOneVersionAccepted ? "pass" : "fail")}, " +
+            $"compat api 1.0/1.1/1.2/1.3 {(report.LegacyApiVersionAccepted ? "pass" : "fail")}/{(report.PreviousApiVersionAccepted ? "pass" : "fail")}/{(report.CurrentApiMinusTwoVersionAccepted ? "pass" : "fail")}/{(report.CurrentApiMinusOneVersionAccepted ? "pass" : "fail")}, " +
             $"drift seed/hash/version/enum {(report.SeedMismatchRejected ? "pass" : "fail")}/{(report.ProfileHashMismatchRejected ? "pass" : "fail")}/{(report.VersionDriftRejected ? "pass" : "fail")}/{(report.EnumNameDriftRejected && report.EnumValueDriftRejected ? "pass" : "fail")}, " +
             $"isolation/runtime {(report.RoundtripIsolationPassed ? "pass" : "fail")}/{(report.SetWorldPlanPassed ? "pass" : "fail")} ({report.Reason})");
     }

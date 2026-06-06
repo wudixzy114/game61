@@ -2056,7 +2056,8 @@ static TerrainPlanJsonSmokeReport ValidateTerrainPlanJsonRoundtrip(
             out _);
         bool legacyApiVersionAccepted = AcceptsCompatibleApiVersion(json, profile, "1.0.0");
         bool previousApiVersionAccepted = AcceptsCompatibleApiVersion(json, profile, "1.1.0");
-        bool currentApiMinusOneVersionAccepted = AcceptsCompatibleApiVersion(json, profile, "1.2.0");
+        bool currentApiMinusTwoVersionAccepted = AcceptsCompatibleApiVersion(json, profile, "1.2.0");
+        bool currentApiMinusOneVersionAccepted = AcceptsCompatibleApiVersion(json, profile, "1.3.0");
         bool versionDriftRejected = RejectsVersionDrift(json, profile);
         bool enumNameDriftRejected = RejectsEnumNameDrift(json, profile);
         bool enumValueDriftRejected = RejectsEnumValueDrift(json, profile);
@@ -2074,6 +2075,7 @@ static TerrainPlanJsonSmokeReport ValidateTerrainPlanJsonRoundtrip(
             profileHashMismatchRejected &&
             legacyApiVersionAccepted &&
             previousApiVersionAccepted &&
+            currentApiMinusTwoVersionAccepted &&
             currentApiMinusOneVersionAccepted &&
             versionDriftRejected &&
             enumNameDriftRejected &&
@@ -2093,6 +2095,7 @@ static TerrainPlanJsonSmokeReport ValidateTerrainPlanJsonRoundtrip(
                 profileHashMismatchRejected,
                 legacyApiVersionAccepted,
                 previousApiVersionAccepted,
+                currentApiMinusTwoVersionAccepted,
                 currentApiMinusOneVersionAccepted,
                 versionDriftRejected,
                 enumNameDriftRejected,
@@ -2113,6 +2116,7 @@ static TerrainPlanJsonSmokeReport ValidateTerrainPlanJsonRoundtrip(
             profileHashMismatchRejected,
             legacyApiVersionAccepted,
             previousApiVersionAccepted,
+            currentApiMinusTwoVersionAccepted,
             currentApiMinusOneVersionAccepted,
             versionDriftRejected,
             enumNameDriftRejected,
@@ -2126,6 +2130,7 @@ static TerrainPlanJsonSmokeReport ValidateTerrainPlanJsonRoundtrip(
     catch (Exception ex)
     {
         return new TerrainPlanJsonSmokeReport(
+            false,
             false,
             false,
             false,
@@ -2698,6 +2703,7 @@ static string PlanJsonFailureReason(
     bool profileHashMismatchRejected,
     bool legacyApiVersionAccepted,
     bool previousApiVersionAccepted,
+    bool currentApiMinusTwoVersionAccepted,
     bool currentApiMinusOneVersionAccepted,
     bool versionDriftRejected,
     bool enumNameDriftRejected,
@@ -2766,9 +2772,14 @@ static string PlanJsonFailureReason(
         return "plan JSON rejected a compatible terrain-api-v1 1.1.0 plan";
     }
 
-    if (!currentApiMinusOneVersionAccepted)
+    if (!currentApiMinusTwoVersionAccepted)
     {
         return "plan JSON rejected a compatible terrain-api-v1 1.2.0 plan";
+    }
+
+    if (!currentApiMinusOneVersionAccepted)
+    {
+        return "plan JSON rejected a compatible terrain-api-v1 1.3.0 plan";
     }
 
     if (!versionDriftRejected)
@@ -3720,6 +3731,19 @@ static TerrainPublicApiShapeSmokeReport ValidateTerrainPublicApiShapeContracts()
                 ref checkedTypeCount,
                 ref checkedMemberCount,
                 out failureReason) &&
+            CheckPublicShape<TerrainRouteGraphPath>(
+                [
+                    ("StartPointId", typeof(int)),
+                    ("GoalPointId", typeof(int)),
+                    ("PointIds", typeof(int[])),
+                    ("Edges", typeof(TerrainRouteGraphEdge[])),
+                    ("Waypoints", typeof(Vector2[])),
+                    ("TotalCost", typeof(float)),
+                    ("TotalDistance", typeof(float))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
             CheckPublicShape<TerrainWorldStreamingSnapshot>(
                 [
                     ("Profile", typeof(TerrainGenerationProfile)),
@@ -4213,6 +4237,17 @@ static TerrainPublicApiShapeSmokeReport ValidateTerrainPublicApiShapeContracts()
                 ref checkedMemberCount,
                 out failureReason) &&
             CheckPublicMethods(
+                typeof(TerrainRouteGraphSnapshot),
+                [
+                    new("ContainsPoint", false, typeof(bool), [typeof(int)]),
+                    new("TryGetNode", false, typeof(bool), [typeof(int), typeof(TerrainRouteGraphNode).MakeByRefType()]),
+                    new("QueryConnectedEdges", false, typeof(TerrainRouteGraphEdge[]), [typeof(int)]),
+                    new("TryFindPath", false, typeof(bool), [typeof(int), typeof(int), typeof(TerrainRouteGraphPath).MakeByRefType()])
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicMethods(
                 typeof(TerrainWorldPlanSerializer),
                 [
                     new("ToJson", true, typeof(string), [typeof(TerrainWorldPlan), typeof(TerrainGenerationProfile)]),
@@ -4468,6 +4503,7 @@ static bool CheckExportedTerrainTypes(out string? failureReason)
         "Dao.Terrain.Generation.TerrainRouteCorridorSegment",
         "Dao.Terrain.Generation.TerrainRouteGraphEdge",
         "Dao.Terrain.Generation.TerrainRouteGraphNode",
+        "Dao.Terrain.Generation.TerrainRouteGraphPath",
         "Dao.Terrain.Generation.TerrainRouteGraphSnapshot",
         "Dao.Terrain.Generation.TerrainRouteKind",
         "Dao.Terrain.Generation.TerrainSample",
@@ -4837,11 +4873,16 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
         bool navigationGridPassed =
             TraversalCostGridMatches(expectedTraversalGrid, facadeTraversalGrid) &&
             TraversalCostGridSnapshotIsolated(facadeTraversalGrid);
+        TerrainRouteGraphSnapshot emptyRouteGraph = noPlanWorld.GetRouteGraphSnapshot();
         bool noPlanRouteGraphPassed =
             !noPlanWorld.TryGetRouteGraphSnapshot(out TerrainRouteGraphSnapshot? noPlanRouteGraph) &&
             noPlanRouteGraph is null &&
-            noPlanWorld.GetRouteGraphSnapshot().Nodes.Length == 0 &&
-            noPlanWorld.GetRouteGraphSnapshot().Edges.Length == 0;
+            emptyRouteGraph.Nodes.Length == 0 &&
+            emptyRouteGraph.Edges.Length == 0 &&
+            !emptyRouteGraph.ContainsPoint(1) &&
+            !emptyRouteGraph.TryGetNode(1, out _) &&
+            emptyRouteGraph.QueryConnectedEdges(1).Length == 0 &&
+            !emptyRouteGraph.TryFindPath(1, 2, out _);
         bool streamingSnapshotPassed =
             StreamingSnapshotMatchesFacadeContract(
                 noPlanWorld,
@@ -4852,10 +4893,10 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
                 expectedQueuedCoords: [new TerrainTileCoord(-4, -3), new TerrainTileCoord(8, -2)]);
         bool apiVersionPassed =
             TerrainApiVersion.Major == 1 &&
-            TerrainApiVersion.Minor == 3 &&
+            TerrainApiVersion.Minor == 4 &&
             TerrainApiVersion.Patch == 0 &&
             string.Equals(TerrainApiVersion.Contract, "terrain-api-v1", StringComparison.Ordinal) &&
-            string.Equals(TerrainApiVersion.Version, "1.3.0", StringComparison.Ordinal);
+            string.Equals(TerrainApiVersion.Version, "1.4.0", StringComparison.Ordinal);
         bool determinismContractPassed =
             string.Equals(TerrainDeterminismContract.Contract, "terrain-determinism-v1", StringComparison.Ordinal) &&
             ExactFloatEquals(TerrainDeterminismContract.HeightEpsilon, 0.05f) &&
@@ -5216,7 +5257,8 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
             routeGraphSnapshotPassed =
                 planWorld.TryGetRouteGraphSnapshot(out TerrainRouteGraphSnapshot? routeGraphSnapshot) &&
                 routeGraphSnapshot is not null &&
-                RouteGraphMatchesPlan(routeGraphSnapshot, plan);
+                RouteGraphMatchesPlan(routeGraphSnapshot, plan) &&
+                RouteGraphQueriesBehave(routeGraphSnapshot, plan);
             if (routeGraphSnapshotPassed && routeGraphSnapshot is not null)
             {
                 routeGraphSnapshotIsolated = RouteGraphSnapshotIsolated(planWorld, routeGraphSnapshot, plan);
@@ -5742,17 +5784,19 @@ static bool RouteGraphMatchesPlan(
     TerrainRouteGraphSnapshot snapshot,
     TerrainWorldPlan plan)
 {
+    TerrainRouteGraphNode[] nodes = snapshot.Nodes;
+    TerrainRouteGraphEdge[] edges = snapshot.Edges;
     if (!ExactPositionEquals(snapshot.Center, plan.Center) ||
         !ExactFloatEquals(snapshot.WorldSize, plan.WorldSize) ||
-        snapshot.Nodes.Length != plan.PointsOfInterest.Length ||
-        snapshot.Edges.Length != plan.Routes.Length)
+        nodes.Length != plan.PointsOfInterest.Length ||
+        edges.Length != plan.Routes.Length)
     {
         return false;
     }
 
-    for (int i = 0; i < snapshot.Nodes.Length; i++)
+    for (int i = 0; i < nodes.Length; i++)
     {
-        TerrainRouteGraphNode node = snapshot.Nodes[i];
+        TerrainRouteGraphNode node = nodes[i];
         TerrainWorldPointOfInterest point = plan.PointsOfInterest[i];
         if (node.PointId != point.Id ||
             !ExactPositionEquals(node.WorldPosition, point.WorldPosition) ||
@@ -5764,9 +5808,9 @@ static bool RouteGraphMatchesPlan(
         }
     }
 
-    for (int i = 0; i < snapshot.Edges.Length; i++)
+    for (int i = 0; i < edges.Length; i++)
     {
-        TerrainRouteGraphEdge edge = snapshot.Edges[i];
+        TerrainRouteGraphEdge edge = edges[i];
         TerrainWorldRoute route = plan.Routes[i];
         if (edge.FromPointId != route.FromPointId ||
             edge.ToPointId != route.ToPointId ||
@@ -5791,38 +5835,195 @@ static bool RouteGraphMatchesPlan(
     return true;
 }
 
+static bool RouteGraphQueriesBehave(
+    TerrainRouteGraphSnapshot snapshot,
+    TerrainWorldPlan plan)
+{
+    if (plan.PointsOfInterest.Length == 0)
+    {
+        return !snapshot.ContainsPoint(0) &&
+            !snapshot.TryGetNode(0, out _) &&
+            snapshot.QueryConnectedEdges(0).Length == 0 &&
+            !snapshot.TryFindPath(0, 1, out _);
+    }
+
+    TerrainWorldPointOfInterest firstPoint = plan.PointsOfInterest[0];
+    if (!snapshot.ContainsPoint(firstPoint.Id) ||
+        !snapshot.TryGetNode(firstPoint.Id, out TerrainRouteGraphNode queriedNode))
+    {
+        return false;
+    }
+
+    if (queriedNode.PointId != firstPoint.Id ||
+        !ExactPositionEquals(queriedNode.WorldPosition, firstPoint.WorldPosition) ||
+        queriedNode.Kind != firstPoint.Kind ||
+        queriedNode.SettlementTier != firstPoint.SettlementTier ||
+        !ExactFloatEquals(queriedNode.Score, firstPoint.Score))
+    {
+        return false;
+    }
+
+    if (snapshot.ContainsPoint(int.MinValue) || snapshot.TryGetNode(int.MinValue, out _))
+    {
+        return false;
+    }
+
+    if (!snapshot.TryFindPath(firstPoint.Id, firstPoint.Id, out TerrainRouteGraphPath? samePointPath) ||
+        samePointPath is null ||
+        samePointPath.StartPointId != firstPoint.Id ||
+        samePointPath.GoalPointId != firstPoint.Id ||
+        samePointPath.PointIds.Length != 1 ||
+        samePointPath.PointIds[0] != firstPoint.Id ||
+        samePointPath.Edges.Length != 0 ||
+        samePointPath.Waypoints.Length != 1 ||
+        !ExactPositionEquals(samePointPath.Waypoints[0], firstPoint.WorldPosition) ||
+        !ExactFloatEquals(samePointPath.TotalCost, 0.0f) ||
+        !ExactFloatEquals(samePointPath.TotalDistance, 0.0f))
+    {
+        return false;
+    }
+
+    if (!RouteGraphPathIsolated(snapshot, samePointPath, firstPoint.Id, firstPoint.Id))
+    {
+        return false;
+    }
+
+    if (plan.Routes.Length == 0)
+    {
+        return snapshot.QueryConnectedEdges(firstPoint.Id).Length == 0 &&
+            !snapshot.TryFindPath(firstPoint.Id, firstPoint.Id + 1, out _);
+    }
+
+    TerrainWorldRoute firstRoute = plan.Routes[0];
+    TerrainRouteGraphEdge[] connectedEdges = snapshot.QueryConnectedEdges(firstRoute.FromPointId);
+    if (connectedEdges.Length == 0)
+    {
+        return false;
+    }
+
+    bool foundDirectConnectedEdge = false;
+    foreach (TerrainRouteGraphEdge edge in connectedEdges)
+    {
+        if (edge.FromPointId == firstRoute.FromPointId &&
+            edge.ToPointId == firstRoute.ToPointId &&
+            edge.Kind == firstRoute.Kind &&
+            ExactFloatEquals(edge.Cost, firstRoute.Cost) &&
+            ExactFloatEquals(edge.AverageScenicPotential, firstRoute.AverageScenicPotential) &&
+            ExactFloatEquals(edge.AverageTraversability, firstRoute.AverageTraversability) &&
+            edge.Waypoints.Length == firstRoute.Waypoints.Length)
+        {
+            bool waypointsMatch = true;
+            for (int i = 0; i < edge.Waypoints.Length; i++)
+            {
+                if (!ExactPositionEquals(edge.Waypoints[i], firstRoute.Waypoints[i]))
+                {
+                    waypointsMatch = false;
+                    break;
+                }
+            }
+
+            if (waypointsMatch)
+            {
+                foundDirectConnectedEdge = true;
+                break;
+            }
+        }
+    }
+
+    if (!foundDirectConnectedEdge)
+    {
+        return false;
+    }
+
+    if (!ConnectedEdgeQueryIsolated(snapshot, firstRoute.FromPointId))
+    {
+        return false;
+    }
+
+    if (!snapshot.TryFindPath(firstRoute.FromPointId, firstRoute.ToPointId, out TerrainRouteGraphPath? path) ||
+        path is null)
+    {
+        return false;
+    }
+
+    if (path.StartPointId != firstRoute.FromPointId ||
+        path.GoalPointId != firstRoute.ToPointId ||
+        path.PointIds.Length < 2 ||
+        path.PointIds[0] != firstRoute.FromPointId ||
+        path.PointIds[^1] != firstRoute.ToPointId ||
+        path.Edges.Length == 0 ||
+        path.Waypoints.Length == 0)
+    {
+        return false;
+    }
+
+    float accumulatedCost = 0.0f;
+    float accumulatedDistance = 0.0f;
+    for (int i = 0; i < path.Edges.Length; i++)
+    {
+        TerrainRouteGraphEdge edge = path.Edges[i];
+        accumulatedCost += edge.Cost;
+        accumulatedDistance += RouteEdgeDistance(edge, snapshot);
+
+        int fromPointId = path.PointIds[i];
+        int toPointId = path.PointIds[i + 1];
+        if (edge.FromPointId != fromPointId || edge.ToPointId != toPointId)
+        {
+            return false;
+        }
+    }
+
+    if (!ExactFloatEquals(path.TotalCost, accumulatedCost) ||
+        !ExactFloatEquals(path.TotalDistance, accumulatedDistance))
+    {
+        return false;
+    }
+
+    return RouteGraphPathIsolated(snapshot, path, firstRoute.FromPointId, firstRoute.ToPointId);
+}
+
 static bool RouteGraphSnapshotIsolated(
     TerrainWorld planWorld,
     TerrainRouteGraphSnapshot snapshot,
     TerrainWorldPlan plan)
 {
-    bool isolated = snapshot.Nodes.Length == plan.PointsOfInterest.Length &&
-        snapshot.Edges.Length == plan.Routes.Length;
+    TerrainRouteGraphNode[] nodes = snapshot.Nodes;
+    TerrainRouteGraphEdge[] edges = snapshot.Edges;
+    bool isolated = nodes.Length == plan.PointsOfInterest.Length &&
+        edges.Length == plan.Routes.Length;
     if (!isolated)
     {
         return false;
     }
 
-    if (snapshot.Nodes.Length > 0)
+    if (nodes.Length > 0)
     {
-        TerrainRouteGraphNode originalNode = snapshot.Nodes[0];
-        snapshot.Nodes[0] = originalNode with { PointId = originalNode.PointId + 1_000_000 };
+        TerrainRouteGraphNode originalNode = nodes[0];
+        nodes[0] = originalNode with { PointId = originalNode.PointId + 1_000_000 };
+        TerrainRouteGraphNode[] secondNodes = snapshot.Nodes;
         TerrainRouteGraphSnapshot secondSnapshot = planWorld.GetRouteGraphSnapshot();
         isolated =
+            secondNodes.Length == plan.PointsOfInterest.Length &&
+            secondNodes[0].PointId == plan.PointsOfInterest[0].Id &&
+            secondNodes[0].Kind == plan.PointsOfInterest[0].Kind &&
             secondSnapshot.Nodes.Length == plan.PointsOfInterest.Length &&
             secondSnapshot.Nodes[0].PointId == plan.PointsOfInterest[0].Id &&
             secondSnapshot.Nodes[0].Kind == plan.PointsOfInterest[0].Kind;
     }
 
-    if (!isolated || snapshot.Edges.Length == 0)
+    if (!isolated || edges.Length == 0)
     {
         return isolated;
     }
 
-    TerrainRouteGraphEdge originalEdge = snapshot.Edges[0];
-    snapshot.Edges[0] = originalEdge with { FromPointId = originalEdge.FromPointId + 1_000_000 };
+    TerrainRouteGraphEdge originalEdge = edges[0];
+    edges[0] = originalEdge with { FromPointId = originalEdge.FromPointId + 1_000_000 };
+    TerrainRouteGraphEdge[] secondEdges = snapshot.Edges;
     TerrainRouteGraphSnapshot edgeSnapshot = planWorld.GetRouteGraphSnapshot();
     isolated =
+        secondEdges.Length == plan.Routes.Length &&
+        secondEdges[0].FromPointId == plan.Routes[0].FromPointId &&
+        secondEdges[0].ToPointId == plan.Routes[0].ToPointId &&
         edgeSnapshot.Edges.Length == plan.Routes.Length &&
         edgeSnapshot.Edges[0].FromPointId == plan.Routes[0].FromPointId &&
         edgeSnapshot.Edges[0].ToPointId == plan.Routes[0].ToPointId;
@@ -5833,11 +6034,127 @@ static bool RouteGraphSnapshotIsolated(
     }
 
     Vector2 originalWaypoint = originalEdge.Waypoints[0];
-    snapshot.Edges[0].Waypoints[0] = originalWaypoint + new Vector2(4444.0f, -4444.0f);
+    edges[0].Waypoints[0] = originalWaypoint + new Vector2(4444.0f, -4444.0f);
+    TerrainRouteGraphEdge[] waypointEdges = snapshot.Edges;
     TerrainRouteGraphSnapshot waypointSnapshot = planWorld.GetRouteGraphSnapshot();
-    return waypointSnapshot.Edges.Length == plan.Routes.Length &&
+    return waypointEdges.Length == plan.Routes.Length &&
+        waypointEdges[0].Waypoints.Length == plan.Routes[0].Waypoints.Length &&
+        ExactPositionEquals(waypointEdges[0].Waypoints[0], originalWaypoint) &&
+        waypointSnapshot.Edges.Length == plan.Routes.Length &&
         waypointSnapshot.Edges[0].Waypoints.Length == plan.Routes[0].Waypoints.Length &&
         ExactPositionEquals(waypointSnapshot.Edges[0].Waypoints[0], originalWaypoint);
+}
+
+static bool ConnectedEdgeQueryIsolated(TerrainRouteGraphSnapshot snapshot, int pointId)
+{
+    TerrainRouteGraphEdge[] first = snapshot.QueryConnectedEdges(pointId);
+    TerrainRouteGraphEdge[] second = snapshot.QueryConnectedEdges(pointId);
+    if (first.Length != second.Length)
+    {
+        return false;
+    }
+
+    if (first.Length == 0)
+    {
+        return true;
+    }
+
+    TerrainRouteGraphEdge original = second[0];
+    first[0] = first[0] with { ToPointId = first[0].ToPointId + 1_000_000 };
+    if (snapshot.QueryConnectedEdges(pointId)[0].ToPointId != original.ToPointId)
+    {
+        return false;
+    }
+
+    if (first[0].Waypoints.Length == 0)
+    {
+        return true;
+    }
+
+    Vector2 originalWaypoint = second[0].Waypoints[0];
+    first[0].Waypoints[0] = originalWaypoint + new Vector2(321.0f, -654.0f);
+    return ExactPositionEquals(snapshot.QueryConnectedEdges(pointId)[0].Waypoints[0], originalWaypoint);
+}
+
+static bool RouteGraphPathIsolated(
+    TerrainRouteGraphSnapshot snapshot,
+    TerrainRouteGraphPath path,
+    int fromPointId,
+    int toPointId)
+{
+    int[] pointIds = path.PointIds;
+    TerrainRouteGraphEdge[] edges = path.Edges;
+    Vector2[] waypoints = path.Waypoints;
+
+    if (pointIds.Length > 0)
+    {
+        int originalPointId = pointIds[0];
+        pointIds[0] = originalPointId + 1_000_000;
+        if (path.PointIds[0] != originalPointId)
+        {
+            return false;
+        }
+    }
+
+    if (edges.Length > 0)
+    {
+        TerrainRouteGraphEdge originalEdge = edges[0];
+        edges[0] = originalEdge with { ToPointId = originalEdge.ToPointId + 1_000_000 };
+        if (!snapshot.TryFindPath(fromPointId, toPointId, out TerrainRouteGraphPath? freshPath) ||
+            freshPath is null ||
+            freshPath.Edges.Length == 0 ||
+            freshPath.Edges[0].ToPointId != originalEdge.ToPointId)
+        {
+            return false;
+        }
+
+        if (originalEdge.Waypoints.Length > 0)
+        {
+            Vector2 originalWaypoint = originalEdge.Waypoints[0];
+            edges[0].Waypoints[0] = originalWaypoint + new Vector2(987.0f, -987.0f);
+            if (!snapshot.TryFindPath(fromPointId, toPointId, out TerrainRouteGraphPath? thirdPath) ||
+                thirdPath is null ||
+                thirdPath.Edges.Length == 0 ||
+                !ExactPositionEquals(thirdPath.Edges[0].Waypoints[0], originalWaypoint))
+            {
+                return false;
+            }
+        }
+    }
+
+    if (waypoints.Length > 0)
+    {
+        Vector2 originalWaypoint = waypoints[0];
+        waypoints[0] = originalWaypoint + new Vector2(111.0f, 222.0f);
+        if (!ExactPositionEquals(path.Waypoints[0], originalWaypoint))
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+static float RouteEdgeDistance(TerrainRouteGraphEdge edge, TerrainRouteGraphSnapshot snapshot)
+{
+    if (edge.Waypoints.Length >= 2)
+    {
+        float total = 0.0f;
+        for (int i = 1; i < edge.Waypoints.Length; i++)
+        {
+            total += edge.Waypoints[i - 1].DistanceTo(edge.Waypoints[i]);
+        }
+
+        return total;
+    }
+
+    if (snapshot.TryGetNode(edge.FromPointId, out TerrainRouteGraphNode fromNode) &&
+        snapshot.TryGetNode(edge.ToPointId, out TerrainRouteGraphNode toNode))
+    {
+        return fromNode.WorldPosition.DistanceTo(toNode.WorldPosition);
+    }
+
+    return 0.0f;
 }
 
 static string RuntimeApiFailureReason(
@@ -5963,7 +6280,7 @@ static string RuntimeApiFailureReason(
 
     if (!apiVersionPassed)
     {
-        return "TerrainApiVersion constants did not match terrain-api-v1 version 1.3.0";
+        return "TerrainApiVersion constants did not match terrain-api-v1 version 1.4.0";
     }
 
     if (!determinismContractPassed)

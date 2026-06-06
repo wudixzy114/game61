@@ -66,6 +66,18 @@ Use for navigation and map-graph handoff without embedding character pathfinding
 - `GetRouteGraphSnapshot()`
 - `TryGetRouteGraphSnapshot(out TerrainRouteGraphSnapshot? snapshot)`
 
+`TerrainRouteGraphSnapshot` now provides stable high-level graph queries for importer and AI layers
+without exposing planner internals:
+
+- `ContainsPoint(int pointId)`
+- `TryGetNode(int pointId, out TerrainRouteGraphNode node)`
+- `QueryConnectedEdges(int pointId)`
+- `TryFindPath(int fromPointId, int toPointId, out TerrainRouteGraphPath? path)`
+
+`TryFindPath(...)` returns a `TerrainRouteGraphPath` with ordered point ids, directed edge copies,
+collapsed waypoint geometry, total route cost, and total world distance. This remains a high-level
+route handoff, not character pathfinding or navmesh ownership.
+
 ## Runtime Provider
 
 `Dao.Terrain.Streaming.TerrainWorld` implements all five interfaces above.
@@ -149,6 +161,7 @@ The PR terrain validation tier now verifies:
 - limited-result POI, gameplay-tag region, and route summary queries return stable isolated results
 - placement candidates respect requested tags, traversal filters, and route-influence requirements
 - route-graph snapshots and traversal-cost grid handoff are stable and isolated
+- route-graph node lookup, connected-edge lookup, and high-level path queries are stable and isolated
 - runtime signal delegates exist with the expected signatures
 - gameplay-facing scripts outside `dao/Scripts/Terrain` and `dao/Scripts/Demo` do not directly
   reference internal terrain implementation tokens such as `TerrainTileBuilder`,
