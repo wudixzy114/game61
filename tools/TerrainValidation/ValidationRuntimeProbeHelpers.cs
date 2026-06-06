@@ -55,9 +55,7 @@ internal static class TerrainValidationRuntimeProbeHelpers
 
     internal static object CreatePendingTileJobKeyDictionary(TerrainTileCoord[] coords)
     {
-        Type worldType = typeof(TerrainWorld);
-        Type pendingJobType = worldType.GetNestedType("PendingTileJob", BindingFlags.NonPublic)
-            ?? throw new MissingMemberException(worldType.FullName, "PendingTileJob");
+        Type pendingJobType = ResolveRuntimeType("PendingTileJob");
         Type dictionaryType = typeof(Dictionary<,>).MakeGenericType(typeof(TerrainTileCoord), pendingJobType);
         var dictionary = (System.Collections.IDictionary)(Activator.CreateInstance(dictionaryType)
             ?? throw new InvalidOperationException("Failed to create pending tile job dictionary."));
@@ -75,9 +73,7 @@ internal static class TerrainValidationRuntimeProbeHelpers
         TerrainGenerationProfile profile,
         int terrainFeatureKey)
     {
-        Type worldType = typeof(TerrainWorld);
-        Type pendingJobType = worldType.GetNestedType("PendingTileJob", BindingFlags.NonPublic)
-            ?? throw new MissingMemberException(worldType.FullName, "PendingTileJob");
+        Type pendingJobType = ResolveRuntimeType("PendingTileJob");
         Type dictionaryType = typeof(Dictionary<,>).MakeGenericType(typeof(TerrainTileCoord), pendingJobType);
         var dictionary = (System.Collections.IDictionary)(Activator.CreateInstance(dictionaryType)
             ?? throw new InvalidOperationException("Failed to create pending tile job dictionary."));
@@ -92,33 +88,78 @@ internal static class TerrainValidationRuntimeProbeHelpers
 
     internal static object CreatePendingTileJobList()
     {
-        Type pendingJobType = typeof(TerrainWorld).GetNestedType("PendingTileJob", BindingFlags.NonPublic)
-            ?? throw new MissingMemberException(typeof(TerrainWorld).FullName, "PendingTileJob");
+        Type pendingJobType = ResolveRuntimeType("PendingTileJob");
         Type listType = typeof(List<>).MakeGenericType(pendingJobType);
         return Activator.CreateInstance(listType)
             ?? throw new InvalidOperationException("Failed to create retired pending tile job list.");
     }
 
-    internal static object CreateTileCacheDictionary(
+    internal static object CreateTileCacheState(
         TerrainTileCoord coord,
         TerrainGenerationProfile profile,
         int terrainFeatureKey)
     {
-        Type cacheKeyType = typeof(TerrainWorld).GetNestedType("TerrainTileCacheKey", BindingFlags.NonPublic)
-            ?? throw new MissingMemberException(typeof(TerrainWorld).FullName, "TerrainTileCacheKey");
+        Type cacheType = ResolveRuntimeType("TerrainTileDataCache");
+        object cache = Activator.CreateInstance(cacheType, nonPublic: true)
+            ?? throw new InvalidOperationException("Failed to create terrain tile cache state.");
+        Type cacheKeyType = ResolveRuntimeType("TerrainTileCacheKey");
         object key = Activator.CreateInstance(cacheKeyType, coord, 0, false, profile, terrainFeatureKey)
             ?? throw new InvalidOperationException("Failed to create tile cache key.");
         Type dictionaryType = typeof(Dictionary<,>).MakeGenericType(cacheKeyType, typeof(TerrainTileData));
         var dictionary = (System.Collections.IDictionary)(Activator.CreateInstance(dictionaryType)
             ?? throw new InvalidOperationException("Failed to create tile cache dictionary."));
         dictionary.Add(key, null);
-        return dictionary;
+        SetPrivateField(cache, "_tileCache", dictionary);
+        Type nodeType = typeof(LinkedListNode<>).MakeGenericType(cacheKeyType);
+        Type nodeDictionaryType = typeof(Dictionary<,>).MakeGenericType(cacheKeyType, nodeType);
+        object nodeDictionary = Activator.CreateInstance(nodeDictionaryType)
+            ?? throw new InvalidOperationException("Failed to create tile cache node dictionary.");
+        SetPrivateField(cache, "_tileCacheNodes", nodeDictionary);
+        Type listType = typeof(LinkedList<>).MakeGenericType(cacheKeyType);
+        object list = Activator.CreateInstance(listType)
+            ?? throw new InvalidOperationException("Failed to create tile cache LRU list.");
+        SetPrivateField(cache, "_tileCacheLru", list);
+        return cache;
+    }
+
+    internal static int GetNestedPrivateCollectionCount(object instance, string fieldName, string nestedFieldName)
+    {
+        FieldInfo? field = instance.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
+        if (field is null)
+        {
+            throw new MissingFieldException(instance.GetType().FullName, fieldName);
+        }
+
+        object value = field.GetValue(instance)
+            ?? throw new InvalidOperationException($"Private field {fieldName} was null.");
+        FieldInfo? nestedField = value.GetType().GetField(nestedFieldName, BindingFlags.Instance | BindingFlags.NonPublic);
+        if (nestedField is null)
+        {
+            throw new MissingFieldException(value.GetType().FullName, nestedFieldName);
+        }
+
+        object nestedValue = nestedField.GetValue(value)
+            ?? throw new InvalidOperationException($"Nested private field {nestedFieldName} was null.");
+        PropertyInfo? count = nestedValue.GetType().GetProperty("Count", BindingFlags.Instance | BindingFlags.Public);
+        if (count?.GetValue(nestedValue) is int result)
+        {
+            return result;
+        }
+
+        throw new InvalidOperationException($"Nested private field {nestedFieldName} does not expose a Count property.");
+    }
+
+    private static Type ResolveRuntimeType(string typeName)
+    {
+        Type worldType = typeof(TerrainWorld);
+        return worldType.GetNestedType(typeName, BindingFlags.NonPublic)
+            ?? worldType.Assembly.GetType($"Dao.Terrain.Streaming.{typeName}", throwOnError: false)
+            ?? throw new MissingMemberException(worldType.FullName, typeName);
     }
 
     internal static object CreateTileCacheNodeDictionary()
     {
-        Type cacheKeyType = typeof(TerrainWorld).GetNestedType("TerrainTileCacheKey", BindingFlags.NonPublic)
-            ?? throw new MissingMemberException(typeof(TerrainWorld).FullName, "TerrainTileCacheKey");
+        Type cacheKeyType = ResolveRuntimeType("TerrainTileCacheKey");
         Type nodeType = typeof(LinkedListNode<>).MakeGenericType(cacheKeyType);
         Type dictionaryType = typeof(Dictionary<,>).MakeGenericType(cacheKeyType, nodeType);
         return Activator.CreateInstance(dictionaryType)
@@ -127,8 +168,7 @@ internal static class TerrainValidationRuntimeProbeHelpers
 
     internal static object CreateTileCacheLinkedList()
     {
-        Type cacheKeyType = typeof(TerrainWorld).GetNestedType("TerrainTileCacheKey", BindingFlags.NonPublic)
-            ?? throw new MissingMemberException(typeof(TerrainWorld).FullName, "TerrainTileCacheKey");
+        Type cacheKeyType = ResolveRuntimeType("TerrainTileCacheKey");
         Type listType = typeof(LinkedList<>).MakeGenericType(cacheKeyType);
         return Activator.CreateInstance(listType)
             ?? throw new InvalidOperationException("Failed to create tile cache LRU list.");
@@ -144,7 +184,7 @@ internal static class TerrainValidationRuntimeProbeHelpers
 
         object value = field.GetValue(instance)
             ?? throw new InvalidOperationException($"Private field {fieldName} was null.");
-        PropertyInfo? count = value.GetType().GetProperty("Count", BindingFlags.Instance | BindingFlags.Public);
+        PropertyInfo? count = value.GetType().GetProperty("Count", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
         if (count?.GetValue(value) is int result)
         {
             return result;

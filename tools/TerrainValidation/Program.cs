@@ -6795,9 +6795,7 @@ static bool ValidateRuntimeSetWorldPlanInvalidation(
         });
     SetPrivateField(world, "_jobs", CreatePendingTileJobStateDictionary([coord], probeProfile, terrainFeatureKey));
     SetPrivateField(world, "_retiredJobs", CreatePendingTileJobList());
-    SetPrivateField(world, "_tileCache", CreateTileCacheDictionary(coord, probeProfile, terrainFeatureKey));
-    SetPrivateField(world, "_tileCacheNodes", CreateTileCacheNodeDictionary());
-    SetPrivateField(world, "_tileCacheLru", CreateTileCacheLinkedList());
+    SetPrivateField(world, "_tileCache", CreateTileCacheState(coord, probeProfile, terrainFeatureKey));
 
     TerrainWorldStreamingSnapshot seededSnapshot = world.GetStreamingSnapshot();
     if (!seededSnapshot.HasWorldPlan ||
@@ -6820,9 +6818,9 @@ static bool ValidateRuntimeSetWorldPlanInvalidation(
         clearedSnapshot.TileCacheCount == 0 &&
         GetPrivateCollectionCount(world, "_jobs") == 0 &&
         GetPrivateCollectionCount(world, "_retiredJobs") == 1 &&
-        GetPrivateCollectionCount(world, "_tileCache") == 0 &&
-        GetPrivateCollectionCount(world, "_tileCacheNodes") == 0 &&
-        GetPrivateCollectionCount(world, "_tileCacheLru") == 0 &&
+        GetNestedPrivateCollectionCount(world, "_tileCache", "_tileCache") == 0 &&
+        GetNestedPrivateCollectionCount(world, "_tileCache", "_tileCacheNodes") == 0 &&
+        GetNestedPrivateCollectionCount(world, "_tileCache", "_tileCacheLru") == 0 &&
         GetPrivateCollectionCount(world, "_chunks") == 0;
 }
 
