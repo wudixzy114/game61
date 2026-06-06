@@ -79,416 +79,116 @@ public partial class TerrainWorld : Node3D, ITerrainQueryService, ITerrainPlanPr
 
     public override void _Ready()
     {
-        Settings ??= new TerrainSettings();
-        _profile = Settings.Snapshot();
-        _hasProfileSnapshot = true;
-        EnsureGeneratedWorldPlan();
-        RebuildPlanIndices();
-        if (_profile.UseNativeSamplerWhenAvailable)
-        {
-            NativeTerrainBridge.EnsureInitialized();
-            if (!NativeTerrainBridge.IsAvailable)
-            {
-                GD.PushWarning("Native terrain sampler requested but unavailable; using managed C# sampler.");
-            }
-        }
-
-        _terrainMaterial = TerrainMaterialFactory.CreateTerrainMaterial();
-        _waterMaterial = TerrainMaterialFactory.CreateWaterMaterial();
-        _localWaterMaterial = TerrainMaterialFactory.CreateLocalWaterMaterial();
-
-        ResolveFocus();
-
-        if (CreateWaterPlane)
-        {
-            CreateWater();
-        }
-
-        _isReady = true;
-        if (_worldPlan is not null)
-        {
-            EmitPlanReadySignalIfReady();
-            MarkStreamingSnapshotDirty();
-        }
-
-        UpdateStreaming(force: true);
-        EmitStreamingSnapshotChangedSignalIfNeeded();
+        TerrainWorldRuntimeLifecycleService.OnReady(this);
     }
 
     public override void _Process(double delta)
     {
-        DisposeCompletedRetiredJobs();
-        SubmitCompletedWorldPlanJob();
-        SubmitCompletedJobs();
-
-        _streamTimer += delta;
-        if (_streamTimer >= StreamingIntervalSeconds)
-        {
-            _streamTimer = 0.0;
-            UpdateStreaming(force: false);
-        }
-
-        UpdateWaterPlane();
-        EmitStreamingSnapshotChangedSignalIfNeeded();
+        TerrainWorldRuntimeLifecycleService.OnProcess(this, delta);
     }
 
     public override void _ExitTree()
     {
-        _worldPlanGenerationVersion++;
-        CancelWorldPlanJob();
-        CancelAllJobs();
-        DisposeCompletedRetiredJobs();
+        TerrainWorldRuntimeLifecycleService.OnExitTree(this);
     }
 
     /// <summary>Sets the camera or player focus node and forces a streaming update.</summary>
     public void SetFocus(Node3D focus)
     {
-        _focus = focus;
-        MarkStreamingSnapshotDirty();
-        UpdateStreaming(force: true);
-        EmitStreamingSnapshotChangedSignalIfNeeded();
+        TerrainWorldRuntimeLifecycleService.SetFocus(this, focus);
     }
 
     /// <summary>Sets or clears the world plan, rebuilding corridor and POI indices and invalidating the tile cache.</summary>
     public void SetWorldPlan(TerrainWorldPlan? worldPlan)
     {
-        bool hadPlan = _worldPlan is not null;
-        EnsureProfileSnapshot();
-        _worldPlanGenerationVersion++;
-        CancelWorldPlanJob();
-        _worldPlan = worldPlan is null ? null : TerrainWorldPlan.CopyOf(worldPlan);
-        ApplyPlanIndexChanges(hadPlan);
-        EmitStreamingSnapshotChangedSignalIfNeeded();
+        TerrainWorldRuntimeLifecycleService.SetWorldPlan(this, worldPlan);
     }
 
     /// <summary>Regenerates the terrain profile and rebuilds all streaming state.</summary>
     public void Regenerate()
     {
-        bool hadPlan = _worldPlan is not null;
-        Settings ??= new TerrainSettings();
-        _profile = Settings.Snapshot();
-        _hasProfileSnapshot = true;
-        if (GenerateOpenWorldPlanOnReady)
-        {
-            _worldPlan = null;
-            if (hadPlan)
-            {
-                EmitPlanClearedSignalIfReady();
-                MarkStreamingSnapshotDirty();
-            }
-
-            PrepareGeneratedWorldPlan();
-            RebuildPlanIndices();
-            if (!GenerateOpenWorldPlanAsync && _worldPlan is not null)
-            {
-                EmitPlanReadySignalIfReady();
-                MarkStreamingSnapshotDirty();
-            }
-        }
-        else
-        {
-            RebuildPlanIndices();
-        }
-
-        if (_profile.UseNativeSamplerWhenAvailable)
-        {
-            NativeTerrainBridge.EnsureInitialized();
-        }
-
-        InvalidatePlanDependentStreamingState();
-        UpdateStreaming(force: true);
-        EmitStreamingSnapshotChangedSignalIfNeeded();
+        TerrainWorldRuntimeLifecycleService.Regenerate(this);
     }
 
     private void InvalidatePlanDependentStreamingState()
     {
-        CancelAllJobs();
-        ClearTileCache();
-        ClearChunks();
+        TerrainWorldRuntimeLifecycleService.InvalidatePlanDependentStreamingState(this);
     }
 
     /// <summary>Builds a new open-world plan for this terrain world and optionally applies it to streaming tiles.</summary>
     public TerrainWorldPlan GenerateOpenWorldPlan(bool apply = true)
     {
-        Settings ??= new TerrainSettings();
-        if (!_isReady)
-        {
-            _profile = Settings.Snapshot();
-            _hasProfileSnapshot = true;
-        }
-
-        _worldPlanGenerationVersion++;
-        CancelWorldPlanJob();
-        float worldSize = Mathf.Max(_profile.ChunkSize, OpenWorldPlanWorldSize);
-        TerrainWorldPlan plan = CreateRuntimeOpenWorldPlan(_profile, worldSize);
-
-        if (ValidateGeneratedOpenWorldPlan || PrintGeneratedOpenWorldPlanSummary)
-        {
-            ReportGeneratedOpenWorldPlan(plan);
-        }
-
-        if (apply)
-        {
-            SetWorldPlan(plan);
-        }
-
-        return plan;
+        return TerrainWorldRuntimeLifecycleService.GenerateOpenWorldPlan(this, apply);
     }
 
     private void EnsureGeneratedWorldPlan()
     {
-        if (!GenerateOpenWorldPlanOnReady || _worldPlan is not null)
-        {
-            return;
-        }
-
-        PrepareGeneratedWorldPlan();
+        TerrainWorldRuntimeLifecycleService.EnsureGeneratedWorldPlan(this);
     }
 
     private void EnsureProfileSnapshot()
     {
-        if (_hasProfileSnapshot)
-        {
-            return;
-        }
-
-        Settings ??= new TerrainSettings();
-        _profile = Settings.Snapshot();
-        _hasProfileSnapshot = true;
+        TerrainWorldRuntimeLifecycleService.EnsureProfileSnapshot(this);
     }
 
     private void PrepareGeneratedWorldPlan()
     {
-        if (GenerateOpenWorldPlanAsync)
-        {
-            StartOpenWorldPlanJob();
-            return;
-        }
-
-        _worldPlan = GenerateOpenWorldPlan(apply: false);
+        TerrainWorldPlanLifecycleService.PrepareGeneratedWorldPlan(this);
     }
 
     private void StartOpenWorldPlanJob()
     {
-        CancelWorldPlanJob();
-        _worldPlanGenerationVersion++;
-        TerrainGenerationProfile planProfile = _profile;
-        float worldSize = Mathf.Max(planProfile.ChunkSize, OpenWorldPlanWorldSize);
-        var cancellation = new CancellationTokenSource();
-        Task<TerrainWorldPlan> task = CreateRuntimeOpenWorldPlanAsync(planProfile, worldSize, cancellation.Token);
-        ObserveWorldPlanTaskCompletion(task);
-        _worldPlanJob = new PendingWorldPlanJob(_worldPlanGenerationVersion, planProfile, worldSize, cancellation, task);
-        MarkStreamingSnapshotDirty();
+        TerrainWorldPlanLifecycleService.StartOpenWorldPlanJob(this);
     }
 
     private void SubmitCompletedWorldPlanJob()
     {
-        if (_worldPlanJob is not { } job || !job.Task.IsCompleted)
-        {
-            return;
-        }
-
-        bool hadPlan = _worldPlan is not null;
-        _worldPlanJob = null;
-        MarkStreamingSnapshotDirty();
-        if (job.Task.IsCanceled)
-        {
-            job.Cancellation.Dispose();
-            return;
-        }
-
-        if (job.Task.IsFaulted)
-        {
-            job.Cancellation.Dispose();
-            GD.PushError($"Open world terrain plan generation failed: {job.Task.Exception?.GetBaseException().Message}");
-            return;
-        }
-
-        if (job.Version != _worldPlanGenerationVersion ||
-            !job.Profile.Equals(_profile) ||
-            !Mathf.IsEqualApprox(job.WorldSize, Mathf.Max(_profile.ChunkSize, OpenWorldPlanWorldSize)))
-        {
-            job.Cancellation.Dispose();
-            return;
-        }
-
-        TerrainWorldPlan plan = job.Task.Result;
-        job.Cancellation.Dispose();
-        if (ValidateGeneratedOpenWorldPlan || PrintGeneratedOpenWorldPlanSummary)
-        {
-            ReportGeneratedOpenWorldPlan(plan);
-        }
-
-        _worldPlan = plan;
-        ApplyPlanIndexChanges(hadPlan);
+        TerrainWorldPlanLifecycleService.SubmitCompletedWorldPlanJob(this);
     }
 
     private void CancelWorldPlanJob()
     {
-        if (_worldPlanJob is not { } job)
-        {
-            return;
-        }
-
-        _worldPlanJob = null;
-        MarkStreamingSnapshotDirty();
-        if (job.Task.IsCompleted)
-        {
-            job.Cancellation.Dispose();
-            return;
-        }
-
-        job.Cancellation.Cancel();
-        ObserveRetiredWorldPlanTaskCompletion(job.Task, job.Cancellation);
+        TerrainWorldPlanLifecycleService.CancelWorldPlanJob(this);
     }
 
     private void ApplyPlanIndexChanges(bool hadPlanBeforeChange)
     {
-        int previousKey = TerrainFeatureKey;
-        bool hasPlanNow = _worldPlan is not null;
-        RebuildPlanIndices();
-        MarkStreamingSnapshotDirty();
-
-        if (!_isReady)
-        {
-            return;
-        }
-
-        if (hadPlanBeforeChange && !hasPlanNow)
-        {
-            EmitPlanClearedSignalIfReady();
-        }
-        else if (hasPlanNow)
-        {
-            EmitPlanReadySignalIfReady();
-        }
-
-        if (previousKey == TerrainFeatureKey)
-        {
-            return;
-        }
-
-        InvalidatePlanDependentStreamingState();
-        UpdateStreaming(force: true);
+        TerrainWorldPlanLifecycleService.ApplyPlanIndexChanges(this, hadPlanBeforeChange);
     }
 
     private void ReportGeneratedOpenWorldPlan(TerrainWorldPlan plan)
     {
-        TerrainWorldPlanningGateResult planningGate = TerrainWorldPlanner.ValidateOpenWorldPlanning(plan);
-        TerrainQualityGateResult qualityGate = TerrainQualityAnalyzer.ValidateOpenWorldDefault(plan.QualityReport);
-        TerrainExperienceGateResult experienceGate = TerrainExperienceAnalyzer.ValidateOpenWorldDefault(plan.ExperienceReport);
-        bool passed = planningGate.Passed && qualityGate.Passed && experienceGate.Passed;
-
-        if (PrintGeneratedOpenWorldPlanSummary)
-        {
-            GD.Print(
-                $"Open world terrain plan {(passed ? "PASS" : "FAIL")}: " +
-                $"{planningGate.Report.PointOfInterestCount} POIs, {planningGate.Report.RouteCount} routes, " +
-                $"settlements V/T/O {planningGate.Report.VillageCount}/{planningGate.Report.TownCount}/{planningGate.Report.OasisHubCount}, " +
-                $"land {qualityGate.Report.LandRatio:0.000}, scenic {qualityGate.Report.ScenicRatio:0.000}, " +
-                $"encounter {experienceGate.Report.AverageEncounterPotential:0.000}, rhythm {experienceGate.Report.RouteRhythmScore:0.000}, " +
-                $"connected {planningGate.Report.ConnectedPointRatio:0.000}, " +
-                $"settlement net {planningGate.Report.ConnectedSettlementRatio:0.000}/{planningGate.Report.SettlementRouteCount}, " +
-                $"coverage {planningGate.Report.PointOfInterestWorldCoverage:0.000}/{planningGate.Report.RouteWorldCoverage:0.000}.");
-        }
-
-        if (ValidateGeneratedOpenWorldPlan && !passed)
-        {
-            GD.PushWarning(
-                $"Generated open world terrain plan failed readiness gates. " +
-                $"Planning gate: {planningGate.Passed}, quality gate: {qualityGate.Passed}, experience gate: {experienceGate.Passed}.");
-        }
+        TerrainWorldPlanLifecycleService.ReportGeneratedOpenWorldPlan(this, plan);
     }
 
     private void MarkStreamingSnapshotDirty()
     {
-        _streamingStateRevision++;
+        TerrainWorldSignalDispatchService.MarkStreamingSnapshotDirty(this);
     }
 
     private void EmitPlanReadySignalIfReady()
     {
-        if (!_isReady)
-        {
-            return;
-        }
-
-        EmitSignal(PlanReadySignalName);
+        TerrainWorldSignalDispatchService.EmitPlanReadySignalIfReady(this);
     }
 
     private void EmitPlanClearedSignalIfReady()
     {
-        if (!_isReady)
-        {
-            return;
-        }
-
-        EmitSignal(PlanClearedSignalName);
+        TerrainWorldSignalDispatchService.EmitPlanClearedSignalIfReady(this);
     }
 
     private void EmitChunkLoadedSignalIfReady(TerrainTileData data)
     {
-        if (!_isReady)
-        {
-            return;
-        }
-
-        EmitSignal(ChunkLoadedSignalName, data.Coord.X, data.Coord.Z, data.Lod, data.CollisionFaces.Length > 0);
+        TerrainWorldSignalDispatchService.EmitChunkLoadedSignalIfReady(this, data);
     }
 
     private void EmitChunkUnloadedSignalIfReady(TerrainChunk chunk)
     {
-        if (!_isReady)
-        {
-            return;
-        }
-
-        EmitSignal(ChunkUnloadedSignalName, chunk.Coord.X, chunk.Coord.Z, chunk.Lod, chunk.HasCollision);
+        TerrainWorldSignalDispatchService.EmitChunkUnloadedSignalIfReady(this, chunk);
     }
 
     private void EmitStreamingSnapshotChangedSignalIfNeeded()
     {
-        if (!_isReady || _emittedStreamingStateRevision == _streamingStateRevision)
-        {
-            return;
-        }
-
-        _emittedStreamingStateRevision = _streamingStateRevision;
-        EmitSignal(StreamingSnapshotChangedSignalName);
-    }
-
-    private static void ObserveWorldPlanTaskCompletion(Task<TerrainWorldPlan> task)
-    {
-        _ = task.ContinueWith(
-            static completed =>
-            {
-                if (completed.IsFaulted)
-                {
-                    _ = completed.Exception;
-                }
-            },
-            CancellationToken.None,
-            TaskContinuationOptions.ExecuteSynchronously,
-            TaskScheduler.Default);
-    }
-
-    private static void ObserveRetiredWorldPlanTaskCompletion(
-        Task<TerrainWorldPlan> task,
-        CancellationTokenSource cancellation)
-    {
-        _ = task.ContinueWith(
-            static (completed, state) =>
-            {
-                if (completed.IsFaulted)
-                {
-                    _ = completed.Exception;
-                }
-
-                ((CancellationTokenSource)state!).Dispose();
-            },
-            cancellation,
-            CancellationToken.None,
-            TaskContinuationOptions.ExecuteSynchronously,
-            TaskScheduler.Default);
+        TerrainWorldSignalDispatchService.EmitStreamingSnapshotChangedSignalIfNeeded(this);
     }
 
 }
