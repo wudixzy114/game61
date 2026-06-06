@@ -8,6 +8,7 @@ using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
 using static TerrainValidationCliHelpers;
+using static TerrainValidationApiLayeringChecks;
 using static TerrainValidationBenchmarkChecks;
 using static TerrainValidationContractChecks;
 using static TerrainValidationOutput;
@@ -84,6 +85,7 @@ TerrainProfileHashSmokeReport? profileHashSmokeReport = null;
 TerrainValidationCliContractSmokeReport? validationCliContractSmokeReport = null;
 TerrainThresholdContractSmokeReport? thresholdContractSmokeReport = null;
 TerrainDefaultStateContractSmokeReport? defaultStateContractSmokeReport = null;
+TerrainApiLayeringSmokeReport? apiLayeringSmokeReport = null;
 TerrainRuntimeApiSmokeReport? runtimeApiSmokeReport = null;
 TerrainAnchorContractSmokeReport? anchorSmokeReport = null;
 TerrainRuntimeWorldSmokeReport? runtimeWorldSmokeReport = null;
@@ -243,6 +245,10 @@ defaultStateContractSmokeReport = ValidateTerrainDefaultStateContracts();
 PrintDefaultStateContractSmoke(defaultStateContractSmokeReport.Value);
 RecordAuxiliaryCheck(defaultStateContractSmokeReport.Value.Passed, ref totalFailures, ref auxiliaryCheckCount, ref auxiliaryFailureCount);
 
+apiLayeringSmokeReport = ValidateTerrainApiLayeringContract();
+PrintApiLayeringSmoke(apiLayeringSmokeReport.Value);
+RecordAuxiliaryCheck(apiLayeringSmokeReport.Value.Passed, ref totalFailures, ref auxiliaryCheckCount, ref auxiliaryFailureCount);
+
 PrintAggregate(
     aggregate,
     seedCount,
@@ -264,6 +270,7 @@ PrintAggregate(
     validationCliContractSmokeReport,
     thresholdContractSmokeReport,
     defaultStateContractSmokeReport,
+    apiLayeringSmokeReport,
     runtimeApiSmokeReport,
     anchorSmokeReport,
     runtimeWorldSmokeReport,
@@ -3047,6 +3054,39 @@ static TerrainPublicApiShapeSmokeReport ValidateTerrainPublicApiShapeContracts()
                 ref checkedTypeCount,
                 ref checkedMemberCount,
                 out failureReason) &&
+            CheckPublicShape<TerrainScatterVisualEntryResource>(
+                [
+                    ("Kind", typeof(TerrainScatterKind)),
+                    ("Mesh", typeof(Mesh)),
+                    ("NodeName", typeof(string)),
+                    ("VerticalOffset", typeof(float)),
+                    ("AxisScale", typeof(Vector3)),
+                    ("AabbHeightPadding", typeof(float))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicShape<TerrainLandmarkVisualEntryResource>(
+                [
+                    ("Kind", typeof(TerrainLandmarkKind)),
+                    ("Mesh", typeof(Mesh)),
+                    ("NodeName", typeof(string)),
+                    ("VerticalOffset", typeof(float)),
+                    ("AxisScale", typeof(Vector3)),
+                    ("AabbHeightPadding", typeof(float))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicShape<TerrainVisualCatalog>(
+                [
+                    ("ScatterEntries", typeof(Godot.Collections.Array<TerrainScatterVisualEntryResource>)),
+                    ("LandmarkEntries", typeof(Godot.Collections.Array<TerrainLandmarkVisualEntryResource>)),
+                    ("UsePrimitiveFallbacks", typeof(bool))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
             CheckPublicShape<TerrainScatterVariantRuleResource>(
                 [
                     ("ProbabilityLow", typeof(float)),
@@ -4467,6 +4507,7 @@ static bool CheckExportedTerrainTypes(out string? failureReason)
         "Dao.Terrain.ITerrainQueryService",
         "Dao.Terrain.ITerrainStreamingDiagnostics",
         "Dao.Terrain.TerrainGameplaySettingsResource",
+        "Dao.Terrain.TerrainLandmarkVisualEntryResource",
         "Dao.Terrain.TerrainNaturalLandmarkRuleResource",
         "Dao.Terrain.TerrainPointOfInterestRuleSet",
         "Dao.Terrain.Rendering.TerrainMaterialFactory",
@@ -4477,6 +4518,7 @@ static bool CheckExportedTerrainTypes(out string? failureReason)
         "Dao.Terrain.TerrainScatterVariantRuleResource",
         "Dao.Terrain.TerrainSettlementVisualRuleSet",
         "Dao.Terrain.TerrainScenicLandmarkRuleSet",
+        "Dao.Terrain.TerrainScatterVisualEntryResource",
         "Dao.Terrain.TerrainShapeSettingsResource",
         "Dao.Terrain.Runtime.TerrainPointOfInterestArchetype",
         "Dao.Terrain.Runtime.TerrainPointOfInterestArchetypeCatalog",
@@ -4499,6 +4541,7 @@ static bool CheckExportedTerrainTypes(out string? failureReason)
         "Dao.Terrain.TerrainProfileHash",
         "Dao.Terrain.TerrainSettings",
         "Dao.Terrain.TerrainStreamingSettingsResource",
+        "Dao.Terrain.TerrainVisualCatalog",
         "Dao.Terrain.TerrainWorldSettingsResource"
     ];
 

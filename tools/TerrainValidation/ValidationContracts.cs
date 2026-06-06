@@ -289,6 +289,14 @@ internal readonly record struct TerrainDefaultStateContractSmokeReport(
     bool PlanSnapshotEmptyPassed,
     string Reason);
 
+/// <summary>Reports whether gameplay-facing code keeps terrain implementation dependencies behind stable interfaces.</summary>
+internal readonly record struct TerrainApiLayeringSmokeReport(
+    bool Passed,
+    int ScannedFileCount,
+    int ViolationCount,
+    string[] Violations,
+    string Reason);
+
 /// <summary>Stable method signature expected by public API shape validation.</summary>
 internal readonly record struct PublicMethodContract(
     string Name,

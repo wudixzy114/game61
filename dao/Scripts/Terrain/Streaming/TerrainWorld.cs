@@ -26,6 +26,7 @@ public partial class TerrainWorld : Node3D, ITerrainQueryService, ITerrainPlanPr
     [Signal] public delegate void StreamingSnapshotChangedEventHandler();
 
     [Export] public TerrainSettings? Settings { get; set; }
+    [Export] public TerrainVisualCatalog? VisualCatalog { get; set; }
     [Export] public NodePath FocusPath { get; set; } = new();
     [Export(PropertyHint.Range, "0.05,2,0.01")] public double StreamingIntervalSeconds { get; set; } = 0.18;
     [Export] public bool CreateWaterPlane { get; set; } = true;

@@ -95,14 +95,51 @@ Recommended usage:
 
 ## API Layering
 
+The terrain module exposes more public C# types than gameplay systems should normally
+consume. Treat the public surface as four layers:
+
+- Stable Runtime API: the five interfaces in this document plus the value types returned
+  by those interfaces. Quests, AI, resources, audio, map UI, encounter systems, and similar
+  modules should depend on this layer by default.
+- Tooling API: serializer, exporter, analyzer, map exporter, and validation helpers used by
+  editor tools, CLI tools, and offline pipelines.
+- Rendering Configuration API: `TerrainVisualCatalog` and its visual entry resources, used by
+  `TerrainWorld`/`TerrainChunk` to replace primitive validation meshes with project assets.
+- Data Contract API: plan snapshots, summaries, enums, reports, terrain samples, route graph
+  snapshots, traversal grids, and anchor descriptors that may cross module or persistence
+  boundaries.
+- Internal Implementation API: tile builders, planners, streaming chunks, caches, native
+  bridges, indices, scheduler/job structures, and service partials. These remain public where
+  Godot, tooling, or validation needs direct access, but gameplay modules should not take
+  dependencies on them.
+
 Preferred dependency order:
 
 1. stable runtime interfaces in this document
-2. `TerrainWorld` facade methods when Node access is required
-3. serializer/exporter/tooling APIs
-4. internal generation and streaming implementation details
+2. `TerrainWorld` facade methods when Node lifecycle, exported properties, or signals are required
+3. Data Contract API values returned by the stable interfaces
+4. Rendering Configuration API from terrain world setup and editor tooling
+5. Tooling API from editor/CLI/offline code only
+6. Internal Implementation API only from terrain internals, validation, demos, or explicitly reviewed tooling
 
 New gameplay systems should not read `TerrainTileBuilder` internals directly.
+
+Do not add a new public terrain type without first deciding which layer owns it. Stable runtime
+interfaces require contract documentation and smoke coverage. Data contracts require shape or
+serialization coverage when they cross persistence/module boundaries. Internal implementation
+types should not be used as a shortcut from gameplay code.
+
+### Stable Gameplay Integration Examples
+
+- Quest systems should depend on `ITerrainPlanProvider` for POIs, routes, region tags, and plan
+  snapshots.
+- AI and high-level navigation should depend on `ITerrainNavigationProvider` for route graph
+  and traversal cost handoff.
+- Resource, encounter, audio, and local interaction systems should depend on
+  `ITerrainPlacementService` for filtered placement candidates.
+- Map UI should depend on `ITerrainPlanProvider` and serialized/exported plan artifacts, not on
+  tile generation.
+- Debug streaming panels should depend on `ITerrainStreamingDiagnostics`.
 
 ## Validation
 
@@ -113,5 +150,9 @@ The PR terrain validation tier now verifies:
 - placement candidates respect requested tags, traversal filters, and route-influence requirements
 - route-graph snapshots and traversal-cost grid handoff are stable and isolated
 - runtime signal delegates exist with the expected signatures
+- gameplay-facing scripts outside `dao/Scripts/Terrain` and `dao/Scripts/Demo` do not directly
+  reference internal terrain implementation tokens such as `TerrainTileBuilder`,
+  `TerrainWorldPlanner`, `TerrainChunk`, `TerrainTileDataCache`, `TerrainStreamingSetBuilder`,
+  or `NativeTerrainBridge`
 - existing runtime facade behavior remains unchanged
 - open-world generation, artifacts, JSON roundtrip, anchor contract, and runtime materialization still pass

@@ -284,6 +284,18 @@ internal static class TerrainValidationOutput
             $"({report.Reason})");
     }
 
+    internal static void PrintApiLayeringSmoke(TerrainApiLayeringSmokeReport report)
+    {
+        Console.WriteLine(
+            $"Terrain API layering smoke: {(report.Passed ? "PASS" : "FAIL")} " +
+            $"files {report.ScannedFileCount}, violations {report.ViolationCount} ({report.Reason})");
+
+        foreach (string violation in report.Violations)
+        {
+            Console.WriteLine($"  {violation}");
+        }
+    }
+
     internal static void PrintAggregate(
         TerrainValidationAggregate aggregate,
         int seedCount,
@@ -305,6 +317,7 @@ internal static class TerrainValidationOutput
         TerrainValidationCliContractSmokeReport? validationCliContractSmokeReport,
         TerrainThresholdContractSmokeReport? thresholdContractSmokeReport,
         TerrainDefaultStateContractSmokeReport? defaultStateContractSmokeReport,
+        TerrainApiLayeringSmokeReport? apiLayeringSmokeReport,
         TerrainRuntimeApiSmokeReport? runtimeApiSmokeReport,
         TerrainAnchorContractSmokeReport? anchorSmokeReport,
         TerrainRuntimeWorldSmokeReport? runtimeWorldSmokeReport,
@@ -407,6 +420,11 @@ internal static class TerrainValidationOutput
         if (defaultStateContractSmokeReport is not null)
         {
             Console.WriteLine($"Terrain default state contract smoke: {(defaultStateContractSmokeReport.Value.Passed ? "PASS" : "FAIL")}");
+        }
+
+        if (apiLayeringSmokeReport is not null)
+        {
+            Console.WriteLine($"Terrain API layering smoke: {(apiLayeringSmokeReport.Value.Passed ? "PASS" : "FAIL")}");
         }
 
         if (runtimeApiSmokeReport is not null)

@@ -11,6 +11,7 @@ public partial class TerrainChunk : Node3D
     private MeshInstance3D? _meshInstance;
     private MeshInstance3D? _waterInstance;
     private StaticBody3D? _staticBody;
+    private TerrainVisualCatalog? _visualCatalog;
     private readonly Dictionary<TerrainScatterKind, MultiMeshInstance3D> _scatterNodes = new();
     private readonly Dictionary<TerrainLandmarkKind, MultiMeshInstance3D> _landmarkScatter = new();
 
@@ -22,11 +23,12 @@ public partial class TerrainChunk : Node3D
     public bool HasCollision { get; private set; }
 
     /// <summary>Applies terrain tile data, rebuilding the render mesh, scatter instances, and collision geometry.</summary>
-    public void Apply(TerrainTileData data, Material terrainMaterial, Material waterMaterial)
+    public void Apply(TerrainTileData data, Material terrainMaterial, Material waterMaterial, TerrainVisualCatalog? visualCatalog = null)
     {
         Coord = data.Coord;
         Lod = data.Lod;
         HasCollision = data.CollisionFaces.Length > 0;
+        _visualCatalog = visualCatalog;
         Name = $"Terrain_{data.Coord.X}_{data.Coord.Z}_L{data.Lod}";
         Position = new Vector3(data.Origin.X, 0.0f, data.Origin.Y);
 
@@ -86,6 +88,7 @@ public partial class TerrainChunk : Node3D
 
     private readonly record struct ScatterVisual(
         string NodeName,
+        Mesh? Mesh,
         float VerticalOffset,
         Vector3 AxisScale,
         float AabbHeightPadding);

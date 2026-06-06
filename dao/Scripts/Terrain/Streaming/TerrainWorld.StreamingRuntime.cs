@@ -179,7 +179,7 @@ public partial class TerrainWorld
     private void ApplyTileData(TerrainTileData data)
     {
         TerrainChunk chunk = GetOrCreateChunk(data.Coord);
-        chunk.Apply(data, _terrainMaterial, _localWaterMaterial);
+        chunk.Apply(data, _terrainMaterial, _localWaterMaterial, VisualCatalog);
         MarkStreamingSnapshotDirty();
         EmitChunkLoadedSignalIfReady(data);
     }

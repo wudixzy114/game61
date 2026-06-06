@@ -67,16 +67,28 @@ public partial class TerrainChunk
             return null;
         }
 
-        existing ??= CreateScatterNode($"Landmarks_{landmarkKind}");
+        ScatterVisual visual = VisualForLandmark(landmarkKind);
+        Mesh? mesh = visual.Mesh;
+        if (mesh is null)
+        {
+            if (existing is not null)
+            {
+                existing.QueueFree();
+            }
+
+            return null;
+        }
+
+        existing ??= CreateScatterNode(visual.NodeName);
 
         var multimesh = new MultiMesh
         {
             TransformFormat = MultiMesh.TransformFormatEnum.Transform3D,
             UseColors = true,
-            Mesh = GetLandmarkMesh(landmarkKind),
+            Mesh = mesh,
             CustomAabb = new Aabb(
                 new Vector3(0.0f, data.MinHeight - 8.0f, 0.0f),
-                new Vector3(data.ChunkSize, data.MaxHeight - data.MinHeight + 132.0f, data.ChunkSize))
+                new Vector3(data.ChunkSize, data.MaxHeight - data.MinHeight + visual.AabbHeightPadding, data.ChunkSize))
         };
 
         multimesh.InstanceCount = count;
@@ -90,10 +102,11 @@ public partial class TerrainChunk
                 continue;
             }
 
-            Basis basis = BasisForLandmark(landmarkKind, instance.RotationY, instance.UniformScale);
+            Basis basis = new Basis(Vector3.Up, instance.RotationY)
+                .Scaled(visual.AxisScale * instance.UniformScale);
             var transform = new Transform3D(
                 basis,
-                instance.LocalPosition + Vector3.Up * LandmarkVerticalOffset(landmarkKind, instance.UniformScale));
+                instance.LocalPosition + Vector3.Up * visual.VerticalOffset * instance.UniformScale);
 
             multimesh.SetInstanceTransform(index, transform);
             multimesh.SetInstanceColor(index, instance.Color);
@@ -104,48 +117,76 @@ public partial class TerrainChunk
         return existing;
     }
 
-    private static Basis BasisForLandmark(TerrainLandmarkKind kind, float rotationY, float scale)
+    private ScatterVisual VisualForLandmark(TerrainLandmarkKind kind)
+    {
+        TerrainLandmarkVisualEntryResource? entry = _visualCatalog?.GetLandmarkEntry(kind);
+        ScatterVisual fallback = DefaultVisualForLandmark(kind);
+        if (entry is null)
+        {
+            return _visualCatalog?.UsePrimitiveFallbacks == false
+                ? fallback with { Mesh = null }
+                : fallback;
+        }
+
+        string nodeName = string.IsNullOrWhiteSpace(entry.NodeName)
+            ? fallback.NodeName
+            : entry.NodeName;
+        Mesh? mesh = entry.Mesh ?? (_visualCatalog?.UsePrimitiveFallbacks == false ? null : fallback.Mesh);
+        return new ScatterVisual(
+            nodeName,
+            mesh,
+            entry.VerticalOffset,
+            entry.AxisScale,
+            entry.AabbHeightPadding);
+    }
+
+    private static ScatterVisual DefaultVisualForLandmark(TerrainLandmarkKind kind)
     {
         Vector3 axisScale = kind switch
         {
-            TerrainLandmarkKind.Settlement => new Vector3(scale * 1.25f, scale * 0.62f, scale),
-            TerrainLandmarkKind.RiverCrossing => new Vector3(scale * 1.55f, scale * 0.30f, scale * 0.78f),
-            TerrainLandmarkKind.ResourceGrove => new Vector3(scale * 0.95f, scale * 1.18f, scale * 0.95f),
-            TerrainLandmarkKind.CanyonOverlook => new Vector3(scale * 1.45f, scale * 0.36f, scale),
-            TerrainLandmarkKind.Oasis => new Vector3(scale * 1.42f, scale * 0.42f, scale * 1.42f),
-            TerrainLandmarkKind.Village => new Vector3(scale * 1.28f, scale * 0.58f, scale),
-            TerrainLandmarkKind.Town => new Vector3(scale * 1.48f, scale * 0.76f, scale * 1.22f),
-            TerrainLandmarkKind.OasisHub => new Vector3(scale * 1.58f, scale * 0.48f, scale * 1.58f),
-            TerrainLandmarkKind.VillageHouse => new Vector3(scale * 1.08f, scale * 0.82f, scale * 0.92f),
-            TerrainLandmarkKind.TownBlock => new Vector3(scale * 1.16f, scale * 1.08f, scale),
-            TerrainLandmarkKind.OasisCanopy => new Vector3(scale * 1.10f, scale * 0.74f, scale * 1.10f),
-            TerrainLandmarkKind.SettlementPlaza => new Vector3(scale * 1.45f, scale * 0.16f, scale * 1.45f),
-            TerrainLandmarkKind.OasisPool => new Vector3(scale * 1.62f, scale * 0.08f, scale * 1.62f),
-            TerrainLandmarkKind.VillageWell => new Vector3(scale * 0.92f, scale * 0.42f, scale * 0.92f),
-            TerrainLandmarkKind.MarketStall => new Vector3(scale * 1.18f, scale * 0.58f, scale * 0.82f),
-            TerrainLandmarkKind.WatchTower => new Vector3(scale * 0.58f, scale * 2.05f, scale * 0.58f),
-            TerrainLandmarkKind.OasisGarden => new Vector3(scale * 1.32f, scale * 0.22f, scale * 1.32f),
-            TerrainLandmarkKind.SettlementGateway => new Vector3(scale * 1.75f, scale * 1.02f, scale * 0.32f),
-            TerrainLandmarkKind.Waterfall => new Vector3(scale * 0.58f, scale * 2.10f, scale * 0.38f),
-            TerrainLandmarkKind.RoadMarker => new Vector3(scale * 0.38f, scale * 1.18f, scale * 0.38f),
-            TerrainLandmarkKind.BridgeSpan => new Vector3(scale * 1.94f, scale * 0.20f, scale * 0.78f),
-            TerrainLandmarkKind.DuneCrest => new Vector3(scale * 2.20f, scale * 0.24f, scale * 0.72f),
-            TerrainLandmarkKind.DesertMonolith => new Vector3(scale * 0.78f, scale * 1.85f, scale * 0.72f),
-            TerrainLandmarkKind.CanyonNeedle => new Vector3(scale * 0.64f, scale * 2.18f, scale * 0.58f),
-            TerrainLandmarkKind.IceSpire => new Vector3(scale * 0.52f, scale * 1.92f, scale * 0.52f),
-            TerrainLandmarkKind.NaturalArch => new Vector3(scale * 1.88f, scale * 1.08f, scale * 0.44f),
-            TerrainLandmarkKind.GeothermalSpring => new Vector3(scale * 1.42f, scale * 0.10f, scale * 1.42f),
-            TerrainLandmarkKind.GlacialRidge => new Vector3(scale * 2.18f, scale * 0.36f, scale * 0.88f),
-            TerrainLandmarkKind.Vista => new Vector3(scale * 0.86f, scale * 1.42f, scale * 0.86f),
-            _ => Vector3.One * scale
+            TerrainLandmarkKind.Settlement => new Vector3(1.25f, 0.62f, 1.0f),
+            TerrainLandmarkKind.RiverCrossing => new Vector3(1.55f, 0.30f, 0.78f),
+            TerrainLandmarkKind.ResourceGrove => new Vector3(0.95f, 1.18f, 0.95f),
+            TerrainLandmarkKind.CanyonOverlook => new Vector3(1.45f, 0.36f, 1.0f),
+            TerrainLandmarkKind.Oasis => new Vector3(1.42f, 0.42f, 1.42f),
+            TerrainLandmarkKind.Village => new Vector3(1.28f, 0.58f, 1.0f),
+            TerrainLandmarkKind.Town => new Vector3(1.48f, 0.76f, 1.22f),
+            TerrainLandmarkKind.OasisHub => new Vector3(1.58f, 0.48f, 1.58f),
+            TerrainLandmarkKind.VillageHouse => new Vector3(1.08f, 0.82f, 0.92f),
+            TerrainLandmarkKind.TownBlock => new Vector3(1.16f, 1.08f, 1.0f),
+            TerrainLandmarkKind.OasisCanopy => new Vector3(1.10f, 0.74f, 1.10f),
+            TerrainLandmarkKind.SettlementPlaza => new Vector3(1.45f, 0.16f, 1.45f),
+            TerrainLandmarkKind.OasisPool => new Vector3(1.62f, 0.08f, 1.62f),
+            TerrainLandmarkKind.VillageWell => new Vector3(0.92f, 0.42f, 0.92f),
+            TerrainLandmarkKind.MarketStall => new Vector3(1.18f, 0.58f, 0.82f),
+            TerrainLandmarkKind.WatchTower => new Vector3(0.58f, 2.05f, 0.58f),
+            TerrainLandmarkKind.OasisGarden => new Vector3(1.32f, 0.22f, 1.32f),
+            TerrainLandmarkKind.SettlementGateway => new Vector3(1.75f, 1.02f, 0.32f),
+            TerrainLandmarkKind.Waterfall => new Vector3(0.58f, 2.10f, 0.38f),
+            TerrainLandmarkKind.RoadMarker => new Vector3(0.38f, 1.18f, 0.38f),
+            TerrainLandmarkKind.BridgeSpan => new Vector3(1.94f, 0.20f, 0.78f),
+            TerrainLandmarkKind.DuneCrest => new Vector3(2.20f, 0.24f, 0.72f),
+            TerrainLandmarkKind.DesertMonolith => new Vector3(0.78f, 1.85f, 0.72f),
+            TerrainLandmarkKind.CanyonNeedle => new Vector3(0.64f, 2.18f, 0.58f),
+            TerrainLandmarkKind.IceSpire => new Vector3(0.52f, 1.92f, 0.52f),
+            TerrainLandmarkKind.NaturalArch => new Vector3(1.88f, 1.08f, 0.44f),
+            TerrainLandmarkKind.GeothermalSpring => new Vector3(1.42f, 0.10f, 1.42f),
+            TerrainLandmarkKind.GlacialRidge => new Vector3(2.18f, 0.36f, 0.88f),
+            TerrainLandmarkKind.Vista => new Vector3(0.86f, 1.42f, 0.86f),
+            _ => Vector3.One
         };
 
-        return new Basis(Vector3.Up, rotationY).Scaled(axisScale);
+        return new ScatterVisual(
+            $"Landmarks_{kind}",
+            GetLandmarkMesh(kind),
+            LandmarkVerticalOffset(kind),
+            axisScale,
+            132.0f);
     }
 
-    private static float LandmarkVerticalOffset(TerrainLandmarkKind kind, float scale)
+    private static float LandmarkVerticalOffset(TerrainLandmarkKind kind)
     {
-        float multiplier = kind switch
+        return kind switch
         {
             TerrainLandmarkKind.RiverCrossing => 0.18f,
             TerrainLandmarkKind.CoastalLanding => 0.22f,
@@ -178,7 +219,5 @@ public partial class TerrainChunk
             TerrainLandmarkKind.GlacialRidge => 0.18f,
             _ => 0.64f
         };
-
-        return multiplier * scale;
     }
 }
