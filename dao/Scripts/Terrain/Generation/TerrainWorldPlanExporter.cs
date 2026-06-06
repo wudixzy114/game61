@@ -9,16 +9,22 @@ public readonly record struct TerrainWorldPlanArtifactResult(
     TerrainWorldPlanningGateResult PlanningGate,
     TerrainQualityGateResult QualityGate,
     TerrainExperienceGateResult ExperienceGate,
+    string JsonPath,
     string MapPath,
+    string TraversalCostMapPath,
     string ReportPath,
+    Error JsonSaveError,
     Error MapSaveError,
+    Error TraversalCostMapSaveError,
     Error ReportSaveError)
 {
     public bool Passed =>
         PlanningGate.Passed &&
         QualityGate.Passed &&
         ExperienceGate.Passed &&
+        JsonSaveError == Error.Ok &&
         MapSaveError == Error.Ok &&
+        TraversalCostMapSaveError == Error.Ok &&
         ReportSaveError == Error.Ok;
 }
 
@@ -53,11 +59,19 @@ public static partial class TerrainWorldPlanExporter
         TerrainWorldPlanningGateResult planningGate = TerrainWorldPlanner.ValidateOpenWorldPlanning(plan);
         TerrainQualityGateResult qualityGate = TerrainQualityAnalyzer.ValidateOpenWorldDefault(plan.QualityReport);
         TerrainExperienceGateResult experienceGate = TerrainExperienceAnalyzer.ValidateOpenWorldDefault(plan.ExperienceReport);
+        string jsonPath = BuildOutputPath(outputDirectory, "terrain_plan.json");
         string mapPath = BuildOutputPath(outputDirectory, "open_world_plan.png");
+        string traversalCostMapPath = BuildOutputPath(outputDirectory, "terrain_traversal_cost.png");
         string reportPath = BuildOutputPath(outputDirectory, "open_world_plan_report.txt");
         Error directoryError = EnsureOutputDirectory(outputDirectory);
+        Error jsonError = directoryError == Error.Ok
+            ? TerrainWorldPlanSerializer.SaveJson(plan, profile, jsonPath)
+            : directoryError;
         Error mapError = directoryError == Error.Ok
             ? SavePlanMap(plan, profile, imageSize, baseLayer, mapPath)
+            : directoryError;
+        Error traversalCostMapError = directoryError == Error.Ok
+            ? TerrainMapExporter.SaveMap(profile, plan.Center, plan.WorldSize, imageSize, TerrainMapLayer.TraversalCost, traversalCostMapPath)
             : directoryError;
         Error reportError = directoryError == Error.Ok
             ? SaveTextReport(plan, profile, planningGate, qualityGate, experienceGate, mapPath, reportPath)
@@ -68,9 +82,13 @@ public static partial class TerrainWorldPlanExporter
             planningGate,
             qualityGate,
             experienceGate,
+            jsonPath,
             mapPath,
+            traversalCostMapPath,
             reportPath,
+            jsonError,
             mapError,
+            traversalCostMapError,
             reportError);
     }
 

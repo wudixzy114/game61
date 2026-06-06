@@ -10,6 +10,11 @@ namespace Dao.Demo;
 [GlobalClass]
 public partial class TerrainDemo : Node3D
 {
+    private const string DefaultTerrainSettingsPath = "res://Resources/Terrain/DefaultTerrainSettings.tres";
+
+    [ExportGroup("Terrain Settings")]
+    [Export] public TerrainSettings? TerrainSettingsResource { get; set; }
+
     [ExportGroup("Open World Planning")]
     [Export] public bool ValidateOpenWorldPlanOnReady { get; set; } = true;
     [Export] public bool ShowOpenWorldPlanOverlayOnReady { get; set; } = true;
@@ -30,7 +35,8 @@ public partial class TerrainDemo : Node3D
         DemoFlyCamera camera = CreateCamera();
         AddChild(camera);
 
-        TerrainWorld terrainWorld = CreateTerrainWorld(camera, OpenWorldPlanWorldSize);
+        TerrainSettings terrainSettings = ResolveTerrainSettings();
+        TerrainWorld terrainWorld = CreateTerrainWorld(camera, OpenWorldPlanWorldSize, terrainSettings);
         AddChild(terrainWorld);
         terrainWorld.SetFocus(camera);
 
@@ -56,9 +62,30 @@ public partial class TerrainDemo : Node3D
         return new DemoFlyCamera { Name = "Camera" };
     }
 
-    private static TerrainWorld CreateTerrainWorld(Node3D focus, float openWorldPlanWorldSize)
+    private TerrainSettings ResolveTerrainSettings()
     {
-        var settings = new TerrainSettings
+        if (TerrainSettingsResource is TerrainSettings assigned)
+        {
+            return DuplicateTerrainSettings(assigned);
+        }
+
+        Resource? loaded = ResourceLoader.Load(DefaultTerrainSettingsPath);
+        if (loaded is TerrainSettings defaultSettings)
+        {
+            return DuplicateTerrainSettings(defaultSettings);
+        }
+
+        return CreateFallbackTerrainSettings();
+    }
+
+    private static TerrainSettings DuplicateTerrainSettings(TerrainSettings source)
+    {
+        return source.Duplicate(true) as TerrainSettings ?? source;
+    }
+
+    private static TerrainSettings CreateFallbackTerrainSettings()
+    {
+        return new TerrainSettings
         {
             Seed = 613_061,
             ChunkSize = 192.0f,
@@ -83,7 +110,10 @@ public partial class TerrainDemo : Node3D
             GenerateCollision = true,
             UseNativeSamplerWhenAvailable = true
         };
+    }
 
+    private static TerrainWorld CreateTerrainWorld(Node3D focus, float openWorldPlanWorldSize, TerrainSettings settings)
+    {
         return new TerrainWorld
         {
             Name = "TerrainWorld",
@@ -167,15 +197,19 @@ public partial class TerrainDemo : Node3D
             profile,
             OpenWorldPlanImageSize,
             OpenWorldPlanOutputDirectory);
+        string jsonPath = ProjectSettings.GlobalizePath(export.JsonPath);
         string mapPath = ProjectSettings.GlobalizePath(export.MapPath);
+        string traversalCostPath = ProjectSettings.GlobalizePath(export.TraversalCostMapPath);
         string reportPath = ProjectSettings.GlobalizePath(export.ReportPath);
-        GD.Print($"Open world plan artifacts: map '{mapPath}', report '{reportPath}'.");
+        GD.Print(
+            $"Open world plan artifacts: json '{jsonPath}', map '{mapPath}', traversal '{traversalCostPath}', report '{reportPath}'.");
 
         if (!export.Passed)
         {
             GD.PushWarning(
                 $"Open world terrain artifact export failed. " +
-                $"Map save: {export.MapSaveError}, report save: {export.ReportSaveError}.");
+                $"JSON save: {export.JsonSaveError}, map save: {export.MapSaveError}, " +
+                $"traversal save: {export.TraversalCostMapSaveError}, report save: {export.ReportSaveError}.");
         }
 
         _planArtifactsBuilt = true;

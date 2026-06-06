@@ -1,6 +1,8 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene load_steps=3 format=3]
 
 [ext_resource type="Script" path="res://Scripts/Demo/TerrainDemo.cs" id="1_terrain_demo"]
+[ext_resource type="Resource" path="res://Resources/Terrain/DefaultTerrainSettings.tres" id="2_terrain_settings"]
 
 [node name="Main" type="Node3D"]
 script = ExtResource("1_terrain_demo")
+TerrainSettingsResource = ExtResource("2_terrain_settings")

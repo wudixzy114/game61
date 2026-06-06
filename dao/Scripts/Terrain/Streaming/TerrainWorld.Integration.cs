@@ -44,6 +44,24 @@ public partial class TerrainWorld
         return TerrainMapExporter.CreateTraversalCostGrid(CurrentProfile, center, worldSize, gridSize, spacing);
     }
 
+    /// <summary>Builds a traversal-cost grid exactly covering a streaming tile without requiring that tile to be loaded.</summary>
+    public TerrainTraversalCostGrid CreateTraversalCostGridForTile(
+        TerrainTileCoord coord,
+        int gridSize,
+        float spacing = 24.0f)
+    {
+        return TerrainMapExporter.CreateTraversalCostGridForTile(CurrentProfile, coord, gridSize, spacing);
+    }
+
+    /// <summary>Samples traversal costs inside a bounded world-space region without performing pathfinding.</summary>
+    public TerrainTraversalCost[] QueryTraversalCosts(
+        Rect2 worldBounds,
+        float sampleSpacing = 24.0f,
+        int maxSamples = 1024)
+    {
+        return TerrainMapExporter.QueryTraversalCosts(CurrentProfile, worldBounds, sampleSpacing, maxSamples);
+    }
+
     /// <summary>Returns a snapshot copy of the current planned route graph, or an empty snapshot when no plan is ready.</summary>
     public TerrainRouteGraphSnapshot GetRouteGraphSnapshot()
     {

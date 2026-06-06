@@ -17,7 +17,7 @@
 | --- | --- | --- |
 | 功能完整度 | A- 基础设施 / B 生产管线 | 地形生成、规划、流送、语义、导出、验证已成体系；最终游戏生产还缺资产、编辑器、导航、持久化和动态世界。 |
 | 模块集成能力 | A | 五个稳定 runtime interface、Godot signals、anchor contract、plan snapshot、placement candidate、route graph 已能服务任务、AI、资源、地图和音频。 |
-| API 暴露 | A- | 暴露丰富且被 shape smoke 锁定；但 public 面已达 92 类型、963 成员，后续必须区分稳定 API 和实现细节。 |
+| API 暴露 | A- | 暴露丰富且被 shape smoke 锁定；但 public 面已达 99 类型、1014 成员，后续必须区分稳定 API 和实现细节。 |
 | 职责边界 | B+ | 地形系统基本只提供地形、语义、世界布局和交接数据，没有直接承担任务或 AI；但 planner、tile builder、runtime world 仍是大静态/partial 门面。 |
 | 扩展性 | B+ | 可以添加新 POI、route、scatter、landmark、规则集参数；但仍偏枚举和固定槽位扩展，不是真正数据驱动插件化。 |
 | 维护性 | B+ | CI、确定性、hash、JSON、API contract 很强；主要风险是验证工具和 native/C# 双实现体量大，长期演进会有同步成本。 |
@@ -28,6 +28,57 @@
 一句话结论：
 
 当前系统可以作为开放世界玩法系统的上游基础层继续集成，但不能直接宣称地形管线已经商业生产完成。下一阶段应优先把“稳定集成 API、编辑器工具、资产实例化、导航交接、性能基线、动态持久化”做成可维护的生产链路，而不是继续只往生成算法里追加内容。
+
+## 1.1 同日实现更新
+
+在本次审计文档形成后，已补充一批直接面向生产链路的实现：
+
+- 新增初版 Godot `TerrainEditorPlugin` / editor dock：`dao/addons/terrain_editor/*`
+- 新增仓库内默认 `TerrainSettings` 资源：`dao/Resources/Terrain/DefaultTerrainSettings.tres`
+- `Main.tscn` 与 `TerrainDemo` 已优先消费资源化 `TerrainSettings`，而不是只靠代码内临时 new settings
+- editor dock 已支持：
+  - 选择或粘贴 `TerrainSettings` 资源路径
+  - world plan preview
+  - seed override preview
+  - 语义采样
+  - route graph path preview
+  - 一键导出 artifact
+  - 一键运行 PR validation
+  - `TerrainSettings` preset copy 保存
+- `TerrainWorldPlanExporter` 已从“map + report”扩展为统一 artifact bundle，正式导出：
+  - plan JSON
+  - plan map
+  - traversal cost map
+  - text report
+- `TerrainApiVersion` 已推进到 `terrain-api-v1` / `1.5.0`
+- `TraversalCostGrid` handoff 已补齐局部查询能力：
+  - `TerrainTraversalCostGrid.WorldBounds`
+  - grid index 和 world position 互查
+  - nearest sample 查询
+  - bounded `QuerySamples(Rect2, maxSamples)`
+  - tile-bounded `CreateTraversalCostGridForTile`
+  - region-bounded `QueryTraversalCosts`
+- `TerrainValidation` 已新增 editor plugin smoke，验证：
+  - plugin scaffold 存在
+  - 默认 `TerrainSettings` 资源存在
+  - `Main.tscn` 资源接线存在
+  - editor dock 暴露 preview/export/validation/preset 工作流入口
+- `TerrainValidation` 已新增/扩展 traversal cost handoff smoke，验证：
+  - center grid、tile grid、region query 均和 `TerrainMapExporter` / classifier 输出一致
+  - grid snapshot 和查询数组隔离
+  - world/index helper、bounded query、max sample cap 稳定
+
+基于当前最新本地验证：
+
+- `dotnet build tools\TerrainValidation\TerrainValidation.csproj --configuration Release -m:1 -p:UseSharedCompilation=false -nr:false` 成功
+- `dotnet .\tools\TerrainValidation\bin\Release\net8.0\TerrainValidation.dll --validation-tier pr` 成功
+- `Open world terrain validation: PASS`
+- `Auxiliary checks: PASS (19/19 checks passed)`
+- `Terrain editor plugin smoke: PASS`
+- `Runtime TerrainWorld API smoke: PASS`
+- `Terrain public API shape smoke` 当前为 `99` public types、`1014` members
+
+这意味着“编辑器插件完全缺失”已经不再是当前状态，更准确的判断是：编辑器生产工作流已经有初版落地，但仍明显不完整。
 
 ## 2. 审核依据
 
@@ -50,15 +101,15 @@ PR 级地形验证结果：
 
 - `Overall validation: PASS`
 - 1/1 seed passed，固定 seed `613061`。
-- 17/17 auxiliary checks passed。
+- 19/19 auxiliary checks passed。
 - World size `12288`，planning grid `60 x 60`。
-- Public API shape smoke：92 个 public 类型、963 个成员通过。
+- Public API shape smoke：99 个 public 类型、1014 个成员通过。
 - Enum contract smoke：12 个 enum、153 个值通过。
 - Plan JSON roundtrip smoke 通过，JSON 约 2317.6 KB。
 - Runtime `TerrainWorld` API smoke 通过。
 - Runtime anchor contract smoke 通过。
 - Runtime `TerrainWorld` smoke 通过。
-- Open world artifact smoke 通过，导出 plan map、traversal cost map、report。
+- Open world artifact smoke 通过，导出 plan JSON、plan map、traversal cost map、report。
 
 关键生成指标：
 
@@ -135,7 +186,7 @@ PR 级地形验证结果：
 - 输出高度、大陆性、盆地、陆架、山脉、宽域海拔、河流、湖泊、水分、温度、风景潜力、通行性、暴露度、资源潜力、危险潜力、遭遇潜力、生物群系、地貌。
 - `TerrainSampler.SampleWithSlope()` 输出高度、坡度、颜色和语义。
 - `TerrainSemanticClassifier` 输出 water state、gameplay tags、traversal cost。
-- `TerrainMapExporter` 可输出 biome map、generic map、traversal cost grid。
+- `TerrainMapExporter` 可输出 biome map、generic map、traversal cost grid、tile traversal grid 和 region traversal cost samples。
 
 评价：
 
@@ -176,7 +227,7 @@ PR 级地形验证结果：
 
 - 扩展方式仍主要围绕 enum 和固定 rule slot。新增一类 POI 或 route 通常要改 enum、评分、选择、序列化、验证、可视化多处代码。
 - `TerrainWorldPlanner` 已拆成 partial 和 service，但仍是大静态门面。
-- 还没有输出正式 nav mesh 或 AI pathfinding 数据，只提供 traversal cost grid 和 route graph snapshot。
+- 还没有输出正式 nav mesh 或角色级 AI pathfinding 数据；当前提供 route graph snapshot、center/tile traversal cost grid 和 region traversal cost samples 作为导航交接数据。
 
 ### 3.4 Tile 生成、mesh、水面、碰撞和 scatter
 
@@ -262,7 +313,7 @@ PR 级地形验证结果：
 - `ITerrainQueryService`：地形采样、surface position、water、tags、traversal。
 - `ITerrainPlanProvider`：plan snapshot、POI、route、region tag、corridor 查询。
 - `ITerrainPlacementService`：资源、遭遇、音频、本地互动的候选点查询。
-- `ITerrainNavigationProvider`：traversal cost grid、route graph snapshot。
+- `ITerrainNavigationProvider`：traversal cost grid、tile/region traversal cost 查询、route graph snapshot。
 - `ITerrainStreamingDiagnostics`：streaming snapshot。
 
 已实现 anchor contract：
@@ -278,7 +329,7 @@ PR 级地形验证结果：
 
 风险：
 
-- Public API shape 已经有 92 类型、963 成员。不是所有 public 类型都应该被 gameplay 模块直接依赖。
+- Public API shape 已经有 99 类型、1014 成员。不是所有 public 类型都应该被 gameplay 模块直接依赖。
 - 需要给 public API 分层：Stable Runtime API、Tooling API、Data Contract API、Internal Implementation API。后续新增 public 类型前必须先决定属于哪一层。
 
 ### 3.7 序列化、导出和工具验证
@@ -349,7 +400,7 @@ Native acceleration 已有实际工程基础，不是空壳。
 可以。当前集成方式是合理的：
 
 - 任务系统可以通过 `ITerrainPlanProvider` 获取 POI、routes、regions、anchors。
-- AI 和导航系统可以通过 `ITerrainNavigationProvider` 获取 route graph 和 traversal cost grid。
+- AI 和导航系统可以通过 `ITerrainNavigationProvider` 获取 route graph、center/tile traversal cost grid 和 region traversal cost samples。
 - 资源、遭遇、音频可以通过 `ITerrainPlacementService` 查询符合 gameplay tags 的候选点。
 - UI 和地图系统可以用 plan snapshot、route summary、POI summary、exporter。
 - 调试和流送监控可以用 `ITerrainStreamingDiagnostics`。
@@ -359,7 +410,7 @@ Native acceleration 已有实际工程基础，不是空壳。
 
 ### 4.3 接口是否丰富，API 是否充分暴露
 
-接口已经丰富，甚至需要开始收敛。当前 public API 覆盖非常广，PR smoke 锁定了 92 个 public 类型和 963 个成员。对外能力足够，但必须避免把内部实现继续暴露成永久 contract。
+接口已经丰富，甚至需要开始收敛。当前 public API 覆盖非常广，PR smoke 锁定了 99 个 public 类型和 1014 个成员。对外能力足够，但必须避免把内部实现继续暴露成永久 contract。
 
 建议：
 
@@ -431,14 +482,14 @@ Native acceleration 已有实际工程基础，不是空壳。
 
 能支持。现有基础很好：
 
-- `TerrainWorldPlanExporter` 可生成地图和 report。
+- `TerrainWorldPlanExporter` 已可统一导出 plan JSON、plan map、traversal cost map 和 report。
 - `TerrainMapExporter` 可生成 raster 和 traversal cost map。
 - `TerrainWorldPlanOverlay` 可显示 plan。
 - `TerrainWorldAnchorBuilder` 可生成 anchors。
 - `TerrainWorldPlanSerializer` 可保存/加载 JSON。
 - `TerrainValidation` 可作为编辑器按钮背后的 CLI。
 
-缺的是把这些能力包装成 Godot `EditorPlugin` 和 editor dock。
+当前已经有初版 `TerrainEditorPlugin` / editor dock 脚手架、默认 `TerrainSettings` 资源工作流、plan preview、route graph path preview、语义采样、artifact 导出和 PR validation 触发入口。缺的是把这些能力继续打磨成完整生产工作流，而不是再从零开始搭插件。
 
 ## 5. 当前不满足商业级要求的具体问题
 
@@ -455,9 +506,9 @@ Native acceleration 已有实际工程基础，不是空壳。
 - 按 biome/region/seed 的变体选择。
 - 碰撞、导航阻挡、交互 metadata 绑定。
 
-### P0：缺 Godot 编辑器插件和生产工作流
+### P0：Godot 编辑器插件和生产工作流仍不完整
 
-虽然可配置 Resource 已经存在，但没有编辑器工具。对单人开发者来说，这会直接影响长期效率。
+虽然可配置 Resource 已经存在，并且当前已新增初版 `TerrainEditorPlugin` / editor dock、默认 `TerrainSettings` 资源、plan preview、artifact export、语义采样、route graph path preview 和 PR validation 触发，但这还不是完整生产工作流。对单人开发者来说，后续仍会直接影响长期效率。
 
 需要实现：
 
@@ -466,18 +517,18 @@ Native acceleration 已有实际工程基础，不是空壳。
 - Seed sweep preview。
 - Plan preview、POI/route/filter overlay。
 - 参数校验和一键修复建议。
-- 导出 JSON/PNG/report。
+- 更完整的统一 artifact 浏览和导出 UX。
 - 运行 validation tier。
 - 选择 tile/region 查看语义字段。
 
 ### P0：导航交接还不是完整导航系统
 
-当前已提供 traversal cost grid 和 route graph snapshot，这是正确边界。但对 3D 开放世界游戏，还需要接入 Godot Navigation 或自研导航层。
+当前已提供 route graph snapshot、center/tile traversal cost grid、region traversal cost samples 和 grid 局部查询 helper，这是正确边界。但对 3D 开放世界游戏，还需要接入 Godot Navigation 或自研导航层。
 
 需要实现：
 
 - Terrain route graph 到 AI waypoint/nav graph 的 importer。
-- Traversal cost grid 到局部 pathfinding 或 nav mesh 权重的转换。
+- Traversal cost grid / region samples 到局部 pathfinding 或 nav mesh 权重的转换。
 - Tile 流送时导航区域更新策略。
 - 水、坡度、危险、道路对导航成本的统一配置。
 - 验证 AI 查询不会依赖未加载 tile。
@@ -581,7 +632,7 @@ Native sampler 是性能基础，但 C++ 和 C# terrain logic 双实现会带来
 
 任务：
 
-- 新增 `TerrainEditorPlugin` 和 editor dock。
+- 在现有 `TerrainEditorPlugin` / editor dock 基础上继续补完整生产工作流。
 - 支持选择或创建 `TerrainSettings` 和规则集 Resource。
 - 显示 profile hash、API version、rule set hash。
 - 支持 seed preview：生成 plan map、traversal map、POI/route summary。
@@ -624,12 +675,12 @@ Native sampler 是性能基础，但 C++ 和 C# terrain logic 双实现会带来
 
 任务：
 
+- 已完成：为 traversal cost grid 增加 tile/region 局部查询，并纳入 PR runtime smoke。
 - 为 `TerrainRouteGraphSnapshot` 增加 importer 示例。
 - 输出 route graph node/edge 到 Godot navigation 或自研 graph。
-- 为 traversal cost grid 增加 tile/region 局部查询。
 - 设计 streaming tile 加载/卸载时的 navigation update policy。
 - 定义水体、坡度、危险、道路、聚落对导航成本的配置。
-- 增加 validation：route graph isolation、cost grid finite/blocked ratio、route-connected settlement navigation。
+- 继续增加 validation：route graph importer、navigation update policy、route-connected settlement navigation。
 
 验收标准：
 

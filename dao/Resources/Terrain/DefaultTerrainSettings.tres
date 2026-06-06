@@ -1,0 +1,29 @@
+[gd_resource type="Resource" script_class="TerrainSettings" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://Scripts/Terrain/TerrainSettings.cs" id="1_settings_script"]
+
+[resource]
+script = ExtResource("1_settings_script")
+Seed = 613061
+ChunkSize = 192.0
+BaseResolution = 64
+StreamRadiusChunks = 6
+CollisionRadiusChunks = 2
+MaxLod = 3
+HeightScale = 820.0
+SeaLevel = -22.0
+ContinentScale = 5600.0
+MountainScale = 1720.0
+MountainWeight = 0.82
+ValleyWeight = 0.56
+DetailWeight = 0.16
+VistaFrequency = 0.62
+RiverStrength = 0.72
+RiverCarveDepth = 130.0
+TerraceStrength = 66.0
+SkirtDepth = 42.0
+MaxCompletedTilesPerFrame = 3
+MaxQueuedTileJobs = 28
+MaxCachedTileData = 96
+GenerateCollision = true
+UseNativeSamplerWhenAvailable = true

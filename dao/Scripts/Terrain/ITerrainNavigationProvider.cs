@@ -13,6 +13,16 @@ public interface ITerrainNavigationProvider
         int gridSize,
         float spacing = 24.0f);
 
+    TerrainTraversalCostGrid CreateTraversalCostGridForTile(
+        TerrainTileCoord coord,
+        int gridSize,
+        float spacing = 24.0f);
+
+    TerrainTraversalCost[] QueryTraversalCosts(
+        Rect2 worldBounds,
+        float sampleSpacing = 24.0f,
+        int maxSamples = 1024);
+
     TerrainRouteGraphSnapshot GetRouteGraphSnapshot();
     bool TryGetRouteGraphSnapshot([NotNullWhen(true)] out TerrainRouteGraphSnapshot? snapshot);
 }

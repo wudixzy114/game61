@@ -11,6 +11,7 @@ using static TerrainValidationCliHelpers;
 using static TerrainValidationApiLayeringChecks;
 using static TerrainValidationBenchmarkChecks;
 using static TerrainValidationContractChecks;
+using static TerrainValidationEditorPluginChecks;
 using static TerrainValidationOutput;
 using static TerrainValidationRuntimeProbeHelpers;
 using Dao.Terrain;
@@ -86,6 +87,7 @@ TerrainValidationCliContractSmokeReport? validationCliContractSmokeReport = null
 TerrainThresholdContractSmokeReport? thresholdContractSmokeReport = null;
 TerrainDefaultStateContractSmokeReport? defaultStateContractSmokeReport = null;
 TerrainApiLayeringSmokeReport? apiLayeringSmokeReport = null;
+TerrainEditorPluginSmokeReport? editorPluginSmokeReport = null;
 TerrainRuntimeApiSmokeReport? runtimeApiSmokeReport = null;
 TerrainAnchorContractSmokeReport? anchorSmokeReport = null;
 TerrainRuntimeWorldSmokeReport? runtimeWorldSmokeReport = null;
@@ -249,6 +251,10 @@ apiLayeringSmokeReport = ValidateTerrainApiLayeringContract();
 PrintApiLayeringSmoke(apiLayeringSmokeReport.Value);
 RecordAuxiliaryCheck(apiLayeringSmokeReport.Value.Passed, ref totalFailures, ref auxiliaryCheckCount, ref auxiliaryFailureCount);
 
+editorPluginSmokeReport = ValidateTerrainEditorPluginScaffold();
+PrintEditorPluginSmoke(editorPluginSmokeReport.Value);
+RecordAuxiliaryCheck(editorPluginSmokeReport.Value.Passed, ref totalFailures, ref auxiliaryCheckCount, ref auxiliaryFailureCount);
+
 PrintAggregate(
     aggregate,
     seedCount,
@@ -271,6 +277,7 @@ PrintAggregate(
     thresholdContractSmokeReport,
     defaultStateContractSmokeReport,
     apiLayeringSmokeReport,
+    editorPluginSmokeReport,
     runtimeApiSmokeReport,
     anchorSmokeReport,
     runtimeWorldSmokeReport,
@@ -1589,15 +1596,17 @@ static TerrainArtifactSmokeReport ValidateOpenWorldArtifactExport(
         imageSize,
         outputDirectory,
         TerrainMapLayer.Biome);
-    string traversalCostPath = System.IO.Path.Combine(FileSystemPath(outputDirectory), "terrain_traversal_cost.png");
-    Error traversalCostSaveError = TerrainMapExporter.SaveRasterPng(traversalCostMap, traversalCostPath);
+    string jsonFilePath = FileSystemPath(export.JsonPath);
+    string traversalCostPath = export.TraversalCostMapPath;
 
     string mapFilePath = FileSystemPath(export.MapPath);
     string reportFilePath = FileSystemPath(export.ReportPath);
     string traversalCostFilePath = FileSystemPath(traversalCostPath);
+    bool jsonExists = System.IO.File.Exists(jsonFilePath);
     bool mapExists = System.IO.File.Exists(mapFilePath);
     bool reportExists = System.IO.File.Exists(reportFilePath);
     bool traversalCostExists = System.IO.File.Exists(traversalCostFilePath);
+    long jsonBytes = jsonExists ? new System.IO.FileInfo(jsonFilePath).Length : 0L;
     long mapBytes = mapExists ? new System.IO.FileInfo(mapFilePath).Length : 0L;
     long reportBytes = reportExists ? new System.IO.FileInfo(reportFilePath).Length : 0L;
     long traversalCostBytes = traversalCostExists ? new System.IO.FileInfo(traversalCostFilePath).Length : 0L;
@@ -1629,12 +1638,15 @@ static TerrainArtifactSmokeReport ValidateOpenWorldArtifactExport(
         traversalCostGridSamplesMatchClassifier &&
         traversalCostGridSnapshotIsolated;
     bool filesLookValid =
+        export.JsonSaveError == Error.Ok &&
         export.MapSaveError == Error.Ok &&
         export.ReportSaveError == Error.Ok &&
-        traversalCostSaveError == Error.Ok &&
+        export.TraversalCostMapSaveError == Error.Ok &&
+        jsonExists &&
         mapExists &&
         reportExists &&
         traversalCostExists &&
+        jsonBytes >= 2048 &&
         mapBytes >= 4096 &&
         reportBytes >= 2048 &&
         traversalCostBytes >= 2048;
@@ -1652,9 +1664,11 @@ static TerrainArtifactSmokeReport ValidateOpenWorldArtifactExport(
     return new TerrainArtifactSmokeReport(
         passed,
         outputDirectory,
+        export.JsonPath,
         export.MapPath,
         export.ReportPath,
         traversalCostPath,
+        jsonBytes,
         mapBytes,
         reportBytes,
         traversalCostBytes,
@@ -1968,7 +1982,7 @@ static string ArtifactFailureReason(
 
     if (!filesLookValid)
     {
-        return $"artifact files were not written correctly ({export.MapSaveError}/{export.ReportSaveError})";
+        return $"artifact files were not written correctly ({export.JsonSaveError}/{export.MapSaveError}/{export.TraversalCostMapSaveError}/{export.ReportSaveError})";
     }
 
     if (!mapHasContent)
@@ -2056,8 +2070,9 @@ static TerrainPlanJsonSmokeReport ValidateTerrainPlanJsonRoundtrip(
             out _);
         bool legacyApiVersionAccepted = AcceptsCompatibleApiVersion(json, profile, "1.0.0");
         bool previousApiVersionAccepted = AcceptsCompatibleApiVersion(json, profile, "1.1.0");
-        bool currentApiMinusTwoVersionAccepted = AcceptsCompatibleApiVersion(json, profile, "1.2.0");
-        bool currentApiMinusOneVersionAccepted = AcceptsCompatibleApiVersion(json, profile, "1.3.0");
+        bool currentApiMinusThreeVersionAccepted = AcceptsCompatibleApiVersion(json, profile, "1.2.0");
+        bool currentApiMinusTwoVersionAccepted = AcceptsCompatibleApiVersion(json, profile, "1.3.0");
+        bool currentApiMinusOneVersionAccepted = AcceptsCompatibleApiVersion(json, profile, "1.4.0");
         bool versionDriftRejected = RejectsVersionDrift(json, profile);
         bool enumNameDriftRejected = RejectsEnumNameDrift(json, profile);
         bool enumValueDriftRejected = RejectsEnumValueDrift(json, profile);
@@ -2075,6 +2090,7 @@ static TerrainPlanJsonSmokeReport ValidateTerrainPlanJsonRoundtrip(
             profileHashMismatchRejected &&
             legacyApiVersionAccepted &&
             previousApiVersionAccepted &&
+            currentApiMinusThreeVersionAccepted &&
             currentApiMinusTwoVersionAccepted &&
             currentApiMinusOneVersionAccepted &&
             versionDriftRejected &&
@@ -2095,6 +2111,7 @@ static TerrainPlanJsonSmokeReport ValidateTerrainPlanJsonRoundtrip(
                 profileHashMismatchRejected,
                 legacyApiVersionAccepted,
                 previousApiVersionAccepted,
+                currentApiMinusThreeVersionAccepted,
                 currentApiMinusTwoVersionAccepted,
                 currentApiMinusOneVersionAccepted,
                 versionDriftRejected,
@@ -2116,6 +2133,7 @@ static TerrainPlanJsonSmokeReport ValidateTerrainPlanJsonRoundtrip(
             profileHashMismatchRejected,
             legacyApiVersionAccepted,
             previousApiVersionAccepted,
+            currentApiMinusThreeVersionAccepted,
             currentApiMinusTwoVersionAccepted,
             currentApiMinusOneVersionAccepted,
             versionDriftRejected,
@@ -2130,6 +2148,7 @@ static TerrainPlanJsonSmokeReport ValidateTerrainPlanJsonRoundtrip(
     catch (Exception ex)
     {
         return new TerrainPlanJsonSmokeReport(
+            false,
             false,
             false,
             false,
@@ -2599,6 +2618,13 @@ static bool ExactRectEquals(Rect2 expected, Rect2 actual)
         ExactPositionEquals(expected.Size, actual.Size);
 }
 
+static TerrainTileCoord WorldToCoord(Vector2 world, TerrainGenerationProfile profile)
+{
+    return new TerrainTileCoord(
+        Mathf.FloorToInt(world.X / profile.ChunkSize),
+        Mathf.FloorToInt(world.Y / profile.ChunkSize));
+}
+
 static bool ContractPositionEquals(Vector2 expected, Vector2 actual)
 {
     return expected.DistanceSquaredTo(actual) <= TerrainDeterminismContract.Squared(TerrainDeterminismContract.PositionEpsilon);
@@ -2703,6 +2729,7 @@ static string PlanJsonFailureReason(
     bool profileHashMismatchRejected,
     bool legacyApiVersionAccepted,
     bool previousApiVersionAccepted,
+    bool currentApiMinusThreeVersionAccepted,
     bool currentApiMinusTwoVersionAccepted,
     bool currentApiMinusOneVersionAccepted,
     bool versionDriftRejected,
@@ -2772,14 +2799,19 @@ static string PlanJsonFailureReason(
         return "plan JSON rejected a compatible terrain-api-v1 1.1.0 plan";
     }
 
-    if (!currentApiMinusTwoVersionAccepted)
+    if (!currentApiMinusThreeVersionAccepted)
     {
         return "plan JSON rejected a compatible terrain-api-v1 1.2.0 plan";
     }
 
-    if (!currentApiMinusOneVersionAccepted)
+    if (!currentApiMinusTwoVersionAccepted)
     {
         return "plan JSON rejected a compatible terrain-api-v1 1.3.0 plan";
+    }
+
+    if (!currentApiMinusOneVersionAccepted)
+    {
+        return "plan JSON rejected a compatible terrain-api-v1 1.4.0 plan";
     }
 
     if (!versionDriftRejected)
@@ -3681,6 +3713,19 @@ static TerrainPublicApiShapeSmokeReport ValidateTerrainPublicApiShapeContracts()
                 ref checkedTypeCount,
                 ref checkedMemberCount,
                 out failureReason) &&
+            CheckPublicShape<TerrainTraversalCostGrid>(
+                [
+                    ("Width", typeof(int)),
+                    ("Height", typeof(int)),
+                    ("Center", typeof(Vector2)),
+                    ("WorldSize", typeof(float)),
+                    ("WorldBounds", typeof(Rect2)),
+                    ("SampleCount", typeof(int)),
+                    ("Samples", typeof(ReadOnlySpan<TerrainTraversalCost>))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
             CheckPublicShape<TerrainPlacementCandidate>(
                 [
                     ("WorldPosition", typeof(Vector2)),
@@ -3961,9 +4006,13 @@ static TerrainPublicApiShapeSmokeReport ValidateTerrainPublicApiShapeContracts()
                     ("PlanningGate", typeof(TerrainWorldPlanningGateResult)),
                     ("QualityGate", typeof(TerrainQualityGateResult)),
                     ("ExperienceGate", typeof(TerrainExperienceGateResult)),
+                    ("JsonPath", typeof(string)),
                     ("MapPath", typeof(string)),
+                    ("TraversalCostMapPath", typeof(string)),
                     ("ReportPath", typeof(string)),
+                    ("JsonSaveError", typeof(Error)),
                     ("MapSaveError", typeof(Error)),
+                    ("TraversalCostMapSaveError", typeof(Error)),
                     ("ReportSaveError", typeof(Error)),
                     ("Passed", typeof(bool))
                 ],
@@ -4190,6 +4239,8 @@ static TerrainPublicApiShapeSmokeReport ValidateTerrainPublicApiShapeContracts()
                 typeof(ITerrainNavigationProvider),
                 [
                     new("CreateTraversalCostGrid", false, typeof(TerrainTraversalCostGrid), [typeof(Vector2), typeof(float), typeof(int), typeof(float)]),
+                    new("CreateTraversalCostGridForTile", false, typeof(TerrainTraversalCostGrid), [typeof(TerrainTileCoord), typeof(int), typeof(float)]),
+                    new("QueryTraversalCosts", false, typeof(TerrainTraversalCost[]), [typeof(Rect2), typeof(float), typeof(int)]),
                     new("GetRouteGraphSnapshot", false, typeof(TerrainRouteGraphSnapshot), []),
                     new("TryGetRouteGraphSnapshot", false, typeof(bool), [typeof(TerrainRouteGraphSnapshot).MakeByRefType()])
                 ],
@@ -4226,6 +4277,8 @@ static TerrainPublicApiShapeSmokeReport ValidateTerrainPublicApiShapeContracts()
                     new("IsAboveWater", false, typeof(bool), [typeof(Vector2), typeof(float)]),
                     new("QueryPlacementCandidates", false, typeof(TerrainPlacementCandidate[]), [typeof(Rect2), typeof(TerrainGameplayTag), typeof(TerrainGameplayTag), typeof(int), typeof(float), typeof(float), typeof(float), typeof(float), typeof(bool), typeof(float)]),
                     new("CreateTraversalCostGrid", false, typeof(TerrainTraversalCostGrid), [typeof(Vector2), typeof(float), typeof(int), typeof(float)]),
+                    new("CreateTraversalCostGridForTile", false, typeof(TerrainTraversalCostGrid), [typeof(TerrainTileCoord), typeof(int), typeof(float)]),
+                    new("QueryTraversalCosts", false, typeof(TerrainTraversalCost[]), [typeof(Rect2), typeof(float), typeof(int)]),
                     new("GetRouteGraphSnapshot", false, typeof(TerrainRouteGraphSnapshot), []),
                     new("TryGetRouteGraphSnapshot", false, typeof(bool), [typeof(TerrainRouteGraphSnapshot).MakeByRefType()]),
                     new("CreateRuntimeOpenWorldPlan", true, typeof(TerrainWorldPlan), [typeof(TerrainGenerationProfile), typeof(float), typeof(CancellationToken)]),
@@ -4243,6 +4296,21 @@ static TerrainPublicApiShapeSmokeReport ValidateTerrainPublicApiShapeContracts()
                     new("TryGetNode", false, typeof(bool), [typeof(int), typeof(TerrainRouteGraphNode).MakeByRefType()]),
                     new("QueryConnectedEdges", false, typeof(TerrainRouteGraphEdge[]), [typeof(int)]),
                     new("TryFindPath", false, typeof(bool), [typeof(int), typeof(int), typeof(TerrainRouteGraphPath).MakeByRefType()])
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicMethods(
+                typeof(TerrainTraversalCostGrid),
+                [
+                    new("GetSample", false, typeof(TerrainTraversalCost), [typeof(int), typeof(int)]),
+                    new("GetWorldPosition", false, typeof(Vector2), [typeof(int), typeof(int)]),
+                    new("TryGetGridIndex", false, typeof(bool), [typeof(Vector2), typeof(Vector2I).MakeByRefType()]),
+                    new("GetNearestSample", false, typeof(TerrainTraversalCost), [typeof(Vector2)]),
+                    new("QuerySamples", false, typeof(TerrainTraversalCost[]), [typeof(Rect2)]),
+                    new("QuerySamples", false, typeof(TerrainTraversalCost[]), [typeof(Rect2), typeof(int)]),
+                    new("ToSampleArray", false, typeof(TerrainTraversalCost[]), []),
+                    new("ContainsWorldPosition", false, typeof(bool), [typeof(Vector2)])
                 ],
                 ref checkedTypeCount,
                 ref checkedMemberCount,
@@ -4332,6 +4400,8 @@ static TerrainPublicApiShapeSmokeReport ValidateTerrainPublicApiShapeContracts()
                     new("CreateMap", true, typeof(Image), [typeof(TerrainGenerationProfile), typeof(Vector2), typeof(float), typeof(int), typeof(TerrainMapLayer)]),
                     new("CreateRaster", true, typeof(TerrainMapRaster), [typeof(TerrainGenerationProfile), typeof(Vector2), typeof(float), typeof(int), typeof(TerrainMapLayer)]),
                     new("CreateTraversalCostGrid", true, typeof(TerrainTraversalCostGrid), [typeof(TerrainGenerationProfile), typeof(Vector2), typeof(float), typeof(int), typeof(float)]),
+                    new("CreateTraversalCostGridForTile", true, typeof(TerrainTraversalCostGrid), [typeof(TerrainGenerationProfile), typeof(TerrainTileCoord), typeof(int), typeof(float)]),
+                    new("QueryTraversalCosts", true, typeof(TerrainTraversalCost[]), [typeof(TerrainGenerationProfile), typeof(Rect2), typeof(float), typeof(int)]),
                     new("CreateImage", true, typeof(Image), [typeof(TerrainMapRaster)]),
                     new("SaveBiomeMap", true, typeof(Error), [typeof(TerrainGenerationProfile), typeof(Vector2), typeof(float), typeof(int), typeof(string)]),
                     new("SaveMap", true, typeof(Error), [typeof(TerrainGenerationProfile), typeof(Vector2), typeof(float), typeof(int), typeof(TerrainMapLayer), typeof(string)]),
@@ -4872,7 +4942,41 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
         TerrainTraversalCostGrid facadeTraversalGrid = noPlanWorld.CreateTraversalCostGrid(query, profile.ChunkSize, 8, 16.0f);
         bool navigationGridPassed =
             TraversalCostGridMatches(expectedTraversalGrid, facadeTraversalGrid) &&
+            TraversalCostGridQueriesBehave(facadeTraversalGrid) &&
             TraversalCostGridSnapshotIsolated(facadeTraversalGrid);
+        TerrainTileCoord queryCoord = WorldToCoord(query, profile);
+        TerrainTraversalCostGrid expectedTileTraversalGrid =
+            TerrainMapExporter.CreateTraversalCostGridForTile(profile, queryCoord, 8, 16.0f);
+        TerrainTraversalCostGrid facadeTileTraversalGrid =
+            noPlanWorld.CreateTraversalCostGridForTile(queryCoord, 8, 16.0f);
+        Rect2 expectedTileBounds = new(queryCoord.Origin(profile.ChunkSize), new Vector2(profile.ChunkSize, profile.ChunkSize));
+        bool navigationTileGridPassed =
+            TraversalCostGridMatches(expectedTileTraversalGrid, facadeTileTraversalGrid) &&
+            ExactRectEquals(expectedTileBounds, facadeTileTraversalGrid.WorldBounds) &&
+            TraversalCostGridQueriesBehave(facadeTileTraversalGrid) &&
+            TraversalCostGridSnapshotIsolated(facadeTileTraversalGrid);
+        Rect2 navigationRegionBounds = new(
+            query - new Vector2(profile.ChunkSize * 0.125f, profile.ChunkSize * 0.125f),
+            new Vector2(profile.ChunkSize * 0.25f, profile.ChunkSize * 0.25f));
+        TerrainTraversalCost[] expectedRegionCosts =
+            TerrainMapExporter.QueryTraversalCosts(profile, navigationRegionBounds, 16.0f, 16);
+        TerrainTraversalCost[] facadeRegionCosts =
+            noPlanWorld.QueryTraversalCosts(navigationRegionBounds, 16.0f, 16);
+        bool navigationRegionQueryPassed =
+            expectedRegionCosts.Length > 0 &&
+            expectedRegionCosts.Length <= 16 &&
+            TraversalCostSamplesMatch(expectedRegionCosts, facadeRegionCosts) &&
+            noPlanWorld.QueryTraversalCosts(new Rect2(query, Vector2.Zero), 16.0f, 16).Length == 0;
+        if (navigationRegionQueryPassed)
+        {
+            TerrainTraversalCost originalRegionCost = facadeRegionCosts[0];
+            facadeRegionCosts[0] = default;
+            TerrainTraversalCost[] secondRegionCosts =
+                noPlanWorld.QueryTraversalCosts(navigationRegionBounds, 16.0f, 16);
+            navigationRegionQueryPassed =
+                secondRegionCosts.Length == expectedRegionCosts.Length &&
+                TerrainTraversalCostsMatch(originalRegionCost, secondRegionCosts[0]);
+        }
         TerrainRouteGraphSnapshot emptyRouteGraph = noPlanWorld.GetRouteGraphSnapshot();
         bool noPlanRouteGraphPassed =
             !noPlanWorld.TryGetRouteGraphSnapshot(out TerrainRouteGraphSnapshot? noPlanRouteGraph) &&
@@ -4893,10 +4997,10 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
                 expectedQueuedCoords: [new TerrainTileCoord(-4, -3), new TerrainTileCoord(8, -2)]);
         bool apiVersionPassed =
             TerrainApiVersion.Major == 1 &&
-            TerrainApiVersion.Minor == 4 &&
+            TerrainApiVersion.Minor == 5 &&
             TerrainApiVersion.Patch == 0 &&
             string.Equals(TerrainApiVersion.Contract, "terrain-api-v1", StringComparison.Ordinal) &&
-            string.Equals(TerrainApiVersion.Version, "1.4.0", StringComparison.Ordinal);
+            string.Equals(TerrainApiVersion.Version, "1.5.0", StringComparison.Ordinal);
         bool determinismContractPassed =
             string.Equals(TerrainDeterminismContract.Contract, "terrain-determinism-v1", StringComparison.Ordinal) &&
             ExactFloatEquals(TerrainDeterminismContract.HeightEpsilon, 0.05f) &&
@@ -5284,6 +5388,8 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
             placementCandidatesQueryPassed &&
             noPlanRoutePlacementPassed &&
             navigationGridPassed &&
+            navigationTileGridPassed &&
+            navigationRegionQueryPassed &&
             noPlanRouteGraphPassed &&
             streamingSnapshotPassed &&
             apiVersionPassed &&
@@ -5325,6 +5431,8 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
                 placementCandidatesQueryPassed,
                 noPlanRoutePlacementPassed,
                 navigationGridPassed,
+                navigationTileGridPassed,
+                navigationRegionQueryPassed,
                 noPlanRouteGraphPassed,
                 streamingSnapshotPassed,
                 apiVersionPassed,
@@ -5371,6 +5479,8 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
             placementCandidatesQueryPassed,
             noPlanRoutePlacementPassed,
             navigationGridPassed,
+            navigationTileGridPassed,
+            navigationRegionQueryPassed,
             noPlanRouteGraphPassed,
             streamingSnapshotPassed,
             apiVersionPassed,
@@ -5414,6 +5524,8 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
             PlacementCandidatesQueryPassed: false,
             NoPlanRoutePlacementPassed: false,
             NavigationGridPassed: false,
+            NavigationTileGridPassed: false,
+            NavigationRegionQueryPassed: false,
             NoPlanRouteGraphPassed: false,
             StreamingSnapshotPassed: false,
             ApiVersionPassed: false,
@@ -5557,6 +5669,66 @@ static bool TerrainTraversalCostsMatch(TerrainTraversalCost expected, TerrainTra
         expected.WaterKind == actual.WaterKind &&
         expected.BiomeKind == actual.BiomeKind &&
         expected.LandscapeKind == actual.LandscapeKind;
+}
+
+static bool TraversalCostSamplesMatch(
+    TerrainTraversalCost[] expected,
+    TerrainTraversalCost[] actual)
+{
+    if (expected.Length != actual.Length)
+    {
+        return false;
+    }
+
+    for (int i = 0; i < expected.Length; i++)
+    {
+        if (!TerrainTraversalCostsMatch(expected[i], actual[i]))
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+static bool TraversalCostGridQueriesBehave(TerrainTraversalCostGrid grid)
+{
+    if (grid.Width < 2 ||
+        grid.Height < 2 ||
+        grid.SampleCount < grid.Width * grid.Height ||
+        !ExactRectEquals(
+            new Rect2(
+                grid.Center - new Vector2(grid.WorldSize * 0.5f, grid.WorldSize * 0.5f),
+                new Vector2(grid.WorldSize, grid.WorldSize)),
+            grid.WorldBounds))
+    {
+        return false;
+    }
+
+    TerrainTraversalCost corner = grid.GetSample(0, 0);
+    if (!ExactPositionEquals(grid.GetWorldPosition(0, 0), corner.WorldPosition) ||
+        !grid.TryGetGridIndex(corner.WorldPosition, out Vector2I cornerIndex) ||
+        cornerIndex != Vector2I.Zero ||
+        !grid.ContainsWorldPosition(corner.WorldPosition) ||
+        !TerrainTraversalCostsMatch(corner, grid.GetNearestSample(corner.WorldPosition)))
+    {
+        return false;
+    }
+
+    TerrainTraversalCost center = grid.GetSample(grid.Width / 2, grid.Height / 2);
+    Rect2 centerBounds = new(center.WorldPosition - new Vector2(0.01f, 0.01f), new Vector2(0.02f, 0.02f));
+    TerrainTraversalCost[] centerQuery = grid.QuerySamples(centerBounds);
+    TerrainTraversalCost[] limitedQuery = grid.QuerySamples(grid.WorldBounds, 3);
+    Rect2 outsideBounds = new(
+        grid.WorldBounds.Position + grid.WorldBounds.Size + new Vector2(1.0f, 1.0f),
+        new Vector2(4.0f, 4.0f));
+
+    return centerQuery.Length == 1 &&
+        TerrainTraversalCostsMatch(center, centerQuery[0]) &&
+        limitedQuery.Length == 3 &&
+        grid.QuerySamples(grid.WorldBounds, 0).Length == 0 &&
+        grid.QuerySamples(outsideBounds).Length == 0 &&
+        !grid.TryGetGridIndex(grid.WorldBounds.Position - new Vector2(0.1f, 0.1f), out _);
 }
 
 static bool TerrainRouteCorridorSamplesMatch(
@@ -6172,6 +6344,8 @@ static string RuntimeApiFailureReason(
     bool placementCandidatesQueryPassed,
     bool noPlanRoutePlacementPassed,
     bool navigationGridPassed,
+    bool navigationTileGridPassed,
+    bool navigationRegionQueryPassed,
     bool noPlanRouteGraphPassed,
     bool streamingSnapshotPassed,
     bool apiVersionPassed,
@@ -6268,6 +6442,16 @@ static string RuntimeApiFailureReason(
         return "CreateTraversalCostGrid did not match TerrainMapExporter traversal-cost handoff or isolate samples";
     }
 
+    if (!navigationTileGridPassed)
+    {
+        return "CreateTraversalCostGridForTile did not match tile-bounded traversal-cost handoff";
+    }
+
+    if (!navigationRegionQueryPassed)
+    {
+        return "QueryTraversalCosts did not return isolated classifier-backed traversal samples for the requested region";
+    }
+
     if (!noPlanRouteGraphPassed)
     {
         return "route graph facade did not expose an empty no-plan state";
@@ -6280,7 +6464,7 @@ static string RuntimeApiFailureReason(
 
     if (!apiVersionPassed)
     {
-        return "TerrainApiVersion constants did not match terrain-api-v1 version 1.4.0";
+        return "TerrainApiVersion constants did not match terrain-api-v1 version 1.5.0";
     }
 
     if (!determinismContractPassed)

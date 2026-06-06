@@ -200,9 +200,11 @@ internal readonly record struct TerrainScenicLandmarkSmokeReport(
 internal readonly record struct TerrainArtifactSmokeReport(
     bool Passed,
     string OutputDirectory,
+    string JsonPath,
     string MapPath,
     string ReportPath,
     string TraversalCostMapPath,
+    long JsonBytes,
     long MapBytes,
     long ReportBytes,
     long TraversalCostMapBytes,
@@ -234,6 +236,7 @@ internal readonly record struct TerrainPlanJsonSmokeReport(
     bool ProfileHashMismatchRejected,
     bool LegacyApiVersionAccepted,
     bool PreviousApiVersionAccepted,
+    bool CurrentApiMinusThreeVersionAccepted,
     bool CurrentApiMinusTwoVersionAccepted,
     bool CurrentApiMinusOneVersionAccepted,
     bool VersionDriftRejected,
@@ -298,6 +301,22 @@ internal readonly record struct TerrainApiLayeringSmokeReport(
     string[] Violations,
     string Reason);
 
+/// <summary>Reports whether the Godot terrain editor plugin scaffold exists and wires the expected dock/tool entry points.</summary>
+internal readonly record struct TerrainEditorPluginSmokeReport(
+    bool Passed,
+    bool PluginConfigExists,
+    bool PluginScriptExists,
+    bool DockPanelExists,
+    bool DefaultSettingsResourceExists,
+    bool MainSceneExists,
+    bool PluginConfigWiresScript,
+    bool PluginScriptWiresDock,
+    bool DockPanelSupportsPreviewExportValidation,
+    bool MainSceneWiresDefaultSettings,
+    bool DemoScriptSupportsSettingsResource,
+    bool DockPanelUsesDefaultSettingsResource,
+    string Reason);
+
 /// <summary>Stable method signature expected by public API shape validation.</summary>
 internal readonly record struct PublicMethodContract(
     string Name,
@@ -326,6 +345,8 @@ internal readonly record struct TerrainRuntimeApiSmokeReport(
     bool PlacementCandidatesQueryPassed,
     bool NoPlanRoutePlacementPassed,
     bool NavigationGridPassed,
+    bool NavigationTileGridPassed,
+    bool NavigationRegionQueryPassed,
     bool NoPlanRouteGraphPassed,
     bool StreamingSnapshotPassed,
     bool ApiVersionPassed,

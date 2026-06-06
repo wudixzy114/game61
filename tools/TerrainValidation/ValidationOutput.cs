@@ -120,12 +120,12 @@ internal static class TerrainValidationOutput
     {
         Console.WriteLine(
             $"Open world artifact smoke: {(report.Passed ? "PASS" : "FAIL")} " +
-            $"image {report.ImageSize} px, map {report.MapBytes / 1024.0:0.0} KB, traversal {report.TraversalCostMapBytes / 1024.0:0.0} KB, report {report.ReportBytes / 1024.0:0.0} KB, " +
+            $"image {report.ImageSize} px, json {report.JsonBytes / 1024.0:0.0} KB, map {report.MapBytes / 1024.0:0.0} KB, traversal {report.TraversalCostMapBytes / 1024.0:0.0} KB, report {report.ReportBytes / 1024.0:0.0} KB, " +
             $"colors {report.DistinctColorBuckets}, overlay pixels {report.OverlayChangedPixels}, " +
             $"max overlay delta {report.MaxOverlayColorDelta:0.000}, raster snapshot {(report.MapRasterSnapshotIsolated ? "pass" : "fail")}, traversal colors/blocked {report.TraversalCostColorBuckets}/{report.TraversalCostBlockedSamples}, " +
             $"grid {report.TraversalCostGridSize}px finite/blocked {report.TraversalCostGridFiniteSamples}/{report.TraversalCostGridBlockedSamples}, " +
             $"snapshot {(report.TraversalCostGridSnapshotIsolated ? "pass" : "fail")}, sections {(report.ReportContainsRequiredSections ? "yes" : "no")} ({report.Reason})");
-        Console.WriteLine($"Artifact paths: {report.MapPath}, {report.TraversalCostMapPath}, {report.ReportPath}");
+        Console.WriteLine($"Artifact paths: {report.JsonPath}, {report.MapPath}, {report.TraversalCostMapPath}, {report.ReportPath}");
     }
 
     internal static void PrintPlanJsonSmoke(TerrainPlanJsonSmokeReport report)
@@ -135,7 +135,7 @@ internal static class TerrainValidationOutput
             $"json {report.JsonBytes / 1024.0:0.0} KB, file {report.FileBytes / 1024.0:0.0} KB, " +
             $"metadata/schema {(report.MetadataPassed ? "pass" : "fail")}/{(report.SchemaShapePassed ? "pass" : "fail")}, " +
             $"string/file {(report.StringLoadPassed && report.StringRoundtripMatches ? "pass" : "fail")}/{(report.FileLoadPassed && report.FileRoundtripMatches ? "pass" : "fail")}, " +
-            $"compat api 1.0/1.1/1.2/1.3 {(report.LegacyApiVersionAccepted ? "pass" : "fail")}/{(report.PreviousApiVersionAccepted ? "pass" : "fail")}/{(report.CurrentApiMinusTwoVersionAccepted ? "pass" : "fail")}/{(report.CurrentApiMinusOneVersionAccepted ? "pass" : "fail")}, " +
+            $"compat api 1.0/1.1/1.2/1.3/1.4 {(report.LegacyApiVersionAccepted ? "pass" : "fail")}/{(report.PreviousApiVersionAccepted ? "pass" : "fail")}/{(report.CurrentApiMinusThreeVersionAccepted ? "pass" : "fail")}/{(report.CurrentApiMinusTwoVersionAccepted ? "pass" : "fail")}/{(report.CurrentApiMinusOneVersionAccepted ? "pass" : "fail")}, " +
             $"drift seed/hash/version/enum {(report.SeedMismatchRejected ? "pass" : "fail")}/{(report.ProfileHashMismatchRejected ? "pass" : "fail")}/{(report.VersionDriftRejected ? "pass" : "fail")}/{(report.EnumNameDriftRejected && report.EnumValueDriftRejected ? "pass" : "fail")}, " +
             $"isolation/runtime {(report.RoundtripIsolationPassed ? "pass" : "fail")}/{(report.SetWorldPlanPassed ? "pass" : "fail")} ({report.Reason})");
     }
@@ -177,7 +177,7 @@ internal static class TerrainValidationOutput
             $"POIs/routes {report.PointOfInterestCount}/{report.RouteCount}, " +
             $"traversable/water {(report.TraversabilityQueryPassed ? "pass" : "fail")}/{(report.AboveWaterQueryPassed ? "pass" : "fail")}, " +
             $"semantic POI/POIsum/tagreg/route/routesum/corridor/water/tags/traversal {(report.PointQueryPassed ? "pass" : "fail")}/{(report.PointSummaryQueryPassed ? "pass" : "fail")}/{(report.GameplayTagRegionQueryPassed ? "pass" : "fail")}/{(report.RouteQueryPassed ? "pass" : "fail")}/{(report.RouteSummaryQueryPassed ? "pass" : "fail")}/{(report.RouteCorridorQueryPassed ? "pass" : "fail")}/{(report.WaterStateQueryPassed ? "pass" : "fail")}/{(report.GameplayTagsQueryPassed ? "pass" : "fail")}/{(report.TraversalCostQueryPassed ? "pass" : "fail")}, " +
-            $"placement/nav {(report.PlacementCandidatesQueryPassed ? "pass" : "fail")}/{(report.RoutePlacementQueryPassed ? "pass" : "fail")}/{(report.NavigationGridPassed ? "pass" : "fail")}/{(report.RouteGraphSnapshotPassed ? "pass" : "fail")}/{(report.RouteGraphSnapshotIsolated ? "pass" : "fail")}, " +
+            $"placement/nav {(report.PlacementCandidatesQueryPassed ? "pass" : "fail")}/{(report.RoutePlacementQueryPassed ? "pass" : "fail")}/{(report.NavigationGridPassed ? "pass" : "fail")}/{(report.NavigationTileGridPassed ? "pass" : "fail")}/{(report.NavigationRegionQueryPassed ? "pass" : "fail")}/{(report.RouteGraphSnapshotPassed ? "pass" : "fail")}/{(report.RouteGraphSnapshotIsolated ? "pass" : "fail")}, " +
             $"streaming {(report.StreamingSnapshotPassed ? "pass" : "fail")}, " +
             $"snapshots POI/routes/plan {(report.PointSnapshotIsolated ? "pass" : "fail")}/{(report.RouteSnapshotIsolated ? "pass" : "fail")}/{(report.WorldPlanSnapshotIsolated ? "pass" : "fail")} " +
             $"({report.Reason})");
@@ -296,6 +296,15 @@ internal static class TerrainValidationOutput
         }
     }
 
+    internal static void PrintEditorPluginSmoke(TerrainEditorPluginSmokeReport report)
+    {
+        Console.WriteLine(
+            $"Terrain editor plugin smoke: {(report.Passed ? "PASS" : "FAIL")} " +
+            $"cfg/script/panel/resource/scene {report.PluginConfigExists}/{report.PluginScriptExists}/{report.DockPanelExists}/{report.DefaultSettingsResourceExists}/{report.MainSceneExists}, " +
+            $"wiring cfg/dock/panel/scene/demo/default {report.PluginConfigWiresScript}/{report.PluginScriptWiresDock}/{report.DockPanelSupportsPreviewExportValidation}/{report.MainSceneWiresDefaultSettings}/{report.DemoScriptSupportsSettingsResource}/{report.DockPanelUsesDefaultSettingsResource} " +
+            $"({report.Reason})");
+    }
+
     internal static void PrintAggregate(
         TerrainValidationAggregate aggregate,
         int seedCount,
@@ -318,6 +327,7 @@ internal static class TerrainValidationOutput
         TerrainThresholdContractSmokeReport? thresholdContractSmokeReport,
         TerrainDefaultStateContractSmokeReport? defaultStateContractSmokeReport,
         TerrainApiLayeringSmokeReport? apiLayeringSmokeReport,
+        TerrainEditorPluginSmokeReport? editorPluginSmokeReport,
         TerrainRuntimeApiSmokeReport? runtimeApiSmokeReport,
         TerrainAnchorContractSmokeReport? anchorSmokeReport,
         TerrainRuntimeWorldSmokeReport? runtimeWorldSmokeReport,
@@ -425,6 +435,11 @@ internal static class TerrainValidationOutput
         if (apiLayeringSmokeReport is not null)
         {
             Console.WriteLine($"Terrain API layering smoke: {(apiLayeringSmokeReport.Value.Passed ? "PASS" : "FAIL")}");
+        }
+
+        if (editorPluginSmokeReport is not null)
+        {
+            Console.WriteLine($"Terrain editor plugin smoke: {(editorPluginSmokeReport.Value.Passed ? "PASS" : "FAIL")}");
         }
 
         if (runtimeApiSmokeReport is not null)

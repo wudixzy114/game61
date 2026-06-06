@@ -63,8 +63,23 @@ Use for terrain-driven resource, encounter, audio, and local interaction placeme
 Use for navigation and map-graph handoff without embedding character pathfinding in the terrain system.
 
 - `CreateTraversalCostGrid(Vector2 center, float worldSize, int gridSize, float spacing = 24.0f)`
+- `CreateTraversalCostGridForTile(TerrainTileCoord coord, int gridSize, float spacing = 24.0f)`
+- `QueryTraversalCosts(Rect2 worldBounds, float sampleSpacing = 24.0f, int maxSamples = 1024)`
 - `GetRouteGraphSnapshot()`
 - `TryGetRouteGraphSnapshot(out TerrainRouteGraphSnapshot? snapshot)`
+
+`TerrainTraversalCostGrid` is a deterministic handoff value, not a pathfinder. It now exposes
+bounded local query helpers for importer, tile, region, and debug-overlay consumers:
+
+- `WorldBounds`
+- `GetWorldPosition(int x, int y)`
+- `TryGetGridIndex(Vector2 world, out Vector2I index)`
+- `GetNearestSample(Vector2 world)`
+- `QuerySamples(Rect2 worldBounds, int maxSamples)`
+
+`CreateTraversalCostGridForTile(...)` covers one streaming tile exactly and does not require the
+tile to be rendered or loaded. `QueryTraversalCosts(...)` samples an arbitrary world-space region
+with a fixed spacing and max-result cap for local AI, encounters, and navigation-weight importers.
 
 `TerrainRouteGraphSnapshot` now provides stable high-level graph queries for importer and AI layers
 without exposing planner internals:
@@ -160,7 +175,8 @@ The PR terrain validation tier now verifies:
 - `TerrainWorld` implements the stable runtime interfaces
 - limited-result POI, gameplay-tag region, and route summary queries return stable isolated results
 - placement candidates respect requested tags, traversal filters, and route-influence requirements
-- route-graph snapshots and traversal-cost grid handoff are stable and isolated
+- route-graph snapshots and center/tile/region traversal-cost handoff are stable and isolated
+- traversal-cost grid world/index helpers, bounded region queries, and max-result caps remain stable
 - route-graph node lookup, connected-edge lookup, and high-level path queries are stable and isolated
 - runtime signal delegates exist with the expected signatures
 - gameplay-facing scripts outside `dao/Scripts/Terrain` and `dao/Scripts/Demo` do not directly
