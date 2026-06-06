@@ -3264,6 +3264,36 @@ static TerrainPublicApiShapeSmokeReport ValidateTerrainPublicApiShapeContracts()
                 ref checkedTypeCount,
                 ref checkedMemberCount,
                 out failureReason) &&
+            CheckPublicShape<TerrainWorldPointOfInterestSummary>(
+                [
+                    ("Id", typeof(int)),
+                    ("Kind", typeof(TerrainPointOfInterestKind)),
+                    ("WorldPosition", typeof(Vector2)),
+                    ("Distance", typeof(float)),
+                    ("Score", typeof(float)),
+                    ("ScenicPotential", typeof(float)),
+                    ("Traversability", typeof(float)),
+                    ("SettlementTier", typeof(TerrainSettlementTier)),
+                    ("BiomeKind", typeof(TerrainBiomeKind)),
+                    ("LandscapeKind", typeof(TerrainLandscapeKind))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicShape<TerrainWorldRouteSummary>(
+                [
+                    ("FromPointId", typeof(int)),
+                    ("ToPointId", typeof(int)),
+                    ("Kind", typeof(TerrainRouteKind)),
+                    ("Distance", typeof(float)),
+                    ("Cost", typeof(float)),
+                    ("AverageScenicPotential", typeof(float)),
+                    ("AverageTraversability", typeof(float)),
+                    ("WaypointCount", typeof(int))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
             CheckPublicShape<TerrainWorldSettingsResource>(
                 [
                     ("Seed", typeof(int)),
@@ -4375,9 +4405,11 @@ static TerrainPublicApiShapeSmokeReport ValidateTerrainPublicApiShapeContracts()
                     new("TryGetWorldPlanSnapshot", false, typeof(bool), [typeof(TerrainWorldPlanSnapshot).MakeByRefType()]),
                     new("GetPointsOfInterest", false, typeof(TerrainWorldPointOfInterest[]), []),
                     new("GetRoutes", false, typeof(TerrainWorldRoute[]), []),
+                    new("QueryNearestPointsOfInterest", false, typeof(TerrainWorldPointOfInterestSummary[]), [typeof(Vector2), typeof(float), typeof(int), typeof(TerrainPointOfInterestKind?)]),
                     new("TryFindNearestPointOfInterest", false, typeof(bool), [typeof(Vector2), typeof(float), typeof(TerrainPointOfInterestKind?), typeof(TerrainWorldPointOfInterest).MakeByRefType()]),
                     new("QueryPointsOfInterest", false, typeof(TerrainWorldPointOfInterest[]), [typeof(Rect2), typeof(TerrainPointOfInterestKind?)]),
                     new("QueryRoutesNear", false, typeof(TerrainWorldRoute[]), [typeof(Vector2), typeof(float)]),
+                    new("QueryRouteSummariesNear", false, typeof(TerrainWorldRouteSummary[]), [typeof(Vector2), typeof(float), typeof(int)]),
                     new("SampleRouteCorridor", false, typeof(TerrainRouteCorridorSample), [typeof(Vector2)])
                 ],
                 ref checkedTypeCount,
@@ -4425,9 +4457,11 @@ static TerrainPublicApiShapeSmokeReport ValidateTerrainPublicApiShapeContracts()
                     new("GetPointsOfInterest", false, typeof(TerrainWorldPointOfInterest[]), []),
                     new("GetRoutes", false, typeof(TerrainWorldRoute[]), []),
                     new("GetStreamingSnapshot", false, typeof(TerrainWorldStreamingSnapshot), []),
+                    new("QueryNearestPointsOfInterest", false, typeof(TerrainWorldPointOfInterestSummary[]), [typeof(Vector2), typeof(float), typeof(int), typeof(TerrainPointOfInterestKind?)]),
                     new("TryFindNearestPointOfInterest", false, typeof(bool), [typeof(Vector2), typeof(float), typeof(TerrainPointOfInterestKind?), typeof(TerrainWorldPointOfInterest).MakeByRefType()]),
                     new("QueryPointsOfInterest", false, typeof(TerrainWorldPointOfInterest[]), [typeof(Rect2), typeof(TerrainPointOfInterestKind?)]),
                     new("QueryRoutesNear", false, typeof(TerrainWorldRoute[]), [typeof(Vector2), typeof(float)]),
+                    new("QueryRouteSummariesNear", false, typeof(TerrainWorldRouteSummary[]), [typeof(Vector2), typeof(float), typeof(int)]),
                     new("SampleRouteCorridor", false, typeof(TerrainRouteCorridorSample), [typeof(Vector2)]),
                     new("SampleWaterState", false, typeof(TerrainWaterState), [typeof(Vector2)]),
                     new("SampleGameplayTags", false, typeof(TerrainGameplayTags), [typeof(Vector2)]),
@@ -4729,9 +4763,11 @@ static bool CheckExportedTerrainTypes(out string? failureReason)
         "Dao.Terrain.Generation.TerrainWorldPlanSerializer",
         "Dao.Terrain.Generation.TerrainWorldPlanSnapshot",
         "Dao.Terrain.Generation.TerrainWorldPointOfInterest",
+        "Dao.Terrain.Generation.TerrainWorldPointOfInterestSummary",
         "Dao.Terrain.Generation.TerrainWorldRegion",
         "Dao.Terrain.Generation.TerrainWorldRegionKind",
         "Dao.Terrain.Generation.TerrainWorldRoute",
+        "Dao.Terrain.Generation.TerrainWorldRouteSummary",
         "Dao.Terrain.ITerrainNavigationProvider",
         "Dao.Terrain.ITerrainPlanProvider",
         "Dao.Terrain.ITerrainPlacementService",
@@ -5110,9 +5146,11 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
         bool emptyPlanCollectionsPassed =
             noPlanWorld.GetPointsOfInterest().Length == 0 &&
             noPlanWorld.GetRoutes().Length == 0 &&
+            noPlanWorld.QueryNearestPointsOfInterest(query, profile.ChunkSize, 4).Length == 0 &&
             !noPlanWorld.TryFindNearestPointOfInterest(query, profile.ChunkSize, kind: null, out _) &&
             noPlanWorld.QueryPointsOfInterest(new Rect2(query - new Vector2(1.0f, 1.0f), new Vector2(2.0f, 2.0f))).Length == 0 &&
             noPlanWorld.QueryRoutesNear(query, profile.ChunkSize).Length == 0 &&
+            noPlanWorld.QueryRouteSummariesNear(query, profile.ChunkSize, 4).Length == 0 &&
             !noPlanWorld.SampleRouteCorridor(query).HasInfluence;
 
         TerrainWorldField expectedField = TerrainWorldFieldSampler.Sample(query, profile);
@@ -5346,6 +5384,7 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
         }
 
         bool pointQueryPassed = plan.PointsOfInterest.Length == 0;
+        bool pointSummaryQueryPassed = plan.PointsOfInterest.Length == 0;
         if (plan.PointsOfInterest.Length > 0)
         {
             TerrainWorldPointOfInterest expectedPoint = plan.PointsOfInterest[0];
@@ -5374,9 +5413,33 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
             }
 
             pointQueryPassed = nearestPassed && boundsPassed;
+
+            TerrainWorldPointOfInterestSummary[] pointSummaries = planWorld.QueryNearestPointsOfInterest(
+                expectedPoint.WorldPosition,
+                radius: 0.01f,
+                maxResults: 1,
+                expectedPoint.Kind);
+            bool pointSummaryMatches =
+                pointSummaries.Length == 1 &&
+                ContainsPointOfInterestSummary(pointSummaries, expectedPoint, expectedDistance: 0.0f);
+            if (pointSummaryMatches)
+            {
+                pointSummaries[0] = default;
+                TerrainWorldPointOfInterestSummary[] secondPointSummaries = planWorld.QueryNearestPointsOfInterest(
+                    expectedPoint.WorldPosition,
+                    radius: 0.01f,
+                    maxResults: 1,
+                    expectedPoint.Kind);
+                pointSummaryMatches =
+                    secondPointSummaries.Length == 1 &&
+                    ContainsPointOfInterestSummary(secondPointSummaries, expectedPoint, expectedDistance: 0.0f);
+            }
+
+            pointSummaryQueryPassed = pointSummaryMatches;
         }
 
         bool routeQueryPassed = plan.Routes.Length == 0;
+        bool routeSummaryQueryPassed = plan.Routes.Length == 0;
         bool routeCorridorQueryPassed = plan.Routes.Length == 0;
         bool routeGraphSnapshotPassed = true;
         bool routeGraphSnapshotIsolated = true;
@@ -5399,6 +5462,23 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
             }
 
             routeQueryPassed = routeFound && waypointIsolationPassed;
+
+            TerrainWorldRouteSummary[] routeSummaries = planWorld.QueryRouteSummariesNear(routeQueryPoint, radius: 1.0f, maxResults: 8);
+            bool routeSummaryMatches =
+                routeSummaries.Length > 0 &&
+                routeSummaries.Length <= 8 &&
+                ContainsRouteSummary(routeSummaries, expectedRoute, expectedDistance: 0.0f);
+            if (routeSummaryMatches)
+            {
+                routeSummaries[0] = default;
+                TerrainWorldRouteSummary[] secondRouteSummaries = planWorld.QueryRouteSummariesNear(routeQueryPoint, radius: 1.0f, maxResults: 8);
+                routeSummaryMatches =
+                    secondRouteSummaries.Length > 0 &&
+                    secondRouteSummaries.Length <= 8 &&
+                    ContainsRouteSummary(secondRouteSummaries, expectedRoute, expectedDistance: 0.0f);
+            }
+
+            routeSummaryQueryPassed = routeSummaryMatches;
 
             TerrainRouteCorridorIndex expectedCorridors = TerrainRouteCorridorIndex.FromPlan(plan, profile);
             foreach (TerrainWorldRoute route in plan.Routes)
@@ -5518,7 +5598,9 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
             points.Length == plan.PointsOfInterest.Length &&
             routes.Length == plan.Routes.Length &&
             pointQueryPassed &&
+            pointSummaryQueryPassed &&
             routeQueryPassed &&
+            routeSummaryQueryPassed &&
             routeCorridorQueryPassed &&
             routePlacementQueryPassed &&
             routeGraphSnapshotPassed &&
@@ -5558,7 +5640,9 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
                 routes.Length,
                 plan.Routes.Length,
                 pointQueryPassed,
+                pointSummaryQueryPassed,
                 routeQueryPassed,
+                routeSummaryQueryPassed,
                 routeCorridorQueryPassed,
                 routePlacementQueryPassed,
                 routeGraphSnapshotPassed,
@@ -5595,7 +5679,9 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
             integrationInterfacesPassed,
             signalContractsPassed,
             pointQueryPassed,
+            pointSummaryQueryPassed,
             routeQueryPassed,
+            routeSummaryQueryPassed,
             routeCorridorQueryPassed,
             routePlacementQueryPassed,
             routeGraphSnapshotPassed,
@@ -5635,7 +5721,9 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
             IntegrationInterfacesPassed: false,
             SignalContractsPassed: false,
             PointQueryPassed: false,
+            PointSummaryQueryPassed: false,
             RouteQueryPassed: false,
+            RouteSummaryQueryPassed: false,
             RouteCorridorQueryPassed: false,
             RoutePlacementQueryPassed: false,
             RouteGraphSnapshotPassed: false,
@@ -6217,6 +6305,31 @@ static bool ContainsPointOfInterest(
     return false;
 }
 
+static bool ContainsPointOfInterestSummary(
+    TerrainWorldPointOfInterestSummary[] points,
+    TerrainWorldPointOfInterest expected,
+    float expectedDistance)
+{
+    foreach (TerrainWorldPointOfInterestSummary point in points)
+    {
+        if (point.Id == expected.Id &&
+            point.Kind == expected.Kind &&
+            ExactPositionEquals(point.WorldPosition, expected.WorldPosition) &&
+            ExactFloatEquals(point.Distance, expectedDistance) &&
+            ExactFloatEquals(point.Score, expected.Score) &&
+            ExactFloatEquals(point.ScenicPotential, expected.ScenicPotential) &&
+            ExactFloatEquals(point.Traversability, expected.Traversability) &&
+            point.SettlementTier == expected.SettlementTier &&
+            point.BiomeKind == expected.BiomeKind &&
+            point.LandscapeKind == expected.LandscapeKind)
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 static bool ContainsRoute(
     TerrainWorldRoute[] routes,
     TerrainWorldRoute expected)
@@ -6242,6 +6355,29 @@ static bool ContainsRoute(
         }
 
         if (waypointsMatch)
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static bool ContainsRouteSummary(
+    TerrainWorldRouteSummary[] routes,
+    TerrainWorldRoute expected,
+    float expectedDistance)
+{
+    foreach (TerrainWorldRouteSummary route in routes)
+    {
+        if (route.FromPointId == expected.FromPointId &&
+            route.ToPointId == expected.ToPointId &&
+            route.Kind == expected.Kind &&
+            ExactFloatEquals(route.Distance, expectedDistance) &&
+            ExactFloatEquals(route.Cost, expected.Cost) &&
+            ExactFloatEquals(route.AverageScenicPotential, expected.AverageScenicPotential) &&
+            ExactFloatEquals(route.AverageTraversability, expected.AverageTraversability) &&
+            route.WaypointCount == expected.Waypoints.Length)
         {
             return true;
         }
@@ -6458,7 +6594,9 @@ static string RuntimeApiFailureReason(
     int routeCount,
     int expectedRouteCount,
     bool pointQueryPassed,
+    bool pointSummaryQueryPassed,
     bool routeQueryPassed,
+    bool routeSummaryQueryPassed,
     bool routeCorridorQueryPassed,
     bool routePlacementQueryPassed,
     bool routeGraphSnapshotPassed,
@@ -6592,9 +6730,19 @@ static string RuntimeApiFailureReason(
         return "POI semantic query facade did not find or isolate expected planned POIs";
     }
 
+    if (!pointSummaryQueryPassed)
+    {
+        return "limited POI summary query did not return stable nearest results";
+    }
+
     if (!routeQueryPassed)
     {
         return "route semantic query facade did not find nearby routes or isolate waypoint arrays";
+    }
+
+    if (!routeSummaryQueryPassed)
+    {
+        return "limited route summary query did not return stable nearby results";
     }
 
     if (!routeCorridorQueryPassed)
@@ -6708,7 +6856,7 @@ static void PrintRuntimeApiSmoke(TerrainRuntimeApiSmokeReport report)
         $"plan empty/ready {(report.NoPlanTryGetPassed && report.NoPlanSnapshotPassed && report.EmptyPlanCollectionsPassed ? "pass" : "fail")}/{(report.PlanTryGetPassed && report.PlanSnapshotTryGetPassed ? "pass" : "fail")}, " +
         $"POIs/routes {report.PointOfInterestCount}/{report.RouteCount}, " +
         $"traversable/water {(report.TraversabilityQueryPassed ? "pass" : "fail")}/{(report.AboveWaterQueryPassed ? "pass" : "fail")}, " +
-        $"semantic POI/route/corridor/water/tags/traversal {(report.PointQueryPassed ? "pass" : "fail")}/{(report.RouteQueryPassed ? "pass" : "fail")}/{(report.RouteCorridorQueryPassed ? "pass" : "fail")}/{(report.WaterStateQueryPassed ? "pass" : "fail")}/{(report.GameplayTagsQueryPassed ? "pass" : "fail")}/{(report.TraversalCostQueryPassed ? "pass" : "fail")}, " +
+        $"semantic POI/POIsum/route/routesum/corridor/water/tags/traversal {(report.PointQueryPassed ? "pass" : "fail")}/{(report.PointSummaryQueryPassed ? "pass" : "fail")}/{(report.RouteQueryPassed ? "pass" : "fail")}/{(report.RouteSummaryQueryPassed ? "pass" : "fail")}/{(report.RouteCorridorQueryPassed ? "pass" : "fail")}/{(report.WaterStateQueryPassed ? "pass" : "fail")}/{(report.GameplayTagsQueryPassed ? "pass" : "fail")}/{(report.TraversalCostQueryPassed ? "pass" : "fail")}, " +
         $"placement/nav {(report.PlacementCandidatesQueryPassed ? "pass" : "fail")}/{(report.RoutePlacementQueryPassed ? "pass" : "fail")}/{(report.NavigationGridPassed ? "pass" : "fail")}/{(report.RouteGraphSnapshotPassed ? "pass" : "fail")}/{(report.RouteGraphSnapshotIsolated ? "pass" : "fail")}, " +
         $"streaming {(report.StreamingSnapshotPassed ? "pass" : "fail")}, " +
         $"snapshots POI/routes/plan {(report.PointSnapshotIsolated ? "pass" : "fail")}/{(report.RouteSnapshotIsolated ? "pass" : "fail")}/{(report.WorldPlanSnapshotIsolated ? "pass" : "fail")} " +
@@ -9675,7 +9823,9 @@ internal readonly record struct TerrainRuntimeApiSmokeReport(
     bool IntegrationInterfacesPassed,
     bool SignalContractsPassed,
     bool PointQueryPassed,
+    bool PointSummaryQueryPassed,
     bool RouteQueryPassed,
+    bool RouteSummaryQueryPassed,
     bool RouteCorridorQueryPassed,
     bool RoutePlacementQueryPassed,
     bool RouteGraphSnapshotPassed,

@@ -11,6 +11,11 @@ public interface ITerrainPlanProvider
     bool TryGetWorldPlanSnapshot([NotNullWhen(true)] out TerrainWorldPlanSnapshot? snapshot);
     TerrainWorldPointOfInterest[] GetPointsOfInterest();
     TerrainWorldRoute[] GetRoutes();
+    TerrainWorldPointOfInterestSummary[] QueryNearestPointsOfInterest(
+        Vector2 world,
+        float radius,
+        int maxResults,
+        TerrainPointOfInterestKind? kind = null);
     bool TryFindNearestPointOfInterest(
         Vector2 world,
         float radius,
@@ -20,5 +25,6 @@ public interface ITerrainPlanProvider
         Rect2 worldBounds,
         TerrainPointOfInterestKind? kind = null);
     TerrainWorldRoute[] QueryRoutesNear(Vector2 world, float radius);
+    TerrainWorldRouteSummary[] QueryRouteSummariesNear(Vector2 world, float radius, int maxResults);
     TerrainRouteCorridorSample SampleRouteCorridor(Vector2 world);
 }

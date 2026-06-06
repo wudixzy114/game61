@@ -29,10 +29,18 @@ Use for open-world plan snapshots and semantic world-layout queries.
 - `TryGetWorldPlanSnapshot(out TerrainWorldPlanSnapshot? snapshot)`
 - `GetPointsOfInterest()`
 - `GetRoutes()`
+- `QueryNearestPointsOfInterest(Vector2 world, float radius, int maxResults, TerrainPointOfInterestKind? kind = null)`
 - `TryFindNearestPointOfInterest(Vector2 world, float radius, TerrainPointOfInterestKind? kind, out TerrainWorldPointOfInterest point)`
 - `QueryPointsOfInterest(Rect2 worldBounds, TerrainPointOfInterestKind? kind = null)`
 - `QueryRoutesNear(Vector2 world, float radius)`
+- `QueryRouteSummariesNear(Vector2 world, float radius, int maxResults)`
 - `SampleRouteCorridor(Vector2 world)`
+
+`QueryNearestPointsOfInterest(...)` returns compact `TerrainWorldPointOfInterestSummary` rows
+for low-allocation nearest-POI lookups when full point payload copies are unnecessary.
+
+`QueryRouteSummariesNear(...)` returns compact `TerrainWorldRouteSummary` rows for nearby-route
+queries without copying waypoint arrays.
 
 ### `ITerrainStreamingDiagnostics`
 
@@ -97,6 +105,7 @@ New gameplay systems should not read `TerrainTileBuilder` internals directly.
 The PR terrain validation tier now verifies:
 
 - `TerrainWorld` implements the stable runtime interfaces
+- limited-result POI and route summary queries return stable isolated results
 - placement candidates respect requested tags, traversal filters, and route-influence requirements
 - route-graph snapshots and traversal-cost grid handoff are stable and isolated
 - runtime signal delegates exist with the expected signatures

@@ -64,32 +64,6 @@ public partial class TerrainWorld
         return true;
     }
 
-    /// <summary>Returns a snapshot copy of the current plan's points of interest, or an empty array when no plan is ready.</summary>
-    public TerrainWorldPointOfInterest[] GetPointsOfInterest()
-    {
-        return _worldPlan is null
-            ? Array.Empty<TerrainWorldPointOfInterest>()
-            : _worldPlan.PointsOfInterest.ToArray();
-    }
-
-    /// <summary>Returns a snapshot copy of the current plan's routes and waypoint arrays, or an empty array when no plan is ready.</summary>
-    public TerrainWorldRoute[] GetRoutes()
-    {
-        if (_worldPlan is null)
-        {
-            return Array.Empty<TerrainWorldRoute>();
-        }
-
-        TerrainWorldRoute[] routes = _worldPlan.Routes;
-        var copy = new TerrainWorldRoute[routes.Length];
-        for (int i = 0; i < routes.Length; i++)
-        {
-            copy[i] = routes[i] with { Waypoints = routes[i].Waypoints.ToArray() };
-        }
-
-        return copy;
-    }
-
     /// <summary>Returns an isolated diagnostics snapshot of the current streaming queues, chunks, cache, and plan state.</summary>
     public TerrainWorldStreamingSnapshot GetStreamingSnapshot()
     {
@@ -130,105 +104,6 @@ public partial class TerrainWorld
             _worldPlan is not null,
             _worldPlanJob is not null,
             StreamTerrainBeforeOpenWorldPlanReady);
-    }
-
-    /// <summary>Finds the nearest planned POI within a radius, optionally filtering by POI kind. Does not generate a plan.</summary>
-    public bool TryFindNearestPointOfInterest(
-        Vector2 world,
-        float radius,
-        TerrainPointOfInterestKind? kind,
-        out TerrainWorldPointOfInterest point)
-    {
-        point = default;
-        if (_worldPlan is null)
-        {
-            return false;
-        }
-
-        float safeRadius = Mathf.Max(0.0f, radius);
-        float radiusSquared = safeRadius * safeRadius;
-        float bestDistanceSquared = float.PositiveInfinity;
-        bool found = false;
-
-        foreach (TerrainWorldPointOfInterest candidate in _worldPlan.PointsOfInterest)
-        {
-            if (kind.HasValue && candidate.Kind != kind.Value)
-            {
-                continue;
-            }
-
-            float distanceSquared = candidate.WorldPosition.DistanceSquaredTo(world);
-            if (distanceSquared <= radiusSquared && distanceSquared < bestDistanceSquared)
-            {
-                point = candidate;
-                bestDistanceSquared = distanceSquared;
-                found = true;
-            }
-        }
-
-        return found;
-    }
-
-    /// <summary>Returns planned POIs inside world-space bounds, optionally filtering by POI kind. Does not generate a plan.</summary>
-    public TerrainWorldPointOfInterest[] QueryPointsOfInterest(
-        Rect2 worldBounds,
-        TerrainPointOfInterestKind? kind = null)
-    {
-        if (_worldPlan is null)
-        {
-            return Array.Empty<TerrainWorldPointOfInterest>();
-        }
-
-        var points = new List<TerrainWorldPointOfInterest>();
-        foreach (TerrainWorldPointOfInterest point in _worldPlan.PointsOfInterest)
-        {
-            if (kind.HasValue && point.Kind != kind.Value)
-            {
-                continue;
-            }
-
-            if (ContainsPoint(worldBounds, point.WorldPosition))
-            {
-                points.Add(point);
-            }
-        }
-
-        return points.Count == 0 ? Array.Empty<TerrainWorldPointOfInterest>() : points.ToArray();
-    }
-
-    /// <summary>Returns planned routes whose waypoint polyline comes within the requested radius. Route waypoint arrays are copied.</summary>
-    public TerrainWorldRoute[] QueryRoutesNear(Vector2 world, float radius)
-    {
-        if (_worldPlan is null)
-        {
-            return Array.Empty<TerrainWorldRoute>();
-        }
-
-        float safeRadius = Mathf.Max(0.0f, radius);
-        float radiusSquared = safeRadius * safeRadius;
-        var routes = new List<TerrainWorldRoute>();
-        foreach (TerrainWorldRoute route in _worldPlan.Routes)
-        {
-            if (DistanceSquaredToRoute(world, route) <= radiusSquared)
-            {
-                routes.Add(CopyRoute(route));
-            }
-        }
-
-        return routes.Count == 0 ? Array.Empty<TerrainWorldRoute>() : routes.ToArray();
-    }
-
-    /// <summary>Samples the current plan's route corridor influence at a world XZ position without generating tiles.</summary>
-    public TerrainRouteCorridorSample SampleRouteCorridor(Vector2 world)
-    {
-        TerrainRouteCorridorIndex corridors = _routeCorridors ?? TerrainRouteCorridorIndex.Empty;
-        if (_worldPlan is null || !corridors.HasSegments)
-        {
-            return TerrainRouteCorridorSample.None;
-        }
-
-        TerrainGenerationProfile profile = CurrentProfile;
-        return corridors.Sample(world, CoordFromWorld(world, profile.ChunkSize));
     }
 
     /// <summary>Samples static terrain water semantics at a world XZ position without touching streaming tiles.</summary>
@@ -319,14 +194,6 @@ public partial class TerrainWorld
             cancellationToken);
     }
 
-    private static TerrainWorldRoute CopyRoute(TerrainWorldRoute route)
-    {
-        Vector2[] waypoints = route.Waypoints.Length == 0
-            ? Array.Empty<Vector2>()
-            : (Vector2[])route.Waypoints.Clone();
-        return route with { Waypoints = waypoints };
-    }
-
     private static TerrainTileCoord[] CopySortedCoords(IEnumerable<TerrainTileCoord> coords)
     {
         TerrainTileCoord[] copy = coords.ToArray();
@@ -338,64 +205,5 @@ public partial class TerrainWorld
     {
         int x = a.X.CompareTo(b.X);
         return x != 0 ? x : a.Z.CompareTo(b.Z);
-    }
-
-    private static bool ContainsPoint(Rect2 bounds, Vector2 point)
-    {
-        float x0 = bounds.Position.X;
-        float y0 = bounds.Position.Y;
-        float x1 = bounds.Position.X + bounds.Size.X;
-        float y1 = bounds.Position.Y + bounds.Size.Y;
-        float minX = Mathf.Min(x0, x1);
-        float maxX = Mathf.Max(x0, x1);
-        float minY = Mathf.Min(y0, y1);
-        float maxY = Mathf.Max(y0, y1);
-        return point.X >= minX &&
-            point.X <= maxX &&
-            point.Y >= minY &&
-            point.Y <= maxY;
-    }
-
-    private static TerrainTileCoord CoordFromWorld(Vector2 world, float chunkSize)
-    {
-        return new TerrainTileCoord(
-            Mathf.FloorToInt(world.X / chunkSize),
-            Mathf.FloorToInt(world.Y / chunkSize));
-    }
-
-    private static float DistanceSquaredToRoute(Vector2 world, TerrainWorldRoute route)
-    {
-        Vector2[] waypoints = route.Waypoints;
-        if (waypoints.Length == 0)
-        {
-            return float.PositiveInfinity;
-        }
-
-        if (waypoints.Length == 1)
-        {
-            return world.DistanceSquaredTo(waypoints[0]);
-        }
-
-        float best = float.PositiveInfinity;
-        for (int i = 0; i < waypoints.Length - 1; i++)
-        {
-            best = Mathf.Min(best, DistanceSquaredToSegment(world, waypoints[i], waypoints[i + 1]));
-        }
-
-        return best;
-    }
-
-    private static float DistanceSquaredToSegment(Vector2 point, Vector2 a, Vector2 b)
-    {
-        Vector2 segment = b - a;
-        float lengthSquared = segment.LengthSquared();
-        if (lengthSquared <= 0.0001f)
-        {
-            return point.DistanceSquaredTo(a);
-        }
-
-        float t = Mathf.Clamp((point - a).Dot(segment) / lengthSquared, 0.0f, 1.0f);
-        Vector2 closest = a + segment * t;
-        return point.DistanceSquaredTo(closest);
     }
 }
