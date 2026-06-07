@@ -287,6 +287,18 @@ internal static class TerrainValidationOutput
             $"({report.Reason})");
     }
 
+    internal static void PrintBenchmarkArtifactSmoke(TerrainBenchmarkArtifactSmokeReport report)
+    {
+        Console.WriteLine(
+            $"Terrain benchmark artifact smoke: {(report.Passed ? "PASS" : "FAIL")} " +
+            $"schema/file/roundtrip {report.JsonSchemaPassed}/{report.FileSavePassed}/{report.FileRoundtripPassed}, " +
+            $"json {report.JsonBytes / 1024.0:0.0} KB ({report.Reason})");
+        if (!string.IsNullOrWhiteSpace(report.JsonPath))
+        {
+            Console.WriteLine($"Benchmark artifact smoke path: {report.JsonPath}");
+        }
+    }
+
     internal static void PrintApiLayeringSmoke(TerrainApiLayeringSmokeReport report)
     {
         Console.WriteLine(
@@ -351,6 +363,7 @@ internal static class TerrainValidationOutput
         TerrainValidationCliContractSmokeReport? validationCliContractSmokeReport,
         TerrainThresholdContractSmokeReport? thresholdContractSmokeReport,
         TerrainDefaultStateContractSmokeReport? defaultStateContractSmokeReport,
+        TerrainBenchmarkArtifactSmokeReport? benchmarkArtifactSmokeReport,
         TerrainApiLayeringSmokeReport? apiLayeringSmokeReport,
         TerrainEditorPluginSmokeReport? editorPluginSmokeReport,
         TerrainVisualCatalogSmokeReport? visualCatalogSmokeReport,
@@ -457,6 +470,11 @@ internal static class TerrainValidationOutput
         if (defaultStateContractSmokeReport is not null)
         {
             Console.WriteLine($"Terrain default state contract smoke: {(defaultStateContractSmokeReport.Value.Passed ? "PASS" : "FAIL")}");
+        }
+
+        if (benchmarkArtifactSmokeReport is not null)
+        {
+            Console.WriteLine($"Terrain benchmark artifact smoke: {(benchmarkArtifactSmokeReport.Value.Passed ? "PASS" : "FAIL")}");
         }
 
         if (apiLayeringSmokeReport is not null)

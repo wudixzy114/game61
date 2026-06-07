@@ -295,6 +295,16 @@ internal readonly record struct TerrainDefaultStateContractSmokeReport(
     bool PlanSnapshotEmptyPassed,
     string Reason);
 
+/// <summary>Reports whether tile benchmark results can be saved as stable CI performance artifacts.</summary>
+internal readonly record struct TerrainBenchmarkArtifactSmokeReport(
+    bool Passed,
+    bool JsonSchemaPassed,
+    bool FileSavePassed,
+    bool FileRoundtripPassed,
+    string JsonPath,
+    long JsonBytes,
+    string Reason);
+
 /// <summary>Reports whether gameplay-facing code keeps terrain implementation dependencies behind stable interfaces.</summary>
 internal readonly record struct TerrainApiLayeringSmokeReport(
     bool Passed,

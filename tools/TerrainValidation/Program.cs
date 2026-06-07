@@ -10,6 +10,7 @@ using System.Threading.Tasks;
 using static TerrainValidationCliHelpers;
 using static TerrainValidationApiLayeringChecks;
 using static TerrainValidationBenchmarkChecks;
+using static TerrainValidationBenchmarkArtifactChecks;
 using static TerrainValidationContractChecks;
 using static TerrainValidationEditorPluginChecks;
 using static TerrainValidationOutput;
@@ -87,6 +88,7 @@ TerrainProfileHashSmokeReport? profileHashSmokeReport = null;
 TerrainValidationCliContractSmokeReport? validationCliContractSmokeReport = null;
 TerrainThresholdContractSmokeReport? thresholdContractSmokeReport = null;
 TerrainDefaultStateContractSmokeReport? defaultStateContractSmokeReport = null;
+TerrainBenchmarkArtifactSmokeReport? benchmarkArtifactSmokeReport = null;
 TerrainApiLayeringSmokeReport? apiLayeringSmokeReport = null;
 TerrainEditorPluginSmokeReport? editorPluginSmokeReport = null;
 TerrainVisualCatalogSmokeReport? visualCatalogSmokeReport = null;
@@ -218,7 +220,12 @@ for (int i = 0; i < seedCount; i++)
         {
             tileBenchmarkReport = BenchmarkTerrainTiles(benchmarkProfile, benchmarkPlan, benchmarkTileCount);
             PrintTileBenchmark(tileBenchmarkReport.Value);
+            string benchmarkArtifactPath = System.IO.Path.Combine(artifactOutputDirectory, "terrain_tile_benchmark.json");
+            Error benchmarkArtifactSaveError = TerrainBenchmarkArtifactWriter.SaveJson(tileBenchmarkReport.Value, benchmarkArtifactPath);
+            Console.WriteLine(
+                $"Tile benchmark artifact: {(benchmarkArtifactSaveError == Error.Ok ? "PASS" : "FAIL")} {benchmarkArtifactPath}");
             RecordAuxiliaryCheck(tileBenchmarkReport.Value.Passed, ref totalFailures, ref auxiliaryCheckCount, ref auxiliaryFailureCount);
+            RecordAuxiliaryCheck(benchmarkArtifactSaveError == Error.Ok, ref totalFailures, ref auxiliaryCheckCount, ref auxiliaryFailureCount);
         }
     }
 }
@@ -249,6 +256,10 @@ RecordAuxiliaryCheck(thresholdContractSmokeReport.Value.Passed, ref totalFailure
 defaultStateContractSmokeReport = ValidateTerrainDefaultStateContracts();
 PrintDefaultStateContractSmoke(defaultStateContractSmokeReport.Value);
 RecordAuxiliaryCheck(defaultStateContractSmokeReport.Value.Passed, ref totalFailures, ref auxiliaryCheckCount, ref auxiliaryFailureCount);
+
+benchmarkArtifactSmokeReport = ValidateTerrainBenchmarkArtifactContract();
+PrintBenchmarkArtifactSmoke(benchmarkArtifactSmokeReport.Value);
+RecordAuxiliaryCheck(benchmarkArtifactSmokeReport.Value.Passed, ref totalFailures, ref auxiliaryCheckCount, ref auxiliaryFailureCount);
 
 apiLayeringSmokeReport = ValidateTerrainApiLayeringContract();
 PrintApiLayeringSmoke(apiLayeringSmokeReport.Value);
@@ -287,6 +298,7 @@ PrintAggregate(
     validationCliContractSmokeReport,
     thresholdContractSmokeReport,
     defaultStateContractSmokeReport,
+    benchmarkArtifactSmokeReport,
     apiLayeringSmokeReport,
     editorPluginSmokeReport,
     visualCatalogSmokeReport,
