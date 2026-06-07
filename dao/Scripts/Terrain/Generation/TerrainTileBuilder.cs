@@ -52,6 +52,27 @@ public static partial class TerrainTileBuilder
         TerrainPointOfInterestIndex pointOfInterestIndex,
         CancellationToken cancellationToken = default)
     {
+        return BuildWithModification(
+            coord,
+            lod,
+            profile,
+            includeCollision,
+            routeCorridors,
+            pointOfInterestIndex,
+            TerrainModificationLayer.Empty,
+            cancellationToken);
+    }
+
+    internal static TerrainTileData BuildWithModification(
+        TerrainTileCoord coord,
+        int lod,
+        TerrainGenerationProfile profile,
+        bool includeCollision,
+        TerrainRouteCorridorIndex routeCorridors,
+        TerrainPointOfInterestIndex pointOfInterestIndex,
+        TerrainModificationLayer modificationLayer,
+        CancellationToken cancellationToken = default)
+    {
         return Build(
             coord,
             lod,
@@ -59,6 +80,7 @@ public static partial class TerrainTileBuilder
             includeCollision,
             routeCorridors,
             pointOfInterestIndex,
+            modificationLayer,
             cancellationToken,
             TerrainTileSamplingBackendMode.Adaptive);
     }
@@ -101,6 +123,7 @@ public static partial class TerrainTileBuilder
         bool includeCollision,
         TerrainRouteCorridorIndex routeCorridors,
         TerrainPointOfInterestIndex pointOfInterestIndex,
+        TerrainModificationLayer modificationLayer,
         CancellationToken cancellationToken,
         TerrainTileSamplingBackendMode samplingBackendMode)
     {
@@ -139,6 +162,7 @@ public static partial class TerrainTileBuilder
                 out releaseParallelSurfaceProcessingSlot);
             TerrainTileSurfaceBuildContext surfaceBuildContext = new(
                 profile,
+                modificationLayer,
                 resolution,
                 vertexCountPerSide,
                 vertexCount,

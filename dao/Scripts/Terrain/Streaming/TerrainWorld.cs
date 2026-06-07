@@ -46,6 +46,8 @@ public partial class TerrainWorld : Node3D, ITerrainQueryService, ITerrainPlanPr
     private PendingWorldPlanJob? _worldPlanJob;
     private TerrainGenerationProfile _profile;
     private TerrainWorldPlan? _worldPlan;
+    private TerrainModificationLayer _modificationLayer = TerrainModificationLayer.Empty;
+    private int _modificationLayerCacheKey;
     private TerrainRouteCorridorIndex _routeCorridors = TerrainRouteCorridorIndex.Empty;
     private TerrainPointOfInterestIndex _pointOfInterestIndex = TerrainPointOfInterestIndex.Empty;
     private Node3D? _focus;

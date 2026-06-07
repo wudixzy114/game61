@@ -14,13 +14,13 @@ public partial class TerrainWorld
     /// <summary>Samples the complete terrain semantic field at a world XZ position using this world's current profile.</summary>
     public TerrainWorldField SampleField(Vector2 world)
     {
-        return TerrainWorldFieldSampler.Sample(world, CurrentProfile);
+        return SampleFieldWithModification(world);
     }
 
     /// <summary>Samples height, slope, biome, landscape, traversability, and surface color at a world XZ position.</summary>
     public TerrainSample SampleSurface(Vector2 world, float spacing = 4.0f)
     {
-        return TerrainSampler.SampleWithSlope(world, CurrentProfile, spacing);
+        return SampleSurfaceWithModification(world, spacing);
     }
 
     /// <summary>Returns a Godot 3D surface position for a world XZ query, using X/Z as horizontal axes and Y as height.</summary>
@@ -110,7 +110,7 @@ public partial class TerrainWorld
     public TerrainWaterState SampleWaterState(Vector2 world)
     {
         TerrainGenerationProfile profile = CurrentProfile;
-        TerrainWorldField field = TerrainWorldFieldSampler.Sample(world, profile);
+        TerrainWorldField field = SampleFieldWithModification(world);
         return TerrainSemanticClassifier.ClassifyWater(field, profile);
     }
 
@@ -118,17 +118,14 @@ public partial class TerrainWorld
     public TerrainGameplayTags SampleGameplayTags(Vector2 world)
     {
         TerrainGenerationProfile profile = CurrentProfile;
-        TerrainWorldField field = TerrainWorldFieldSampler.Sample(world, profile);
+        TerrainWorldField field = SampleFieldWithModification(world);
         return TerrainSemanticClassifier.ClassifyGameplayTags(field, profile);
     }
 
     /// <summary>Samples local traversal cost semantics for navigation, AI, encounters, and placement filters without pathfinding.</summary>
     public TerrainTraversalCost SampleTraversalCost(Vector2 world, float spacing = 4.0f)
     {
-        TerrainGenerationProfile profile = CurrentProfile;
-        TerrainWorldField field = TerrainWorldFieldSampler.Sample(world, profile);
-        TerrainSample surface = TerrainSampler.SampleWithSlope(world, profile, spacing);
-        return TerrainSemanticClassifier.ClassifyTraversalCost(field, surface, profile);
+        return SampleTraversalCostWithModification(world, spacing);
     }
 
     /// <summary>Returns whether the sampled terrain field meets the requested traversability threshold.</summary>
@@ -142,7 +139,7 @@ public partial class TerrainWorld
     public bool IsAboveWater(Vector2 world, float margin = 0.0f)
     {
         TerrainGenerationProfile profile = CurrentProfile;
-        return TerrainWorldFieldSampler.Sample(world, profile).Height >= profile.SeaLevel + margin;
+        return SampleFieldWithModification(world).Height >= profile.SeaLevel + margin;
     }
 
     /// <summary>Creates the open-world plan used by TerrainWorld runtime streaming for a profile and world size.</summary>

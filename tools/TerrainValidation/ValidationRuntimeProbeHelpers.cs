@@ -19,6 +19,8 @@ internal static class TerrainValidationRuntimeProbeHelpers
         SetPrivateField(world, "_profile", profile);
         SetPrivateField(world, "_hasProfileSnapshot", true);
         SetPrivateField(world, "_worldPlan", worldPlan);
+        SetPrivateField(world, "_modificationLayer", TerrainModificationLayer.Empty);
+        SetPrivateField(world, "_modificationLayerCacheKey", 0);
         SetPrivateField(
             world,
             "_routeCorridors",

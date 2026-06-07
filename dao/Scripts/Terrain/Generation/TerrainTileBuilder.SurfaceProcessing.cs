@@ -8,6 +8,7 @@ public static partial class TerrainTileBuilder
 {
     private readonly record struct TerrainTileSurfaceBuildContext(
         TerrainGenerationProfile Profile,
+        TerrainModificationLayer ModificationLayer,
         int Resolution,
         int VertexCountPerSide,
         int VertexCount,

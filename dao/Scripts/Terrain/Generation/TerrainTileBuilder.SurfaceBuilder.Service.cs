@@ -33,6 +33,9 @@ public static partial class TerrainTileBuilder
                     : context.UseNativeHeights
                     ? TerrainWorldFieldSampler.SampleKnownHeight(world, context.Profile, context.NativeHeights[index])
                     : TerrainWorldFieldSampler.Sample(world, context.Profile, context.ManagedLandBalanceOffset);
+                field = context.ModificationLayer.IsEmpty
+                    ? field
+                    : context.ModificationLayer.ApplyToField(field);
                 float height = field.Height;
                 TerrainRouteCorridorSample corridor = TerrainRouteCorridorSample.None;
                 if (context.HasCorridors)

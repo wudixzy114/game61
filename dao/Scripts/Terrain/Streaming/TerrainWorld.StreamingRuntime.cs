@@ -66,6 +66,7 @@ public partial class TerrainWorld
         int cachedApplied = 0;
         TerrainRouteCorridorIndex routeCorridors = _routeCorridors;
         TerrainPointOfInterestIndex pointOfInterestIndex = _pointOfInterestIndex;
+        TerrainModificationLayer modificationLayer = _modificationLayer;
         int terrainFeatureKey = TerrainFeatureKey;
 
         foreach (TerrainTileCoord coord in sorted)
@@ -117,7 +118,7 @@ public partial class TerrainWorld
                 terrainFeatureKey,
                 cancellation,
                 System.Threading.Tasks.Task.Run(
-                    () => TerrainTileBuilder.Build(coord, request.Lod, jobProfile, request.IncludeCollision, routeCorridors, pointOfInterestIndex, cancellation.Token),
+                    () => TerrainTileBuilder.BuildWithModification(coord, request.Lod, jobProfile, request.IncludeCollision, routeCorridors, pointOfInterestIndex, modificationLayer, cancellation.Token),
                     cancellation.Token));
             MarkStreamingSnapshotDirty();
         }
@@ -302,6 +303,19 @@ public partial class TerrainWorld
         }
     }
 
+    private void RemoveCachedTiles(TerrainTileCoord[] coords)
+    {
+        if (coords.Length == 0)
+        {
+            return;
+        }
+
+        if (_tileCache.RemoveCoords(coords))
+        {
+            MarkStreamingSnapshotDirty();
+        }
+    }
+
     private void ClearChunks()
     {
         if (_chunks.Count == 0)
@@ -324,17 +338,30 @@ public partial class TerrainWorld
         MarkStreamingSnapshotDirty();
     }
 
+    private void InvalidateAffectedStreamingState(TerrainTileCoord[] coords)
+    {
+        if (coords.Length == 0)
+        {
+            return;
+        }
+
+        RemoveCachedTiles(coords);
+        CancelJobs(coords);
+        UnloadChunks(coords);
+    }
+
     private void RebuildPlanIndices()
     {
-        _routeCorridors = _worldPlan is null
+        TerrainWorldPlan? effectivePlan = CreateEffectiveWorldPlan();
+        _routeCorridors = effectivePlan is null
             ? TerrainRouteCorridorIndex.Empty
-            : TerrainRouteCorridorIndex.FromPlan(_worldPlan, _profile);
+            : TerrainRouteCorridorIndex.FromPlan(effectivePlan, _profile);
         _pointOfInterestIndex = _worldPlan is null
             ? TerrainPointOfInterestIndex.Empty
             : TerrainPointOfInterestIndex.FromPlan(_worldPlan, _profile);
     }
 
-    private int TerrainFeatureKey => HashCode.Combine(_routeCorridors.CacheKey, _pointOfInterestIndex.CacheKey);
+    private int TerrainFeatureKey => HashCode.Combine(_routeCorridors.CacheKey, _pointOfInterestIndex.CacheKey, _modificationLayerCacheKey);
 
     private void CancelAllJobs()
     {
@@ -350,6 +377,59 @@ public partial class TerrainWorld
 
         _jobs.Clear();
         MarkStreamingSnapshotDirty();
+    }
+
+    private void CancelJobs(TerrainTileCoord[] coords)
+    {
+        if (_jobs.Count == 0 || coords.Length == 0)
+        {
+            return;
+        }
+
+        bool changed = false;
+        for (int i = 0; i < coords.Length; i++)
+        {
+            TerrainTileCoord coord = coords[i];
+            if (!_jobs.Remove(coord, out PendingTileJob? job))
+            {
+                continue;
+            }
+
+            RetireJob(job);
+            changed = true;
+        }
+
+        if (changed)
+        {
+            MarkStreamingSnapshotDirty();
+        }
+    }
+
+    private void UnloadChunks(TerrainTileCoord[] coords)
+    {
+        if (_chunks.Count == 0 || coords.Length == 0)
+        {
+            return;
+        }
+
+        bool changed = false;
+        for (int i = 0; i < coords.Length; i++)
+        {
+            TerrainTileCoord coord = coords[i];
+            if (!_chunks.Remove(coord, out TerrainChunk? chunk))
+            {
+                continue;
+            }
+
+            EmitChunkUnloadedSignalIfReady(chunk);
+            chunk.QueueFree();
+            changed = true;
+        }
+
+        if (changed)
+        {
+            MarkStreamingSnapshotDirty();
+        }
     }
 
     private void RetireJob(PendingTileJob job)

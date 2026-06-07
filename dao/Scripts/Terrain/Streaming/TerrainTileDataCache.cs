@@ -67,6 +67,44 @@ internal sealed class TerrainTileDataCache
         return true;
     }
 
+    internal bool RemoveCoords(TerrainTileCoord[] coords)
+    {
+        if (coords.Length == 0 || _tileCache.Count == 0)
+        {
+            return false;
+        }
+
+        var keysToRemove = new List<TerrainTileCacheKey>();
+        foreach (TerrainTileCacheKey key in _tileCache.Keys)
+        {
+            for (int i = 0; i < coords.Length; i++)
+            {
+                if (key.Coord == coords[i])
+                {
+                    keysToRemove.Add(key);
+                    break;
+                }
+            }
+        }
+
+        if (keysToRemove.Count == 0)
+        {
+            return false;
+        }
+
+        for (int i = 0; i < keysToRemove.Count; i++)
+        {
+            TerrainTileCacheKey key = keysToRemove[i];
+            _tileCache.Remove(key);
+            if (_tileCacheNodes.Remove(key, out LinkedListNode<TerrainTileCacheKey>? node))
+            {
+                _tileCacheLru.Remove(node);
+            }
+        }
+
+        return true;
+    }
+
     private void Touch(TerrainTileCacheKey key)
     {
         if (!_tileCacheNodes.TryGetValue(key, out LinkedListNode<TerrainTileCacheKey>? node))

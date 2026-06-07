@@ -90,6 +90,49 @@ public partial class TerrainWorld
             world.EmitStreamingSnapshotChangedSignalIfNeeded();
         }
 
+        internal static void SetModificationLayer(TerrainWorld world, TerrainModificationLayer? modificationLayer)
+        {
+            world.EnsureProfileSnapshot();
+            TerrainModificationLayer resolved = modificationLayer ?? TerrainModificationLayer.Empty;
+            TerrainModificationLayer previous = world._modificationLayer;
+            int nextCacheKey = ComputeModificationLayerCacheKey(resolved);
+            if (world._modificationLayerCacheKey == nextCacheKey &&
+                RouteModificationSetEquals(previous, resolved))
+            {
+                world._modificationLayer = resolved;
+                return;
+            }
+
+            bool routeStateChanged = !RouteModificationSetEquals(previous, resolved);
+            TerrainTileCoord[] affectedTiles = CollectAffectedTiles(previous, resolved, world._profile.ChunkSize);
+            world._modificationLayer = resolved;
+            world._modificationLayerCacheKey = nextCacheKey;
+
+            if (routeStateChanged)
+            {
+                world.RebuildPlanIndices();
+            }
+
+            if (!world._isReady)
+            {
+                world.MarkStreamingSnapshotDirty();
+                return;
+            }
+
+            if (routeStateChanged)
+            {
+                world.InvalidatePlanDependentStreamingState();
+            }
+            else if (affectedTiles.Length > 0)
+            {
+                world.InvalidateAffectedStreamingState(affectedTiles);
+            }
+
+            world.MarkStreamingSnapshotDirty();
+            world.UpdateStreaming(force: true);
+            world.EmitStreamingSnapshotChangedSignalIfNeeded();
+        }
+
         internal static void Regenerate(TerrainWorld world)
         {
             bool hadPlan = world._worldPlan is not null;
