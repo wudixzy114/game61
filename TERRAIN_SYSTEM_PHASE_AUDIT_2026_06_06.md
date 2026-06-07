@@ -90,6 +90,7 @@
   - load/save/clear modification JSON
   - affected tile summary
   - base vs overlay semantic sample diff
+- `TerrainTileBuilder` 已补充显式 `BuildWithOverlay(...)` 入口，供 validation/tooling 直接生成带 overlay 的 tile artifact
 
 这意味着“编辑器插件完全缺失”已经不再是当前状态，更准确的判断是：编辑器生产工作流已经有初版落地，但仍明显不完整。
 
@@ -713,6 +714,9 @@ Native sampler 是性能基础，但 C++ 和 C# terrain logic 双实现会带来
 - Serializer 保存 modification delta，不保存完整 generated mesh。
 - Query API 已具备显式 base-only 与 overlay-aware 双路径。
 - Runtime/save/editor 已具备 modification layer JSON 载入、保存、应用与受影响 tile 查询入口。
+- Tile feature materialization 已开始消费 modification delta，当前至少覆盖：
+  - scatter removal/addition
+  - landmark remove/state tagging
 - Navigation、collision、scatter 随 delta invalidation 更新。
 
 验收标准：

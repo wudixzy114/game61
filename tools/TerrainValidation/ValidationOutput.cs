@@ -179,7 +179,7 @@ internal static class TerrainValidationOutput
             $"traversable base/overlay {(report.BaseTraversabilityQueryPassed ? "pass" : "fail")}/{(report.TraversabilityQueryPassed ? "pass" : "fail")}, " +
             $"water base/overlay {(report.BaseAboveWaterQueryPassed ? "pass" : "fail")}/{(report.AboveWaterQueryPassed ? "pass" : "fail")}, " +
             $"semantic POI/POIsum/tagreg/route/routesum/corridor water-base/water tags-base/tags traversal-base/traversal {(report.PointQueryPassed ? "pass" : "fail")}/{(report.PointSummaryQueryPassed ? "pass" : "fail")}/{(report.GameplayTagRegionQueryPassed ? "pass" : "fail")}/{(report.RouteQueryPassed ? "pass" : "fail")}/{(report.RouteSummaryQueryPassed ? "pass" : "fail")}/{(report.RouteCorridorQueryPassed ? "pass" : "fail")}/{(report.BaseWaterStateQueryPassed ? "pass" : "fail")}/{(report.WaterStateQueryPassed ? "pass" : "fail")}/{(report.BaseGameplayTagsQueryPassed ? "pass" : "fail")}/{(report.GameplayTagsQueryPassed ? "pass" : "fail")}/{(report.BaseTraversalCostQueryPassed ? "pass" : "fail")}/{(report.TraversalCostQueryPassed ? "pass" : "fail")}, " +
-            $"placement/nav {(report.PlacementCandidatesQueryPassed ? "pass" : "fail")}/{(report.RoutePlacementQueryPassed ? "pass" : "fail")}/{(report.NavigationGridPassed ? "pass" : "fail")}/{(report.NavigationTileGridPassed ? "pass" : "fail")}/{(report.NavigationRegionQueryPassed ? "pass" : "fail")}/{(report.NavigationWaypointGraphPassed ? "pass" : "fail")}/{(report.NavigationWaypointGraphIsolated ? "pass" : "fail")}/{(report.NoPlanRoutePathPassed ? "pass" : "fail")}/{(report.RouteGraphSnapshotPassed ? "pass" : "fail")}/{(report.RoutePathQueryPassed ? "pass" : "fail")}/{(report.RouteGraphSnapshotIsolated ? "pass" : "fail")}, " +
+            $"placement/nav {(report.PlacementCandidatesQueryPassed ? "pass" : "fail")}/{(report.RoutePlacementQueryPassed ? "pass" : "fail")}/{(report.NavigationGridPassed ? "pass" : "fail")}/{(report.NavigationTileGridPassed ? "pass" : "fail")}/{(report.ModifiedNavigationTileGridPassed ? "pass" : "fail")}/{(report.NavigationRegionQueryPassed ? "pass" : "fail")}/{(report.ModifiedNavigationRegionQueryPassed ? "pass" : "fail")}/{(report.NavigationWaypointGraphPassed ? "pass" : "fail")}/{(report.NavigationWaypointGraphIsolated ? "pass" : "fail")}/{(report.NoPlanRoutePathPassed ? "pass" : "fail")}/{(report.RouteGraphSnapshotPassed ? "pass" : "fail")}/{(report.ModifiedRouteGraphPassed ? "pass" : "fail")}/{(report.RoutePathQueryPassed ? "pass" : "fail")}/{(report.RouteGraphSnapshotIsolated ? "pass" : "fail")}, " +
             $"streaming {(report.StreamingSnapshotPassed ? "pass" : "fail")}, " +
             $"snapshots POI/routes/plan {(report.PointSnapshotIsolated ? "pass" : "fail")}/{(report.RouteSnapshotIsolated ? "pass" : "fail")}/{(report.WorldPlanSnapshotIsolated ? "pass" : "fail")} " +
             $"({report.Reason})");
@@ -323,9 +323,10 @@ internal static class TerrainValidationOutput
     {
         Console.WriteLine(
             $"Terrain modification layer smoke: {(report.Passed ? "PASS" : "FAIL")} " +
-            $"field/tiles/route {report.FieldOverlayPassed}/{report.AffectedTilesPassed}/{report.RouteStatePassed}, " +
+            $"field/tiles/route/scatter/landmark/collision {report.FieldOverlayPassed}/{report.AffectedTilesPassed}/{report.RouteStatePassed}/{report.ScatterMaterializationPassed}/{report.LandmarkMaterializationPassed}/{report.CollisionMaterializationPassed}, " +
             $"json/file {report.JsonRoundtripPassed}/{report.FileRoundtripPassed}, " +
-            $"isolation/drift {report.SnapshotIsolationPassed}/{report.DriftRejectionPassed} " +
+            $"isolation/drift {report.SnapshotIsolationPassed}/{report.DriftRejectionPassed}, " +
+            $"scatterdiag {report.ScatterDiagnostic} " +
             $"({report.Reason})");
     }
 

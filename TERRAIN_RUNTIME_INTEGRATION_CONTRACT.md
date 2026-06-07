@@ -203,6 +203,10 @@ The layer is not yet fully wired into tile mesh, collision, scatter, and navigat
 Consumers should treat it as the stable persistence and query foundation for that later runtime
 integration work.
 
+For tooling and validation paths that need a deterministic tile artifact with overlay applied
+without going through runtime streaming, `TerrainTileBuilder.BuildWithOverlay(...)` now provides
+an explicit public entry point for base tile generation plus modification-layer materialization.
+
 ### Stable Gameplay Integration Examples
 
 - Quest systems should depend on `ITerrainPlanProvider` for POIs, routes, region tags, and plan

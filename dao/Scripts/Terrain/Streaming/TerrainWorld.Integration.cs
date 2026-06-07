@@ -170,7 +170,28 @@ public partial class TerrainWorld
         int gridSize,
         float spacing = 24.0f)
     {
-        return TerrainMapExporter.CreateTraversalCostGridForTile(CurrentProfile, coord, gridSize, spacing);
+        TerrainGenerationProfile profile = CurrentProfile;
+        int size = Mathf.Clamp(gridSize, 2, 4096);
+        float safeChunkSize = Mathf.Max(1.0f, profile.ChunkSize);
+        float safeSpacing = Mathf.Max(1.0f, spacing);
+        Vector2 origin = coord.Origin(safeChunkSize);
+        Vector2 center = origin + new Vector2(safeChunkSize * 0.5f, safeChunkSize * 0.5f);
+        var samples = new TerrainTraversalCost[size * size];
+
+        for (int y = 0; y < size; y++)
+        {
+            for (int x = 0; x < size; x++)
+            {
+                float tx = x / (float)(size - 1);
+                float ty = y / (float)(size - 1);
+                Vector2 world = new(
+                    origin.X + tx * safeChunkSize,
+                    origin.Y + ty * safeChunkSize);
+                samples[(y * size) + x] = SampleTraversalCostWithModification(world, safeSpacing);
+            }
+        }
+
+        return new TerrainTraversalCostGrid(size, size, center, safeChunkSize, samples);
     }
 
     /// <summary>Samples traversal costs inside a bounded world-space region without performing pathfinding.</summary>

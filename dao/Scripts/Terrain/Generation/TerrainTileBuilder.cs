@@ -85,6 +85,28 @@ public static partial class TerrainTileBuilder
             TerrainTileSamplingBackendMode.Adaptive);
     }
 
+    /// <summary>Builds a terrain tile with deterministic modification overlay applied to surface and feature materialization.</summary>
+    public static TerrainTileData BuildWithOverlay(
+        TerrainTileCoord coord,
+        int lod,
+        TerrainGenerationProfile profile,
+        bool includeCollision,
+        TerrainRouteCorridorIndex routeCorridors,
+        TerrainPointOfInterestIndex pointOfInterestIndex,
+        TerrainModificationLayer modificationLayer,
+        CancellationToken cancellationToken = default)
+    {
+        return BuildWithModification(
+            coord,
+            lod,
+            profile,
+            includeCollision,
+            routeCorridors,
+            pointOfInterestIndex,
+            modificationLayer,
+            cancellationToken);
+    }
+
     /// <summary>Returns whether the adaptive tile builder will use the native sampler for this profile and LOD.</summary>
     public static bool ShouldUseNativeSamplerForTileGeneration(TerrainGenerationProfile profile, int lod)
     {
@@ -215,6 +237,7 @@ public static partial class TerrainTileBuilder
                 coord,
                 lod,
                 profile,
+                modificationLayer,
                 resolution,
                 vertexCountPerSide,
                 step,
