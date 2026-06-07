@@ -82,4 +82,17 @@ public partial class TerrainWorld
         snapshot = TerrainRouteGraphSnapshot.FromPlan(_worldPlan);
         return true;
     }
+
+    /// <summary>Finds a high-level planned route path between two POIs without requiring streamed tiles or a rendered nav mesh.</summary>
+    public bool TryFindRoutePath(int fromPointId, int toPointId, [NotNullWhen(true)] out TerrainRouteGraphPath? path)
+    {
+        path = null;
+        if (_worldPlan is null)
+        {
+            return false;
+        }
+
+        TerrainRouteGraphSnapshot snapshot = TerrainRouteGraphSnapshot.FromPlan(_worldPlan);
+        return snapshot.TryFindPath(fromPointId, toPointId, out path);
+    }
 }

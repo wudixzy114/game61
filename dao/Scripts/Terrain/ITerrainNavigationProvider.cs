@@ -25,4 +25,5 @@ public interface ITerrainNavigationProvider
 
     TerrainRouteGraphSnapshot GetRouteGraphSnapshot();
     bool TryGetRouteGraphSnapshot([NotNullWhen(true)] out TerrainRouteGraphSnapshot? snapshot);
+    bool TryFindRoutePath(int fromPointId, int toPointId, [NotNullWhen(true)] out TerrainRouteGraphPath? path);
 }

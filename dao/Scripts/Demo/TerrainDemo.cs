@@ -11,9 +11,11 @@ namespace Dao.Demo;
 public partial class TerrainDemo : Node3D
 {
     private const string DefaultTerrainSettingsPath = "res://Resources/Terrain/DefaultTerrainSettings.tres";
+    private const string DefaultTerrainVisualCatalogPath = "res://Resources/Terrain/DefaultTerrainVisualCatalog.tres";
 
     [ExportGroup("Terrain Settings")]
     [Export] public TerrainSettings? TerrainSettingsResource { get; set; }
+    [Export] public TerrainVisualCatalog? TerrainVisualCatalogResource { get; set; }
 
     [ExportGroup("Open World Planning")]
     [Export] public bool ValidateOpenWorldPlanOnReady { get; set; } = true;
@@ -36,7 +38,8 @@ public partial class TerrainDemo : Node3D
         AddChild(camera);
 
         TerrainSettings terrainSettings = ResolveTerrainSettings();
-        TerrainWorld terrainWorld = CreateTerrainWorld(camera, OpenWorldPlanWorldSize, terrainSettings);
+        TerrainVisualCatalog? visualCatalog = ResolveTerrainVisualCatalog();
+        TerrainWorld terrainWorld = CreateTerrainWorld(camera, OpenWorldPlanWorldSize, terrainSettings, visualCatalog);
         AddChild(terrainWorld);
         terrainWorld.SetFocus(camera);
 
@@ -78,9 +81,30 @@ public partial class TerrainDemo : Node3D
         return CreateFallbackTerrainSettings();
     }
 
+    private TerrainVisualCatalog? ResolveTerrainVisualCatalog()
+    {
+        if (TerrainVisualCatalogResource is TerrainVisualCatalog assigned)
+        {
+            return DuplicateTerrainVisualCatalog(assigned);
+        }
+
+        Resource? loaded = ResourceLoader.Load(DefaultTerrainVisualCatalogPath);
+        if (loaded is TerrainVisualCatalog defaultCatalog)
+        {
+            return DuplicateTerrainVisualCatalog(defaultCatalog);
+        }
+
+        return null;
+    }
+
     private static TerrainSettings DuplicateTerrainSettings(TerrainSettings source)
     {
         return source.Duplicate(true) as TerrainSettings ?? source;
+    }
+
+    private static TerrainVisualCatalog DuplicateTerrainVisualCatalog(TerrainVisualCatalog source)
+    {
+        return source.Duplicate(true) as TerrainVisualCatalog ?? source;
     }
 
     private static TerrainSettings CreateFallbackTerrainSettings()
@@ -112,12 +136,17 @@ public partial class TerrainDemo : Node3D
         };
     }
 
-    private static TerrainWorld CreateTerrainWorld(Node3D focus, float openWorldPlanWorldSize, TerrainSettings settings)
+    private static TerrainWorld CreateTerrainWorld(
+        Node3D focus,
+        float openWorldPlanWorldSize,
+        TerrainSettings settings,
+        TerrainVisualCatalog? visualCatalog)
     {
         return new TerrainWorld
         {
             Name = "TerrainWorld",
             Settings = settings,
+            VisualCatalog = visualCatalog,
             CreateWaterPlane = true,
             StreamingIntervalSeconds = 0.12,
             FocusPath = focus.GetPath(),

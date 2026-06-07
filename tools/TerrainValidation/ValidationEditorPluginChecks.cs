@@ -12,6 +12,7 @@ internal static class TerrainValidationEditorPluginChecks
             string pluginScriptPath = Path.Combine(repositoryRoot, "dao", "addons", "terrain_editor", "plugin.gd");
             string dockPanelPath = Path.Combine(repositoryRoot, "dao", "addons", "terrain_editor", "TerrainEditorDockPanel.cs");
             string defaultSettingsPath = Path.Combine(repositoryRoot, "dao", "Resources", "Terrain", "DefaultTerrainSettings.tres");
+            string defaultVisualCatalogPath = Path.Combine(repositoryRoot, "dao", "Resources", "Terrain", "DefaultTerrainVisualCatalog.tres");
             string mainScenePath = Path.Combine(repositoryRoot, "dao", "Scenes", "Main.tscn");
             string terrainDemoPath = Path.Combine(repositoryRoot, "dao", "Scripts", "Demo", "TerrainDemo.cs");
 
@@ -19,6 +20,7 @@ internal static class TerrainValidationEditorPluginChecks
             bool pluginScriptExists = File.Exists(pluginScriptPath);
             bool dockPanelExists = File.Exists(dockPanelPath);
             bool defaultSettingsResourceExists = File.Exists(defaultSettingsPath);
+            bool defaultVisualCatalogResourceExists = File.Exists(defaultVisualCatalogPath);
             bool mainSceneExists = File.Exists(mainScenePath);
 
             string pluginConfig = pluginConfigExists ? File.ReadAllText(pluginConfigPath) : string.Empty;
@@ -47,6 +49,13 @@ internal static class TerrainValidationEditorPluginChecks
                 dockPanel.Contains("Export Artifacts", StringComparison.Ordinal) &&
                 dockPanel.Contains("Save Preset Copy", StringComparison.Ordinal) &&
                 dockPanel.Contains("Run PR Validation", StringComparison.Ordinal) &&
+                dockPanel.Contains("DefaultTerrainVisualCatalog.tres", StringComparison.Ordinal) &&
+                dockPanel.Contains("Validate Visual Catalog", StringComparison.Ordinal) &&
+                dockPanel.Contains("Use Default Catalog", StringComparison.Ordinal) &&
+                dockPanel.Contains("TryResolveVisualCatalog", StringComparison.Ordinal) &&
+                dockPanel.Contains("ValidateVisualCatalog", StringComparison.Ordinal) &&
+                dockPanel.Contains("GetMissingScatterMeshKinds", StringComparison.Ordinal) &&
+                dockPanel.Contains("GetMissingLandmarkMeshKinds", StringComparison.Ordinal) &&
                 dockPanel.Contains("TerrainWorldPlanExporter", StringComparison.Ordinal) &&
                 dockPanel.Contains("TerrainSemanticClassifier", StringComparison.Ordinal) &&
                 dockPanel.Contains("TryFindPath", StringComparison.Ordinal) &&
@@ -57,10 +66,20 @@ internal static class TerrainValidationEditorPluginChecks
                 mainScene.Contains("res://Resources/Terrain/DefaultTerrainSettings.tres", StringComparison.Ordinal) &&
                 mainScene.Contains("TerrainSettingsResource = ExtResource", StringComparison.Ordinal);
 
+            bool mainSceneWiresDefaultVisualCatalog =
+                mainScene.Contains("res://Resources/Terrain/DefaultTerrainVisualCatalog.tres", StringComparison.Ordinal) &&
+                mainScene.Contains("TerrainVisualCatalogResource = ExtResource", StringComparison.Ordinal);
+
             bool demoScriptSupportsSettingsResource =
                 terrainDemo.Contains("TerrainSettingsResource", StringComparison.Ordinal) &&
                 terrainDemo.Contains("DefaultTerrainSettings.tres", StringComparison.Ordinal) &&
                 terrainDemo.Contains("ResolveTerrainSettings()", StringComparison.Ordinal);
+
+            bool demoScriptSupportsVisualCatalogResource =
+                terrainDemo.Contains("TerrainVisualCatalogResource", StringComparison.Ordinal) &&
+                terrainDemo.Contains("DefaultTerrainVisualCatalog.tres", StringComparison.Ordinal) &&
+                terrainDemo.Contains("ResolveTerrainVisualCatalog()", StringComparison.Ordinal) &&
+                terrainDemo.Contains("VisualCatalog = visualCatalog", StringComparison.Ordinal);
 
             bool dockPanelUsesDefaultSettingsResource =
                 dockPanel.Contains("DefaultTerrainSettings.tres", StringComparison.Ordinal) &&
@@ -71,12 +90,15 @@ internal static class TerrainValidationEditorPluginChecks
                 pluginScriptExists &&
                 dockPanelExists &&
                 defaultSettingsResourceExists &&
+                defaultVisualCatalogResourceExists &&
                 mainSceneExists &&
                 pluginConfigWiresScript &&
                 pluginScriptWiresDock &&
                 dockPanelSupportsPreviewExportValidation &&
                 mainSceneWiresDefaultSettings &&
+                mainSceneWiresDefaultVisualCatalog &&
                 demoScriptSupportsSettingsResource &&
+                demoScriptSupportsVisualCatalogResource &&
                 dockPanelUsesDefaultSettingsResource;
 
             return new TerrainEditorPluginSmokeReport(
@@ -85,31 +107,40 @@ internal static class TerrainValidationEditorPluginChecks
                 pluginScriptExists,
                 dockPanelExists,
                 defaultSettingsResourceExists,
+                defaultVisualCatalogResourceExists,
                 mainSceneExists,
                 pluginConfigWiresScript,
                 pluginScriptWiresDock,
                 dockPanelSupportsPreviewExportValidation,
                 mainSceneWiresDefaultSettings,
+                mainSceneWiresDefaultVisualCatalog,
                 demoScriptSupportsSettingsResource,
+                demoScriptSupportsVisualCatalogResource,
                 dockPanelUsesDefaultSettingsResource,
                 passed
-                    ? "terrain editor plugin scaffold and default resource workflow exist and wire preview/export/validation/preset entry points"
+                    ? "terrain editor plugin scaffold and default terrain settings/visual catalog workflow exist and wire preview/export/validation/preset entry points"
                     : TerrainEditorPluginFailureReason(
                         pluginConfigExists,
                         pluginScriptExists,
                         dockPanelExists,
                         defaultSettingsResourceExists,
+                        defaultVisualCatalogResourceExists,
                         mainSceneExists,
                         pluginConfigWiresScript,
                         pluginScriptWiresDock,
                         dockPanelSupportsPreviewExportValidation,
                         mainSceneWiresDefaultSettings,
+                        mainSceneWiresDefaultVisualCatalog,
                         demoScriptSupportsSettingsResource,
+                        demoScriptSupportsVisualCatalogResource,
                         dockPanelUsesDefaultSettingsResource));
         }
         catch (Exception ex)
         {
             return new TerrainEditorPluginSmokeReport(
+                false,
+                false,
+                false,
                 false,
                 false,
                 false,
@@ -131,12 +162,15 @@ internal static class TerrainValidationEditorPluginChecks
         bool pluginScriptExists,
         bool dockPanelExists,
         bool defaultSettingsResourceExists,
+        bool defaultVisualCatalogResourceExists,
         bool mainSceneExists,
         bool pluginConfigWiresScript,
         bool pluginScriptWiresDock,
         bool dockPanelSupportsPreviewExportValidation,
         bool mainSceneWiresDefaultSettings,
+        bool mainSceneWiresDefaultVisualCatalog,
         bool demoScriptSupportsSettingsResource,
+        bool demoScriptSupportsVisualCatalogResource,
         bool dockPanelUsesDefaultSettingsResource)
     {
         if (!pluginConfigExists)
@@ -159,6 +193,11 @@ internal static class TerrainValidationEditorPluginChecks
             return "default terrain settings resource was missing";
         }
 
+        if (!defaultVisualCatalogResourceExists)
+        {
+            return "default terrain visual catalog resource was missing";
+        }
+
         if (!mainSceneExists)
         {
             return "Main.tscn was missing";
@@ -176,7 +215,7 @@ internal static class TerrainValidationEditorPluginChecks
 
         if (!dockPanelSupportsPreviewExportValidation)
         {
-            return "terrain editor dock panel did not expose preview/export/validation/path-preview capabilities";
+            return "terrain editor dock panel did not expose preview/export/validation/path-preview/visual-catalog capabilities";
         }
 
         if (!mainSceneWiresDefaultSettings)
@@ -184,9 +223,19 @@ internal static class TerrainValidationEditorPluginChecks
             return "Main.tscn did not wire the default terrain settings resource";
         }
 
+        if (!mainSceneWiresDefaultVisualCatalog)
+        {
+            return "Main.tscn did not wire the default terrain visual catalog resource";
+        }
+
         if (!demoScriptSupportsSettingsResource)
         {
             return "TerrainDemo did not support exported/default terrain settings resources";
+        }
+
+        if (!demoScriptSupportsVisualCatalogResource)
+        {
+            return "TerrainDemo did not support exported/default terrain visual catalog resources";
         }
 
         if (!dockPanelUsesDefaultSettingsResource)

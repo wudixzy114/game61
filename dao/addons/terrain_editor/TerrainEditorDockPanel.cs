@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Text;
@@ -13,8 +14,10 @@ namespace Dao.Editor;
 public partial class TerrainEditorDockPanel : VBoxContainer
 {
     private const string DefaultTerrainSettingsPath = "res://Resources/Terrain/DefaultTerrainSettings.tres";
+    private const string DefaultTerrainVisualCatalogPath = "res://Resources/Terrain/DefaultTerrainVisualCatalog.tres";
     private bool _uiBuilt;
     private LineEdit? _settingsPathEdit;
+    private LineEdit? _visualCatalogPathEdit;
     private Label? _statusLabel;
     private Label? _profileLabel;
     private SpinBox? _previewSeedSpin;
@@ -28,12 +31,14 @@ public partial class TerrainEditorDockPanel : VBoxContainer
     private SpinBox? _sampleXSpin;
     private SpinBox? _sampleZSpin;
     private TextEdit? _sampleText;
+    private TextEdit? _visualCatalogText;
     private LineEdit? _fromPoiIdEdit;
     private LineEdit? _toPoiIdEdit;
     private TextEdit? _pathText;
     private TextEdit? _validationText;
 
     private string _resolvedSettingsPath = string.Empty;
+    private string _resolvedVisualCatalogPath = string.Empty;
     private string _cachedPlanKey = string.Empty;
     private TerrainSettings? _cachedSettings;
     private TerrainGenerationProfile _cachedProfile;
@@ -55,6 +60,17 @@ public partial class TerrainEditorDockPanel : VBoxContainer
             File.Exists(ProjectSettings.GlobalizePath(DefaultTerrainSettingsPath)))
         {
             SetSettingsPath(DefaultTerrainSettingsPath);
+        }
+
+        if (_visualCatalogPathEdit is not null &&
+            string.IsNullOrWhiteSpace(_visualCatalogPathEdit.Text) &&
+            File.Exists(ProjectSettings.GlobalizePath(DefaultTerrainVisualCatalogPath)))
+        {
+            SetVisualCatalogPath(DefaultTerrainVisualCatalogPath);
+        }
+
+        if (!string.IsNullOrWhiteSpace(_resolvedSettingsPath))
+        {
             SetStatus($"Using default TerrainSettings resource '{DefaultTerrainSettingsPath}'.");
             return;
         }
@@ -90,6 +106,23 @@ public partial class TerrainEditorDockPanel : VBoxContainer
             PlaceholderText = "res://path/to/terrain_settings.tres"
         };
         content.AddChild(_settingsPathEdit);
+
+        content.AddChild(CreateSectionTitle("Terrain Visual Catalog"));
+
+        _visualCatalogPathEdit = new LineEdit
+        {
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            PlaceholderText = "res://path/to/terrain_visual_catalog.tres"
+        };
+        content.AddChild(_visualCatalogPathEdit);
+
+        var visualCatalogRow = new HBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        content.AddChild(visualCatalogRow);
+        visualCatalogRow.AddChild(CreateActionButton("Use Default Catalog", OnUseDefaultVisualCatalogPressed));
+        visualCatalogRow.AddChild(CreateActionButton("Validate Visual Catalog", OnValidateVisualCatalogPressed));
+
+        _visualCatalogText = CreateReadOnlyText(160.0f);
+        content.AddChild(_visualCatalogText);
 
         var grid = new GridContainer
         {
@@ -277,6 +310,17 @@ public partial class TerrainEditorDockPanel : VBoxContainer
         }
     }
 
+    public void SetVisualCatalogPath(string path)
+    {
+        if (_visualCatalogPathEdit is null)
+        {
+            return;
+        }
+
+        _visualCatalogPathEdit.Text = NormalizeResourcePath(path);
+        _resolvedVisualCatalogPath = _visualCatalogPathEdit.Text;
+    }
+
     public void SetExternalStatus(string message, bool isError = false)
     {
         SetStatus(message, isError);
@@ -407,6 +451,30 @@ public partial class TerrainEditorDockPanel : VBoxContainer
 
         SetSettingsPath(outputPath);
         SetStatus($"Saved TerrainSettings preset copy to '{outputPath}' with seed {seedOverride}.");
+    }
+
+    private void OnUseDefaultVisualCatalogPressed()
+    {
+        SetVisualCatalogPath(DefaultTerrainVisualCatalogPath);
+        OnValidateVisualCatalogPressed();
+    }
+
+    private void OnValidateVisualCatalogPressed()
+    {
+        if (!TryResolveVisualCatalog(out TerrainVisualCatalog? catalog, out string error) || catalog is null)
+        {
+            _visualCatalogText!.Text = string.Empty;
+            SetStatus(error, isError: true);
+            return;
+        }
+
+        TerrainVisualCatalogValidationSummary summary = ValidateVisualCatalog(catalog);
+        _visualCatalogText!.Text = summary.Report;
+        SetStatus(
+            summary.Passed
+                ? $"Terrain visual catalog '{_resolvedVisualCatalogPath}' is valid for the current fallback policy."
+                : $"Terrain visual catalog '{_resolvedVisualCatalogPath}' has production-readiness issues.",
+            isError: !summary.Passed);
     }
 
     private void OnSamplePressed()
@@ -703,6 +771,154 @@ public partial class TerrainEditorDockPanel : VBoxContainer
         return true;
     }
 
+    private bool TryResolveVisualCatalog(out TerrainVisualCatalog? catalog, out string error)
+    {
+        catalog = null;
+        error = string.Empty;
+        if (_visualCatalogPathEdit is null)
+        {
+            error = "Terrain editor dock was not initialized correctly.";
+            return false;
+        }
+
+        string path = _visualCatalogPathEdit.Text.Trim();
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            error = "Set a TerrainVisualCatalog resource path before validating visual assets.";
+            return false;
+        }
+
+        path = NormalizeResourcePath(path);
+        Resource? resource = ResourceLoader.Load(path);
+        if (resource is not TerrainVisualCatalog visualCatalog)
+        {
+            error = $"Resource '{path}' is not a TerrainVisualCatalog asset.";
+            return false;
+        }
+
+        _resolvedVisualCatalogPath = path;
+        _visualCatalogPathEdit.Text = path;
+        catalog = visualCatalog;
+        return true;
+    }
+
+    private static TerrainVisualCatalogValidationSummary ValidateVisualCatalog(TerrainVisualCatalog catalog)
+    {
+        int scatterEntries = 0;
+        int scatterMeshEntries = 0;
+        int scatterSceneEntries = 0;
+        int scatterInvalidLodEntries = 0;
+        int scatterDuplicateEntries = 0;
+        var scatterKinds = new HashSet<TerrainScatterKind>();
+        foreach (TerrainScatterVisualEntryResource? entry in catalog.ScatterEntries)
+        {
+            if (entry is null)
+            {
+                continue;
+            }
+
+            scatterEntries++;
+            if (entry.Mesh is not null)
+            {
+                scatterMeshEntries++;
+            }
+
+            if (entry.Scene is not null)
+            {
+                scatterSceneEntries++;
+            }
+
+            if (entry.MaxLod < entry.MinLod)
+            {
+                scatterInvalidLodEntries++;
+            }
+
+            if (!scatterKinds.Add(entry.Kind))
+            {
+                scatterDuplicateEntries++;
+            }
+        }
+
+        int landmarkEntries = 0;
+        int landmarkMeshEntries = 0;
+        int landmarkSceneEntries = 0;
+        int landmarkInvalidLodEntries = 0;
+        int landmarkDuplicateEntries = 0;
+        var landmarkKinds = new HashSet<TerrainLandmarkKind>();
+        foreach (TerrainLandmarkVisualEntryResource? entry in catalog.LandmarkEntries)
+        {
+            if (entry is null)
+            {
+                continue;
+            }
+
+            landmarkEntries++;
+            if (entry.Mesh is not null)
+            {
+                landmarkMeshEntries++;
+            }
+
+            if (entry.Scene is not null)
+            {
+                landmarkSceneEntries++;
+            }
+
+            if (entry.MaxLod < entry.MinLod)
+            {
+                landmarkInvalidLodEntries++;
+            }
+
+            if (!landmarkKinds.Add(entry.Kind))
+            {
+                landmarkDuplicateEntries++;
+            }
+        }
+
+        TerrainScatterKind[] missingScatter = catalog.GetMissingScatterMeshKinds();
+        TerrainLandmarkKind[] missingLandmarks = catalog.GetMissingLandmarkMeshKinds();
+        bool missingEntriesAllowed = catalog.UsePrimitiveFallbacks;
+        bool passed =
+            scatterInvalidLodEntries == 0 &&
+            landmarkInvalidLodEntries == 0 &&
+            scatterDuplicateEntries == 0 &&
+            landmarkDuplicateEntries == 0 &&
+            (missingEntriesAllowed || (missingScatter.Length == 0 && missingLandmarks.Length == 0));
+
+        var builder = new StringBuilder(768);
+        builder.AppendLine($"Primitive Fallbacks: {catalog.UsePrimitiveFallbacks}");
+        builder.AppendLine($"Scatter Entries: {scatterEntries}  mesh {scatterMeshEntries}  scene {scatterSceneEntries}  duplicates {scatterDuplicateEntries}  invalid LOD {scatterInvalidLodEntries}");
+        builder.AppendLine($"Landmark Entries: {landmarkEntries}  mesh {landmarkMeshEntries}  scene {landmarkSceneEntries}  duplicates {landmarkDuplicateEntries}  invalid LOD {landmarkInvalidLodEntries}");
+        builder.AppendLine($"Missing Scatter Kinds: {missingScatter.Length}{(missingEntriesAllowed ? " (fallback allowed)" : string.Empty)}");
+        builder.AppendLine($"Missing Landmark Kinds: {missingLandmarks.Length}{(missingEntriesAllowed ? " (fallback allowed)" : string.Empty)}");
+
+        if (!passed)
+        {
+            builder.AppendLine();
+            builder.AppendLine("Issues");
+            if (!missingEntriesAllowed && missingScatter.Length > 0)
+            {
+                builder.AppendLine($"Scatter kinds without Mesh or Scene: {string.Join(", ", missingScatter)}");
+            }
+
+            if (!missingEntriesAllowed && missingLandmarks.Length > 0)
+            {
+                builder.AppendLine($"Landmark kinds without Mesh or Scene: {string.Join(", ", missingLandmarks)}");
+            }
+
+            if (scatterDuplicateEntries > 0 || landmarkDuplicateEntries > 0)
+            {
+                builder.AppendLine("Duplicate entries use the first matching kind and should be removed.");
+            }
+
+            if (scatterInvalidLodEntries > 0 || landmarkInvalidLodEntries > 0)
+            {
+                builder.AppendLine("Invalid LOD entries have MaxLod lower than MinLod.");
+            }
+        }
+
+        return new TerrainVisualCatalogValidationSummary(passed, builder.ToString());
+    }
+
     private string NormalizeResourcePath(string path)
     {
         string normalized = path.Replace('\\', '/');
@@ -869,6 +1085,8 @@ public partial class TerrainEditorDockPanel : VBoxContainer
     {
         return $"{settingsPath}|{profile.StableHash()}|{worldSize:0.###}|{(int)baseLayer}";
     }
+
+    private readonly record struct TerrainVisualCatalogValidationSummary(bool Passed, string Report);
 
     private void SetStatus(string message, bool isError = false)
     {

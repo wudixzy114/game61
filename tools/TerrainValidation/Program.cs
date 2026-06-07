@@ -4263,7 +4263,8 @@ static TerrainPublicApiShapeSmokeReport ValidateTerrainPublicApiShapeContracts()
                     new("CreateTraversalCostGridForTile", false, typeof(TerrainTraversalCostGrid), [typeof(TerrainTileCoord), typeof(int), typeof(float)]),
                     new("QueryTraversalCosts", false, typeof(TerrainTraversalCost[]), [typeof(Rect2), typeof(float), typeof(int)]),
                     new("GetRouteGraphSnapshot", false, typeof(TerrainRouteGraphSnapshot), []),
-                    new("TryGetRouteGraphSnapshot", false, typeof(bool), [typeof(TerrainRouteGraphSnapshot).MakeByRefType()])
+                    new("TryGetRouteGraphSnapshot", false, typeof(bool), [typeof(TerrainRouteGraphSnapshot).MakeByRefType()]),
+                    new("TryFindRoutePath", false, typeof(bool), [typeof(int), typeof(int), typeof(TerrainRouteGraphPath).MakeByRefType()])
                 ],
                 ref checkedTypeCount,
                 ref checkedMemberCount,
@@ -4302,6 +4303,7 @@ static TerrainPublicApiShapeSmokeReport ValidateTerrainPublicApiShapeContracts()
                     new("QueryTraversalCosts", false, typeof(TerrainTraversalCost[]), [typeof(Rect2), typeof(float), typeof(int)]),
                     new("GetRouteGraphSnapshot", false, typeof(TerrainRouteGraphSnapshot), []),
                     new("TryGetRouteGraphSnapshot", false, typeof(bool), [typeof(TerrainRouteGraphSnapshot).MakeByRefType()]),
+                    new("TryFindRoutePath", false, typeof(bool), [typeof(int), typeof(int), typeof(TerrainRouteGraphPath).MakeByRefType()]),
                     new("CreateRuntimeOpenWorldPlan", true, typeof(TerrainWorldPlan), [typeof(TerrainGenerationProfile), typeof(float), typeof(CancellationToken)]),
                     new("CreateRuntimeOpenWorldPlan", true, typeof(TerrainWorldPlan), [typeof(TerrainGenerationProfile), typeof(Vector2), typeof(float), typeof(CancellationToken)]),
                     new("CreateRuntimeOpenWorldPlanAsync", true, typeof(Task<TerrainWorldPlan>), [typeof(TerrainGenerationProfile), typeof(float), typeof(CancellationToken)]),
@@ -5008,6 +5010,8 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
             !emptyRouteGraph.TryGetNode(1, out _) &&
             emptyRouteGraph.QueryConnectedEdges(1).Length == 0 &&
             !emptyRouteGraph.TryFindPath(1, 2, out _);
+        bool noPlanRoutePathPassed = !noPlanWorld.TryFindRoutePath(1, 2, out TerrainRouteGraphPath? noPlanRoutePath) &&
+            noPlanRoutePath is null;
         bool streamingSnapshotPassed =
             StreamingSnapshotMatchesFacadeContract(
                 noPlanWorld,
@@ -5264,6 +5268,7 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
         bool routeSummaryQueryPassed = plan.Routes.Length == 0;
         bool routeCorridorQueryPassed = plan.Routes.Length == 0;
         bool routeGraphSnapshotPassed = true;
+        bool routePathQueryPassed = plan.Routes.Length == 0;
         bool routeGraphSnapshotIsolated = true;
         bool routePlacementQueryPassed = plan.Routes.Length == 0;
         if (plan.Routes.Length > 0)
@@ -5387,10 +5392,12 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
             if (routeGraphSnapshotPassed && routeGraphSnapshot is not null)
             {
                 routeGraphSnapshotIsolated = RouteGraphSnapshotIsolated(planWorld, routeGraphSnapshot, plan);
+                routePathQueryPassed = RoutePathFacadeMatchesSnapshot(planWorld, routeGraphSnapshot, plan);
             }
             else
             {
                 routeGraphSnapshotIsolated = false;
+                routePathQueryPassed = false;
             }
         }
 
@@ -5412,6 +5419,7 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
             navigationTileGridPassed &&
             navigationRegionQueryPassed &&
             noPlanRouteGraphPassed &&
+            noPlanRoutePathPassed &&
             streamingSnapshotPassed &&
             apiVersionPassed &&
             determinismContractPassed &&
@@ -5430,6 +5438,7 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
             routeCorridorQueryPassed &&
             routePlacementQueryPassed &&
             routeGraphSnapshotPassed &&
+            routePathQueryPassed &&
             routeGraphSnapshotIsolated &&
             pointSnapshotIsolated &&
             routeSnapshotIsolated &&
@@ -5455,6 +5464,7 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
                 navigationTileGridPassed,
                 navigationRegionQueryPassed,
                 noPlanRouteGraphPassed,
+                noPlanRoutePathPassed,
                 streamingSnapshotPassed,
                 apiVersionPassed,
                 determinismContractPassed,
@@ -5475,6 +5485,7 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
                 routeCorridorQueryPassed,
                 routePlacementQueryPassed,
                 routeGraphSnapshotPassed,
+                routePathQueryPassed,
                 routeGraphSnapshotIsolated,
                 pointSnapshotIsolated,
                 routeSnapshotIsolated,
@@ -5503,6 +5514,7 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
             navigationTileGridPassed,
             navigationRegionQueryPassed,
             noPlanRouteGraphPassed,
+            noPlanRoutePathPassed,
             streamingSnapshotPassed,
             apiVersionPassed,
             determinismContractPassed,
@@ -5517,6 +5529,7 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
             routeCorridorQueryPassed,
             routePlacementQueryPassed,
             routeGraphSnapshotPassed,
+            routePathQueryPassed,
             routeGraphSnapshotIsolated,
             pointSnapshotIsolated,
             routeSnapshotIsolated,
@@ -5548,6 +5561,7 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
             NavigationTileGridPassed: false,
             NavigationRegionQueryPassed: false,
             NoPlanRouteGraphPassed: false,
+            NoPlanRoutePathPassed: false,
             StreamingSnapshotPassed: false,
             ApiVersionPassed: false,
             DeterminismContractPassed: false,
@@ -5562,6 +5576,7 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
             RouteCorridorQueryPassed: false,
             RoutePlacementQueryPassed: false,
             RouteGraphSnapshotPassed: false,
+            RoutePathQueryPassed: false,
             RouteGraphSnapshotIsolated: false,
             PointSnapshotIsolated: false,
             RouteSnapshotIsolated: false,
@@ -6269,6 +6284,131 @@ static bool ConnectedEdgeQueryIsolated(TerrainRouteGraphSnapshot snapshot, int p
     return ExactPositionEquals(snapshot.QueryConnectedEdges(pointId)[0].Waypoints[0], originalWaypoint);
 }
 
+static bool RoutePathFacadeMatchesSnapshot(
+    TerrainWorld planWorld,
+    TerrainRouteGraphSnapshot snapshot,
+    TerrainWorldPlan plan)
+{
+    if (plan.Routes.Length == 0)
+    {
+        return !planWorld.TryFindRoutePath(1, 2, out _);
+    }
+
+    TerrainWorldRoute firstRoute = plan.Routes[0];
+    if (!snapshot.TryFindPath(firstRoute.FromPointId, firstRoute.ToPointId, out TerrainRouteGraphPath? snapshotPath) ||
+        snapshotPath is null ||
+        !planWorld.TryFindRoutePath(firstRoute.FromPointId, firstRoute.ToPointId, out TerrainRouteGraphPath? facadePath) ||
+        facadePath is null)
+    {
+        return false;
+    }
+
+    if (!RouteGraphPathsMatch(snapshotPath, facadePath) ||
+        !RouteGraphPathIsolated(snapshot, facadePath, firstRoute.FromPointId, firstRoute.ToPointId))
+    {
+        return false;
+    }
+
+    if (facadePath.Waypoints.Length > 0)
+    {
+        Vector2 originalWaypoint = facadePath.Waypoints[0];
+        facadePath.Waypoints[0] = originalWaypoint + new Vector2(765.0f, -765.0f);
+        if (!planWorld.TryFindRoutePath(firstRoute.FromPointId, firstRoute.ToPointId, out TerrainRouteGraphPath? freshPath) ||
+            freshPath is null ||
+            freshPath.Waypoints.Length == 0 ||
+            !ExactPositionEquals(freshPath.Waypoints[0], originalWaypoint))
+        {
+            return false;
+        }
+    }
+
+    return !planWorld.TryFindRoutePath(firstRoute.FromPointId, firstRoute.ToPointId + 1_000_000, out _);
+}
+
+static bool RouteGraphPathsMatch(TerrainRouteGraphPath expected, TerrainRouteGraphPath actual)
+{
+    if (expected.StartPointId != actual.StartPointId ||
+        expected.GoalPointId != actual.GoalPointId ||
+        !ExactFloatEquals(expected.TotalCost, actual.TotalCost) ||
+        !ExactFloatEquals(expected.TotalDistance, actual.TotalDistance))
+    {
+        return false;
+    }
+
+    int[] expectedPointIds = expected.PointIds;
+    int[] actualPointIds = actual.PointIds;
+    if (expectedPointIds.Length != actualPointIds.Length)
+    {
+        return false;
+    }
+
+    for (int i = 0; i < expectedPointIds.Length; i++)
+    {
+        if (expectedPointIds[i] != actualPointIds[i])
+        {
+            return false;
+        }
+    }
+
+    TerrainRouteGraphEdge[] expectedEdges = expected.Edges;
+    TerrainRouteGraphEdge[] actualEdges = actual.Edges;
+    if (expectedEdges.Length != actualEdges.Length)
+    {
+        return false;
+    }
+
+    for (int i = 0; i < expectedEdges.Length; i++)
+    {
+        if (!RouteGraphEdgesMatch(expectedEdges[i], actualEdges[i]))
+        {
+            return false;
+        }
+    }
+
+    Vector2[] expectedWaypoints = expected.Waypoints;
+    Vector2[] actualWaypoints = actual.Waypoints;
+    if (expectedWaypoints.Length != actualWaypoints.Length)
+    {
+        return false;
+    }
+
+    for (int i = 0; i < expectedWaypoints.Length; i++)
+    {
+        if (!ExactPositionEquals(expectedWaypoints[i], actualWaypoints[i]))
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+static bool RouteGraphEdgesMatch(TerrainRouteGraphEdge expected, TerrainRouteGraphEdge actual)
+{
+    if (expected.FromPointId != actual.FromPointId ||
+        expected.ToPointId != actual.ToPointId ||
+        expected.Kind != actual.Kind ||
+        !ExactFloatEquals(expected.Cost, actual.Cost) ||
+        !ExactFloatEquals(expected.AverageScenicPotential, actual.AverageScenicPotential) ||
+        !ExactFloatEquals(expected.AverageTraversability, actual.AverageTraversability) ||
+        !ExactFloatEquals(expected.CoreWidth, actual.CoreWidth) ||
+        !ExactFloatEquals(expected.ShoulderWidth, actual.ShoulderWidth) ||
+        expected.Waypoints.Length != actual.Waypoints.Length)
+    {
+        return false;
+    }
+
+    for (int i = 0; i < expected.Waypoints.Length; i++)
+    {
+        if (!ExactPositionEquals(expected.Waypoints[i], actual.Waypoints[i]))
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 static bool RouteGraphPathIsolated(
     TerrainRouteGraphSnapshot snapshot,
     TerrainRouteGraphPath path,
@@ -6368,6 +6508,7 @@ static string RuntimeApiFailureReason(
     bool navigationTileGridPassed,
     bool navigationRegionQueryPassed,
     bool noPlanRouteGraphPassed,
+    bool noPlanRoutePathPassed,
     bool streamingSnapshotPassed,
     bool apiVersionPassed,
     bool determinismContractPassed,
@@ -6388,6 +6529,7 @@ static string RuntimeApiFailureReason(
     bool routeCorridorQueryPassed,
     bool routePlacementQueryPassed,
     bool routeGraphSnapshotPassed,
+    bool routePathQueryPassed,
     bool routeGraphSnapshotIsolated,
     bool pointSnapshotIsolated,
     bool routeSnapshotIsolated,
@@ -6478,6 +6620,11 @@ static string RuntimeApiFailureReason(
         return "route graph facade did not expose an empty no-plan state";
     }
 
+    if (!noPlanRoutePathPassed)
+    {
+        return "route path facade did not return false for an unset runtime plan";
+    }
+
     if (!streamingSnapshotPassed)
     {
         return "GetStreamingSnapshot did not expose stable isolated streaming diagnostics";
@@ -6561,6 +6708,11 @@ static string RuntimeApiFailureReason(
     if (!routeGraphSnapshotPassed)
     {
         return "route graph snapshot facade did not match the assigned open-world plan";
+    }
+
+    if (!routePathQueryPassed)
+    {
+        return "TryFindRoutePath did not match the assigned route graph path contract";
     }
 
     if (!routeGraphSnapshotIsolated)

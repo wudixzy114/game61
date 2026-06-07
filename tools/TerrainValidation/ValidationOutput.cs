@@ -177,7 +177,7 @@ internal static class TerrainValidationOutput
             $"POIs/routes {report.PointOfInterestCount}/{report.RouteCount}, " +
             $"traversable/water {(report.TraversabilityQueryPassed ? "pass" : "fail")}/{(report.AboveWaterQueryPassed ? "pass" : "fail")}, " +
             $"semantic POI/POIsum/tagreg/route/routesum/corridor/water/tags/traversal {(report.PointQueryPassed ? "pass" : "fail")}/{(report.PointSummaryQueryPassed ? "pass" : "fail")}/{(report.GameplayTagRegionQueryPassed ? "pass" : "fail")}/{(report.RouteQueryPassed ? "pass" : "fail")}/{(report.RouteSummaryQueryPassed ? "pass" : "fail")}/{(report.RouteCorridorQueryPassed ? "pass" : "fail")}/{(report.WaterStateQueryPassed ? "pass" : "fail")}/{(report.GameplayTagsQueryPassed ? "pass" : "fail")}/{(report.TraversalCostQueryPassed ? "pass" : "fail")}, " +
-            $"placement/nav {(report.PlacementCandidatesQueryPassed ? "pass" : "fail")}/{(report.RoutePlacementQueryPassed ? "pass" : "fail")}/{(report.NavigationGridPassed ? "pass" : "fail")}/{(report.NavigationTileGridPassed ? "pass" : "fail")}/{(report.NavigationRegionQueryPassed ? "pass" : "fail")}/{(report.RouteGraphSnapshotPassed ? "pass" : "fail")}/{(report.RouteGraphSnapshotIsolated ? "pass" : "fail")}, " +
+            $"placement/nav {(report.PlacementCandidatesQueryPassed ? "pass" : "fail")}/{(report.RoutePlacementQueryPassed ? "pass" : "fail")}/{(report.NavigationGridPassed ? "pass" : "fail")}/{(report.NavigationTileGridPassed ? "pass" : "fail")}/{(report.NavigationRegionQueryPassed ? "pass" : "fail")}/{(report.NoPlanRoutePathPassed ? "pass" : "fail")}/{(report.RouteGraphSnapshotPassed ? "pass" : "fail")}/{(report.RoutePathQueryPassed ? "pass" : "fail")}/{(report.RouteGraphSnapshotIsolated ? "pass" : "fail")}, " +
             $"streaming {(report.StreamingSnapshotPassed ? "pass" : "fail")}, " +
             $"snapshots POI/routes/plan {(report.PointSnapshotIsolated ? "pass" : "fail")}/{(report.RouteSnapshotIsolated ? "pass" : "fail")}/{(report.WorldPlanSnapshotIsolated ? "pass" : "fail")} " +
             $"({report.Reason})");
@@ -300,8 +300,8 @@ internal static class TerrainValidationOutput
     {
         Console.WriteLine(
             $"Terrain editor plugin smoke: {(report.Passed ? "PASS" : "FAIL")} " +
-            $"cfg/script/panel/resource/scene {report.PluginConfigExists}/{report.PluginScriptExists}/{report.DockPanelExists}/{report.DefaultSettingsResourceExists}/{report.MainSceneExists}, " +
-            $"wiring cfg/dock/panel/scene/demo/default {report.PluginConfigWiresScript}/{report.PluginScriptWiresDock}/{report.DockPanelSupportsPreviewExportValidation}/{report.MainSceneWiresDefaultSettings}/{report.DemoScriptSupportsSettingsResource}/{report.DockPanelUsesDefaultSettingsResource} " +
+            $"cfg/script/panel/settings/catalog/scene {report.PluginConfigExists}/{report.PluginScriptExists}/{report.DockPanelExists}/{report.DefaultSettingsResourceExists}/{report.DefaultVisualCatalogResourceExists}/{report.MainSceneExists}, " +
+            $"wiring cfg/dock/panel/scene-settings/scene-catalog/demo-settings/demo-catalog/default {report.PluginConfigWiresScript}/{report.PluginScriptWiresDock}/{report.DockPanelSupportsPreviewExportValidation}/{report.MainSceneWiresDefaultSettings}/{report.MainSceneWiresDefaultVisualCatalog}/{report.DemoScriptSupportsSettingsResource}/{report.DemoScriptSupportsVisualCatalogResource}/{report.DockPanelUsesDefaultSettingsResource} " +
             $"({report.Reason})");
     }
 
