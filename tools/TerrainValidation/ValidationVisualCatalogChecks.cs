@@ -33,6 +33,16 @@ internal static class TerrainValidationVisualCatalogChecks
                 catalogSource.Contains("GetMissingScatterMeshKinds", StringComparison.Ordinal) &&
                 catalogSource.Contains("GetMissingLandmarkMeshKinds", StringComparison.Ordinal) &&
                 catalogSource.Contains("TerrainScatterKind.Landmark", StringComparison.Ordinal);
+            bool validationReportPassed =
+                HasPublicMethod<TerrainVisualCatalog>("ValidateCatalog", typeof(TerrainVisualCatalogValidationReport)) &&
+                catalogSource.Contains("TerrainVisualCatalogValidationReport", StringComparison.Ordinal) &&
+                catalogSource.Contains("ScatterDuplicateEntryCount", StringComparison.Ordinal) &&
+                catalogSource.Contains("LandmarkInvalidLodEntryCount", StringComparison.Ordinal);
+            bool referencedResourceCollectionPassed =
+                HasPublicMethod<TerrainVisualCatalog>("GetReferencedResources", typeof(Resource[])) &&
+                catalogSource.Contains("AddReferencedResource(entry.Mesh", StringComparison.Ordinal) &&
+                catalogSource.Contains("AddReferencedResource(entry.Scene", StringComparison.Ordinal) &&
+                catalogSource.Contains("GetInstanceId()", StringComparison.Ordinal);
             bool visualEntryMetadataPassed =
                 SourceContainsVisualEntryContract(scatterEntrySource) &&
                 SourceContainsVisualEntryContract(landmarkEntrySource);
@@ -47,6 +57,8 @@ internal static class TerrainValidationVisualCatalogChecks
                 sceneEntryLookupPassed &&
                 sceneOnlyEntriesAreAccepted &&
                 missingEntryDetectionPassed &&
+                validationReportPassed &&
+                referencedResourceCollectionPassed &&
                 visualEntryMetadataPassed &&
                 runtimeScenePathPassed;
 
@@ -56,15 +68,19 @@ internal static class TerrainValidationVisualCatalogChecks
                 sceneEntryLookupPassed,
                 sceneOnlyEntriesAreAccepted,
                 missingEntryDetectionPassed,
+                validationReportPassed,
+                referencedResourceCollectionPassed,
                 visualEntryMetadataPassed,
                 runtimeScenePathPassed,
                 passed
-                    ? "visual catalog supports mesh entries, scene entries, production metadata, and runtime scene instancing"
-                    : "visual catalog contract did not cover mesh/scene entries, metadata, fallback validation, or runtime scene instancing");
+                    ? "visual catalog supports mesh entries, scene entries, production metadata, reusable validation reports, resource collection, and runtime scene instancing"
+                    : "visual catalog contract did not cover mesh/scene entries, metadata, fallback validation, resource collection, or runtime scene instancing");
         }
         catch (Exception ex)
         {
             return new TerrainVisualCatalogSmokeReport(
+                false,
+                false,
                 false,
                 false,
                 false,

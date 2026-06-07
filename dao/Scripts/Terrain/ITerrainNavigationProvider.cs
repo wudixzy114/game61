@@ -24,6 +24,7 @@ public interface ITerrainNavigationProvider
         int maxSamples = 1024);
 
     TerrainRouteGraphSnapshot GetRouteGraphSnapshot();
+    TerrainNavigationWaypointGraph CreateNavigationWaypointGraph();
     bool TryGetRouteGraphSnapshot([NotNullWhen(true)] out TerrainRouteGraphSnapshot? snapshot);
     bool TryFindRoutePath(int fromPointId, int toPointId, [NotNullWhen(true)] out TerrainRouteGraphPath? path);
 }

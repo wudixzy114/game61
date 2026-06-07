@@ -70,6 +70,14 @@ public partial class TerrainWorld
             : TerrainRouteGraphSnapshot.FromPlan(_worldPlan);
     }
 
+    /// <summary>Builds a waypoint graph from the current planned route graph for AI/navigation importers without requiring loaded tiles.</summary>
+    public TerrainNavigationWaypointGraph CreateNavigationWaypointGraph()
+    {
+        return _worldPlan is null
+            ? TerrainNavigationWaypointGraph.Empty
+            : TerrainNavigationWaypointGraph.FromPlan(_worldPlan);
+    }
+
     /// <summary>Returns a snapshot copy of the current planned route graph without exposing internal mutable waypoint arrays.</summary>
     public bool TryGetRouteGraphSnapshot([NotNullWhen(true)] out TerrainRouteGraphSnapshot? snapshot)
     {

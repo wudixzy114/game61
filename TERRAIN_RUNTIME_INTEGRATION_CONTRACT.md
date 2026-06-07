@@ -66,6 +66,7 @@ Use for navigation and map-graph handoff without embedding character pathfinding
 - `CreateTraversalCostGridForTile(TerrainTileCoord coord, int gridSize, float spacing = 24.0f)`
 - `QueryTraversalCosts(Rect2 worldBounds, float sampleSpacing = 24.0f, int maxSamples = 1024)`
 - `GetRouteGraphSnapshot()`
+- `CreateNavigationWaypointGraph()`
 - `TryGetRouteGraphSnapshot(out TerrainRouteGraphSnapshot? snapshot)`
 
 `TerrainTraversalCostGrid` is a deterministic handoff value, not a pathfinder. It now exposes
@@ -92,6 +93,11 @@ without exposing planner internals:
 `TryFindPath(...)` returns a `TerrainRouteGraphPath` with ordered point ids, directed edge copies,
 collapsed waypoint geometry, total route cost, and total world distance. This remains a high-level
 route handoff, not character pathfinding or navmesh ownership.
+
+`CreateNavigationWaypointGraph()` converts the planned route graph into a pure waypoint graph for
+AI and Godot/custom navigation importers. It exports POI nodes, route waypoint nodes, and directed
+links with route kind, distance, route-cost, scenic/traversability scores, and corridor widths. It
+does not require streamed/rendered tiles and does not perform character-level pathfinding.
 
 ## Runtime Provider
 
@@ -133,8 +139,8 @@ consume. Treat the public surface as four layers:
 - Rendering Configuration API: `TerrainVisualCatalog` and its visual entry resources, used by
   `TerrainWorld`/`TerrainChunk` to replace primitive validation meshes with project assets.
 - Data Contract API: plan snapshots, summaries, enums, reports, terrain samples, route graph
-  snapshots, traversal grids, and anchor descriptors that may cross module or persistence
-  boundaries.
+  snapshots, traversal grids, modification layers, and anchor descriptors that may cross module
+  or persistence boundaries.
 - Internal Implementation API: tile builders, planners, streaming chunks, caches, native
   bridges, indices, scheduler/job structures, and service partials. These remain public where
   Godot, tooling, or validation needs direct access, but gameplay modules should not take
@@ -155,6 +161,20 @@ Do not add a new public terrain type without first deciding which layer owns it.
 interfaces require contract documentation and smoke coverage. Data contracts require shape or
 serialization coverage when they cross persistence/module boundaries. Internal implementation
 types should not be used as a shortcut from gameplay code.
+
+## Persistent Modification Handoff
+
+`TerrainModificationLayer` is the data-contract foundation for deterministic base terrain plus
+mutable save deltas. It is a pure C# data contract rather than a Godot Resource, so save systems,
+validation tools, runtime services, and background jobs can use it without editor resource loading.
+
+It currently supports height delta brushes, surface semantic overrides, scatter removal/addition
+state, landmark state overrides, route blocked/unlocked/cost state, affected streaming tile
+queries, JSON string/file persistence, and base-field plus overlay sampling via `ApplyToField(...)`.
+
+The layer is not yet fully wired into tile mesh, collision, scatter, and navigation invalidation.
+Consumers should treat it as the stable persistence and query foundation for that later runtime
+integration work.
 
 ### Stable Gameplay Integration Examples
 
@@ -177,7 +197,9 @@ The PR terrain validation tier now verifies:
 - placement candidates respect requested tags, traversal filters, and route-influence requirements
 - route-graph snapshots and center/tile/region traversal-cost handoff are stable and isolated
 - traversal-cost grid world/index helpers, bounded region queries, and max-result caps remain stable
-- route-graph node lookup, connected-edge lookup, and high-level path queries are stable and isolated
+- route-graph node lookup, connected-edge lookup, high-level path queries, and waypoint graph importer output are stable and isolated
+- terrain modification layers apply deterministic field overlays, report affected tiles, and
+  roundtrip through JSON without saving generated meshes
 - runtime signal delegates exist with the expected signatures
 - gameplay-facing scripts outside `dao/Scripts/Terrain` and `dao/Scripts/Demo` do not directly
   reference internal terrain implementation tokens such as `TerrainTileBuilder`,

@@ -236,9 +236,11 @@ internal readonly record struct TerrainPlanJsonSmokeReport(
     bool ProfileHashMismatchRejected,
     bool LegacyApiVersionAccepted,
     bool PreviousApiVersionAccepted,
-    bool CurrentApiMinusThreeVersionAccepted,
-    bool CurrentApiMinusTwoVersionAccepted,
-    bool CurrentApiMinusOneVersionAccepted,
+    bool ApiVersion12Accepted,
+    bool ApiVersion13Accepted,
+    bool ApiVersion14Accepted,
+    bool ApiVersion15Accepted,
+    bool ApiVersion16Accepted,
     bool VersionDriftRejected,
     bool EnumNameDriftRejected,
     bool EnumValueDriftRejected,
@@ -327,8 +329,22 @@ internal readonly record struct TerrainVisualCatalogSmokeReport(
     bool SceneEntryLookupPassed,
     bool SceneOnlyEntriesAreAccepted,
     bool MissingEntryDetectionPassed,
+    bool ValidationReportPassed,
+    bool ReferencedResourceCollectionPassed,
     bool VisualEntryMetadataPassed,
     bool RuntimeScenePathPassed,
+    string Reason);
+
+/// <summary>Reports whether mutable terrain modification layers can be applied, queried, and persisted as save deltas.</summary>
+internal readonly record struct TerrainModificationLayerSmokeReport(
+    bool Passed,
+    bool FieldOverlayPassed,
+    bool AffectedTilesPassed,
+    bool RouteStatePassed,
+    bool JsonRoundtripPassed,
+    bool FileRoundtripPassed,
+    bool SnapshotIsolationPassed,
+    bool DriftRejectionPassed,
     string Reason);
 
 /// <summary>Stable method signature expected by public API shape validation.</summary>
@@ -361,6 +377,8 @@ internal readonly record struct TerrainRuntimeApiSmokeReport(
     bool NavigationGridPassed,
     bool NavigationTileGridPassed,
     bool NavigationRegionQueryPassed,
+    bool NavigationWaypointGraphPassed,
+    bool NavigationWaypointGraphIsolated,
     bool NoPlanRouteGraphPassed,
     bool NoPlanRoutePathPassed,
     bool StreamingSnapshotPassed,

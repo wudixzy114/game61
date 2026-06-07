@@ -135,7 +135,7 @@ internal static class TerrainValidationOutput
             $"json {report.JsonBytes / 1024.0:0.0} KB, file {report.FileBytes / 1024.0:0.0} KB, " +
             $"metadata/schema {(report.MetadataPassed ? "pass" : "fail")}/{(report.SchemaShapePassed ? "pass" : "fail")}, " +
             $"string/file {(report.StringLoadPassed && report.StringRoundtripMatches ? "pass" : "fail")}/{(report.FileLoadPassed && report.FileRoundtripMatches ? "pass" : "fail")}, " +
-            $"compat api 1.0/1.1/1.2/1.3/1.4 {(report.LegacyApiVersionAccepted ? "pass" : "fail")}/{(report.PreviousApiVersionAccepted ? "pass" : "fail")}/{(report.CurrentApiMinusThreeVersionAccepted ? "pass" : "fail")}/{(report.CurrentApiMinusTwoVersionAccepted ? "pass" : "fail")}/{(report.CurrentApiMinusOneVersionAccepted ? "pass" : "fail")}, " +
+            $"compat api 1.0/1.1/1.2/1.3/1.4/1.5/1.6 {(report.LegacyApiVersionAccepted ? "pass" : "fail")}/{(report.PreviousApiVersionAccepted ? "pass" : "fail")}/{(report.ApiVersion12Accepted ? "pass" : "fail")}/{(report.ApiVersion13Accepted ? "pass" : "fail")}/{(report.ApiVersion14Accepted ? "pass" : "fail")}/{(report.ApiVersion15Accepted ? "pass" : "fail")}/{(report.ApiVersion16Accepted ? "pass" : "fail")}, " +
             $"drift seed/hash/version/enum {(report.SeedMismatchRejected ? "pass" : "fail")}/{(report.ProfileHashMismatchRejected ? "pass" : "fail")}/{(report.VersionDriftRejected ? "pass" : "fail")}/{(report.EnumNameDriftRejected && report.EnumValueDriftRejected ? "pass" : "fail")}, " +
             $"isolation/runtime {(report.RoundtripIsolationPassed ? "pass" : "fail")}/{(report.SetWorldPlanPassed ? "pass" : "fail")} ({report.Reason})");
     }
@@ -177,7 +177,7 @@ internal static class TerrainValidationOutput
             $"POIs/routes {report.PointOfInterestCount}/{report.RouteCount}, " +
             $"traversable/water {(report.TraversabilityQueryPassed ? "pass" : "fail")}/{(report.AboveWaterQueryPassed ? "pass" : "fail")}, " +
             $"semantic POI/POIsum/tagreg/route/routesum/corridor/water/tags/traversal {(report.PointQueryPassed ? "pass" : "fail")}/{(report.PointSummaryQueryPassed ? "pass" : "fail")}/{(report.GameplayTagRegionQueryPassed ? "pass" : "fail")}/{(report.RouteQueryPassed ? "pass" : "fail")}/{(report.RouteSummaryQueryPassed ? "pass" : "fail")}/{(report.RouteCorridorQueryPassed ? "pass" : "fail")}/{(report.WaterStateQueryPassed ? "pass" : "fail")}/{(report.GameplayTagsQueryPassed ? "pass" : "fail")}/{(report.TraversalCostQueryPassed ? "pass" : "fail")}, " +
-            $"placement/nav {(report.PlacementCandidatesQueryPassed ? "pass" : "fail")}/{(report.RoutePlacementQueryPassed ? "pass" : "fail")}/{(report.NavigationGridPassed ? "pass" : "fail")}/{(report.NavigationTileGridPassed ? "pass" : "fail")}/{(report.NavigationRegionQueryPassed ? "pass" : "fail")}/{(report.NoPlanRoutePathPassed ? "pass" : "fail")}/{(report.RouteGraphSnapshotPassed ? "pass" : "fail")}/{(report.RoutePathQueryPassed ? "pass" : "fail")}/{(report.RouteGraphSnapshotIsolated ? "pass" : "fail")}, " +
+            $"placement/nav {(report.PlacementCandidatesQueryPassed ? "pass" : "fail")}/{(report.RoutePlacementQueryPassed ? "pass" : "fail")}/{(report.NavigationGridPassed ? "pass" : "fail")}/{(report.NavigationTileGridPassed ? "pass" : "fail")}/{(report.NavigationRegionQueryPassed ? "pass" : "fail")}/{(report.NavigationWaypointGraphPassed ? "pass" : "fail")}/{(report.NavigationWaypointGraphIsolated ? "pass" : "fail")}/{(report.NoPlanRoutePathPassed ? "pass" : "fail")}/{(report.RouteGraphSnapshotPassed ? "pass" : "fail")}/{(report.RoutePathQueryPassed ? "pass" : "fail")}/{(report.RouteGraphSnapshotIsolated ? "pass" : "fail")}, " +
             $"streaming {(report.StreamingSnapshotPassed ? "pass" : "fail")}, " +
             $"snapshots POI/routes/plan {(report.PointSnapshotIsolated ? "pass" : "fail")}/{(report.RouteSnapshotIsolated ? "pass" : "fail")}/{(report.WorldPlanSnapshotIsolated ? "pass" : "fail")} " +
             $"({report.Reason})");
@@ -311,7 +311,18 @@ internal static class TerrainValidationOutput
             $"Terrain visual catalog smoke: {(report.Passed ? "PASS" : "FAIL")} " +
             $"mesh/scene {report.MeshEntryLookupPassed}/{report.SceneEntryLookupPassed}, " +
             $"scene-only {report.SceneOnlyEntriesAreAccepted}, missing {report.MissingEntryDetectionPassed}, " +
+            $"report/resources {report.ValidationReportPassed}/{report.ReferencedResourceCollectionPassed}, " +
             $"metadata/runtime {report.VisualEntryMetadataPassed}/{report.RuntimeScenePathPassed} " +
+            $"({report.Reason})");
+    }
+
+    internal static void PrintModificationLayerSmoke(TerrainModificationLayerSmokeReport report)
+    {
+        Console.WriteLine(
+            $"Terrain modification layer smoke: {(report.Passed ? "PASS" : "FAIL")} " +
+            $"field/tiles/route {report.FieldOverlayPassed}/{report.AffectedTilesPassed}/{report.RouteStatePassed}, " +
+            $"json/file {report.JsonRoundtripPassed}/{report.FileRoundtripPassed}, " +
+            $"isolation/drift {report.SnapshotIsolationPassed}/{report.DriftRejectionPassed} " +
             $"({report.Reason})");
     }
 
@@ -339,6 +350,7 @@ internal static class TerrainValidationOutput
         TerrainApiLayeringSmokeReport? apiLayeringSmokeReport,
         TerrainEditorPluginSmokeReport? editorPluginSmokeReport,
         TerrainVisualCatalogSmokeReport? visualCatalogSmokeReport,
+        TerrainModificationLayerSmokeReport? modificationLayerSmokeReport,
         TerrainRuntimeApiSmokeReport? runtimeApiSmokeReport,
         TerrainAnchorContractSmokeReport? anchorSmokeReport,
         TerrainRuntimeWorldSmokeReport? runtimeWorldSmokeReport,
@@ -456,6 +468,11 @@ internal static class TerrainValidationOutput
         if (visualCatalogSmokeReport is not null)
         {
             Console.WriteLine($"Terrain visual catalog smoke: {(visualCatalogSmokeReport.Value.Passed ? "PASS" : "FAIL")}");
+        }
+
+        if (modificationLayerSmokeReport is not null)
+        {
+            Console.WriteLine($"Terrain modification layer smoke: {(modificationLayerSmokeReport.Value.Passed ? "PASS" : "FAIL")}");
         }
 
         if (runtimeApiSmokeReport is not null)

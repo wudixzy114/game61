@@ -54,8 +54,10 @@ internal static class TerrainValidationEditorPluginChecks
                 dockPanel.Contains("Use Default Catalog", StringComparison.Ordinal) &&
                 dockPanel.Contains("TryResolveVisualCatalog", StringComparison.Ordinal) &&
                 dockPanel.Contains("ValidateVisualCatalog", StringComparison.Ordinal) &&
-                dockPanel.Contains("GetMissingScatterMeshKinds", StringComparison.Ordinal) &&
-                dockPanel.Contains("GetMissingLandmarkMeshKinds", StringComparison.Ordinal) &&
+                dockPanel.Contains("ValidateCatalog()", StringComparison.Ordinal) &&
+                dockPanel.Contains("ReferencedResources", StringComparison.Ordinal) &&
+                dockPanel.Contains("MissingScatterKinds", StringComparison.Ordinal) &&
+                dockPanel.Contains("MissingLandmarkKinds", StringComparison.Ordinal) &&
                 dockPanel.Contains("TerrainWorldPlanExporter", StringComparison.Ordinal) &&
                 dockPanel.Contains("TerrainSemanticClassifier", StringComparison.Ordinal) &&
                 dockPanel.Contains("TryFindPath", StringComparison.Ordinal) &&

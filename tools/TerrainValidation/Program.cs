@@ -90,6 +90,7 @@ TerrainDefaultStateContractSmokeReport? defaultStateContractSmokeReport = null;
 TerrainApiLayeringSmokeReport? apiLayeringSmokeReport = null;
 TerrainEditorPluginSmokeReport? editorPluginSmokeReport = null;
 TerrainVisualCatalogSmokeReport? visualCatalogSmokeReport = null;
+TerrainModificationLayerSmokeReport? modificationLayerSmokeReport = null;
 TerrainRuntimeApiSmokeReport? runtimeApiSmokeReport = null;
 TerrainAnchorContractSmokeReport? anchorSmokeReport = null;
 TerrainRuntimeWorldSmokeReport? runtimeWorldSmokeReport = null;
@@ -261,6 +262,10 @@ visualCatalogSmokeReport = ValidateTerrainVisualCatalogContract();
 PrintVisualCatalogSmoke(visualCatalogSmokeReport.Value);
 RecordAuxiliaryCheck(visualCatalogSmokeReport.Value.Passed, ref totalFailures, ref auxiliaryCheckCount, ref auxiliaryFailureCount);
 
+modificationLayerSmokeReport = ValidateTerrainModificationLayerContract(profile);
+PrintModificationLayerSmoke(modificationLayerSmokeReport.Value);
+RecordAuxiliaryCheck(modificationLayerSmokeReport.Value.Passed, ref totalFailures, ref auxiliaryCheckCount, ref auxiliaryFailureCount);
+
 PrintAggregate(
     aggregate,
     seedCount,
@@ -285,6 +290,7 @@ PrintAggregate(
     apiLayeringSmokeReport,
     editorPluginSmokeReport,
     visualCatalogSmokeReport,
+    modificationLayerSmokeReport,
     runtimeApiSmokeReport,
     anchorSmokeReport,
     runtimeWorldSmokeReport,
@@ -2077,9 +2083,11 @@ static TerrainPlanJsonSmokeReport ValidateTerrainPlanJsonRoundtrip(
             out _);
         bool legacyApiVersionAccepted = AcceptsCompatibleApiVersion(json, profile, "1.0.0");
         bool previousApiVersionAccepted = AcceptsCompatibleApiVersion(json, profile, "1.1.0");
-        bool currentApiMinusThreeVersionAccepted = AcceptsCompatibleApiVersion(json, profile, "1.2.0");
-        bool currentApiMinusTwoVersionAccepted = AcceptsCompatibleApiVersion(json, profile, "1.3.0");
-        bool currentApiMinusOneVersionAccepted = AcceptsCompatibleApiVersion(json, profile, "1.4.0");
+        bool apiVersion12Accepted = AcceptsCompatibleApiVersion(json, profile, "1.2.0");
+        bool apiVersion13Accepted = AcceptsCompatibleApiVersion(json, profile, "1.3.0");
+        bool apiVersion14Accepted = AcceptsCompatibleApiVersion(json, profile, "1.4.0");
+        bool apiVersion15Accepted = AcceptsCompatibleApiVersion(json, profile, "1.5.0");
+        bool apiVersion16Accepted = AcceptsCompatibleApiVersion(json, profile, "1.6.0");
         bool versionDriftRejected = RejectsVersionDrift(json, profile);
         bool enumNameDriftRejected = RejectsEnumNameDrift(json, profile);
         bool enumValueDriftRejected = RejectsEnumValueDrift(json, profile);
@@ -2097,9 +2105,11 @@ static TerrainPlanJsonSmokeReport ValidateTerrainPlanJsonRoundtrip(
             profileHashMismatchRejected &&
             legacyApiVersionAccepted &&
             previousApiVersionAccepted &&
-            currentApiMinusThreeVersionAccepted &&
-            currentApiMinusTwoVersionAccepted &&
-            currentApiMinusOneVersionAccepted &&
+            apiVersion12Accepted &&
+            apiVersion13Accepted &&
+            apiVersion14Accepted &&
+            apiVersion15Accepted &&
+            apiVersion16Accepted &&
             versionDriftRejected &&
             enumNameDriftRejected &&
             enumValueDriftRejected;
@@ -2118,9 +2128,11 @@ static TerrainPlanJsonSmokeReport ValidateTerrainPlanJsonRoundtrip(
                 profileHashMismatchRejected,
                 legacyApiVersionAccepted,
                 previousApiVersionAccepted,
-                currentApiMinusThreeVersionAccepted,
-                currentApiMinusTwoVersionAccepted,
-                currentApiMinusOneVersionAccepted,
+                apiVersion12Accepted,
+                apiVersion13Accepted,
+                apiVersion14Accepted,
+                apiVersion15Accepted,
+                apiVersion16Accepted,
                 versionDriftRejected,
                 enumNameDriftRejected,
                 enumValueDriftRejected,
@@ -2140,9 +2152,11 @@ static TerrainPlanJsonSmokeReport ValidateTerrainPlanJsonRoundtrip(
             profileHashMismatchRejected,
             legacyApiVersionAccepted,
             previousApiVersionAccepted,
-            currentApiMinusThreeVersionAccepted,
-            currentApiMinusTwoVersionAccepted,
-            currentApiMinusOneVersionAccepted,
+            apiVersion12Accepted,
+            apiVersion13Accepted,
+            apiVersion14Accepted,
+            apiVersion15Accepted,
+            apiVersion16Accepted,
             versionDriftRejected,
             enumNameDriftRejected,
             enumValueDriftRejected,
@@ -2174,10 +2188,456 @@ static TerrainPlanJsonSmokeReport ValidateTerrainPlanJsonRoundtrip(
             false,
             false,
             false,
+            false,
+            false,
             0,
             0,
             $"plan JSON smoke threw {ex.GetType().Name}: {ex.Message}");
     }
+}
+
+static TerrainModificationLayerSmokeReport ValidateTerrainModificationLayerContract(TerrainGenerationProfile profile)
+{
+    try
+    {
+        Vector2 center = new(profile.ChunkSize * 0.25f, profile.ChunkSize * -0.35f);
+        TerrainWorldField baseField = TerrainWorldFieldSampler.Sample(center, profile);
+        var layer = new TerrainModificationLayer(
+            [
+                new TerrainHeightDelta(center, Radius: 96.0f, Delta: 12.5f, InnerRadius: 24.0f),
+                new TerrainHeightDelta(center + new Vector2(profile.ChunkSize * 1.25f, 0.0f), Radius: 32.0f, Delta: -4.0f, InnerRadius: 0.0f)
+            ],
+            [
+                new TerrainSurfaceOverride(
+                    center,
+                    Radius: 80.0f,
+                    TerrainBiomeKind.Grassland,
+                    TerrainLandscapeKind.Lowland,
+                    TerrainGameplayTag.Traversable | TerrainGameplayTag.SettlementFriendly,
+                    Traversability: 0.82f,
+                    HazardPotential: 0.08f)
+            ],
+            [
+                new TerrainScatterModification(center, Radius: 64.0f, TerrainScatterKind.Tree, Remove: true, StableId: 1001, State: "harvested"),
+                new TerrainScatterModification(center + new Vector2(18.0f, 12.0f), Radius: 8.0f, TerrainScatterKind.ResourceNode, Remove: false, StableId: 1002, State: "spawned")
+            ],
+            [
+                new TerrainLandmarkModification(center, Radius: 48.0f, TerrainLandmarkKind.VillageWell, StableId: 2001, State: "repaired")
+            ],
+            [
+                new TerrainRouteModification(3, 9, Blocked: true, Unlocked: false, CostMultiplier: 2.5f, State: "washed_out")
+            ]);
+
+        TerrainWorldField modifiedField = layer.ApplyToField(baseField);
+        bool fieldOverlayPassed =
+            !layer.IsEmpty &&
+            ExactFloatEquals(modifiedField.Height, baseField.Height + 12.5f) &&
+            modifiedField.BiomeKind == TerrainBiomeKind.Grassland &&
+            modifiedField.LandscapeKind == TerrainLandscapeKind.Lowland &&
+            ExactFloatEquals(modifiedField.Traversability, 0.82f) &&
+            ExactFloatEquals(modifiedField.HazardPotential, 0.08f);
+
+        TerrainWorldField outsideField = TerrainWorldFieldSampler.Sample(center + new Vector2(profile.ChunkSize * 4.0f, 0.0f), profile);
+        TerrainWorldField outsideModified = layer.ApplyToField(outsideField);
+        fieldOverlayPassed = fieldOverlayPassed && TerrainFieldsMatch(outsideField, outsideModified);
+
+        TerrainTileCoord[] affectedTiles = layer.QueryAffectedTiles(profile.ChunkSize);
+        bool affectedTilesPassed =
+            affectedTiles.Length > 0 &&
+            ContainsTile(affectedTiles, WorldToCoord(center, profile)) &&
+            TilesSorted(affectedTiles);
+
+        bool routeStatePassed =
+            layer.HasRouteState(9, 3, out TerrainRouteModification routeState) &&
+            routeState.Blocked &&
+            !routeState.Unlocked &&
+            ExactFloatEquals(routeState.CostMultiplier, 2.5f) &&
+            string.Equals(routeState.State, "washed_out", StringComparison.Ordinal) &&
+            !layer.HasRouteState(1, 2, out _);
+
+        string json = layer.ToJson();
+        JsonObject? root = JsonNode.Parse(json) as JsonObject;
+        bool jsonShapePassed =
+            root is not null &&
+            JsonStringEquals(root, "contract", TerrainModificationLayer.Contract) &&
+            JsonIntEquals(root, "version", TerrainModificationLayer.CurrentVersion) &&
+            JsonArrayCount(root, "heightDeltas") == 2 &&
+            JsonArrayCount(root, "surfaceOverrides") == 1 &&
+            JsonArrayCount(root, "scatterModifications") == 2 &&
+            JsonArrayCount(root, "landmarkModifications") == 1 &&
+            JsonArrayCount(root, "routeModifications") == 1;
+        TerrainModificationLayer? loadedLayer = null;
+        string jsonError = string.Empty;
+        bool jsonRoundtripPassed =
+            jsonShapePassed &&
+            TerrainModificationLayer.TryFromJson(json, out loadedLayer, out jsonError) &&
+            loadedLayer is not null &&
+            ModificationLayersMatch(layer, loadedLayer);
+
+        string outputPath = System.IO.Path.Combine(
+            System.IO.Path.GetTempPath(),
+            "dao_terrain_validation",
+            $"seed_{profile.Seed}",
+            "terrain_modification_layer.json");
+        Error saveError = layer.SaveJson(outputPath);
+        TerrainModificationLayer? fileLayer = null;
+        string fileError = string.Empty;
+        bool fileRoundtripPassed =
+            saveError == Error.Ok &&
+            TerrainModificationLayer.TryLoadJson(outputPath, out fileLayer, out fileError) &&
+            fileLayer is not null &&
+            ModificationLayersMatch(layer, fileLayer);
+
+        bool snapshotIsolationPassed = loadedLayer is not null &&
+            ModificationLayerSnapshotsIsolated(layer, loadedLayer);
+
+        bool driftRejectionPassed =
+            !TerrainModificationLayer.TryFromJson(
+                json.Replace(TerrainModificationLayer.Contract, "terrain-modification-layer-v99", StringComparison.Ordinal),
+                out _,
+                out _) &&
+            !TerrainModificationLayer.TryFromJson(
+                json.Replace("\"name\": \"Grassland\"", "\"name\": \"Snowfield\"", StringComparison.Ordinal),
+                out _,
+                out _);
+
+        bool passed =
+            fieldOverlayPassed &&
+            affectedTilesPassed &&
+            routeStatePassed &&
+            jsonRoundtripPassed &&
+            fileRoundtripPassed &&
+            snapshotIsolationPassed &&
+            driftRejectionPassed;
+        string reason = passed
+            ? "terrain modification layer applies deterministic overlays, reports affected tiles, and persists save deltas"
+            : ModificationLayerFailureReason(
+                fieldOverlayPassed,
+                affectedTilesPassed,
+                routeStatePassed,
+                jsonRoundtripPassed,
+                fileRoundtripPassed,
+                snapshotIsolationPassed,
+                driftRejectionPassed,
+                jsonError,
+                fileError,
+                saveError);
+
+        return new TerrainModificationLayerSmokeReport(
+            passed,
+            fieldOverlayPassed,
+            affectedTilesPassed,
+            routeStatePassed,
+            jsonRoundtripPassed,
+            fileRoundtripPassed,
+            snapshotIsolationPassed,
+            driftRejectionPassed,
+            reason);
+    }
+    catch (Exception ex)
+    {
+        return new TerrainModificationLayerSmokeReport(
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            $"terrain modification layer smoke threw {ex.GetType().Name}: {ex.Message}");
+    }
+}
+
+static bool ContainsTile(TerrainTileCoord[] tiles, TerrainTileCoord expected)
+{
+    for (int i = 0; i < tiles.Length; i++)
+    {
+        if (tiles[i].X == expected.X && tiles[i].Z == expected.Z)
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static bool TilesSorted(TerrainTileCoord[] tiles)
+{
+    for (int i = 1; i < tiles.Length; i++)
+    {
+        TerrainTileCoord previous = tiles[i - 1];
+        TerrainTileCoord current = tiles[i];
+        if (previous.Z > current.Z || (previous.Z == current.Z && previous.X > current.X))
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+static bool ModificationLayersMatch(TerrainModificationLayer expected, TerrainModificationLayer actual)
+{
+    return expected.IsEmpty == actual.IsEmpty &&
+        HeightDeltasMatch(expected.HeightDeltas, actual.HeightDeltas) &&
+        SurfaceOverridesMatch(expected.SurfaceOverrides, actual.SurfaceOverrides) &&
+        ScatterModificationsMatch(expected.ScatterModifications, actual.ScatterModifications) &&
+        LandmarkModificationsMatch(expected.LandmarkModifications, actual.LandmarkModifications) &&
+        RouteModificationsMatch(expected.RouteModifications, actual.RouteModifications);
+}
+
+static bool ModificationLayerSnapshotsIsolated(TerrainModificationLayer expected, TerrainModificationLayer loaded)
+{
+    TerrainHeightDelta[] heightDeltas = loaded.HeightDeltas;
+    if (heightDeltas.Length > 0)
+    {
+        TerrainHeightDelta original = heightDeltas[0];
+        heightDeltas[0] = original with { Delta = original.Delta + 999.0f };
+        TerrainHeightDelta[] second = loaded.HeightDeltas;
+        if (second.Length == 0 || !HeightDeltaMatches(original, second[0]))
+        {
+            return false;
+        }
+    }
+
+    TerrainSurfaceOverride[] surfaceOverrides = loaded.SurfaceOverrides;
+    if (surfaceOverrides.Length > 0)
+    {
+        TerrainSurfaceOverride original = surfaceOverrides[0];
+        surfaceOverrides[0] = original with { Traversability = 0.01f };
+        TerrainSurfaceOverride[] second = loaded.SurfaceOverrides;
+        if (second.Length == 0 || !SurfaceOverrideMatches(original, second[0]))
+        {
+            return false;
+        }
+    }
+
+    TerrainScatterModification[] scatterModifications = loaded.ScatterModifications;
+    if (scatterModifications.Length > 0)
+    {
+        TerrainScatterModification original = scatterModifications[0];
+        scatterModifications[0] = original with { State = "mutated" };
+        TerrainScatterModification[] second = loaded.ScatterModifications;
+        if (second.Length == 0 || !ScatterModificationMatches(original, second[0]))
+        {
+            return false;
+        }
+    }
+
+    TerrainLandmarkModification[] landmarkModifications = loaded.LandmarkModifications;
+    if (landmarkModifications.Length > 0)
+    {
+        TerrainLandmarkModification original = landmarkModifications[0];
+        landmarkModifications[0] = original with { StableId = original.StableId + 1_000_000 };
+        TerrainLandmarkModification[] second = loaded.LandmarkModifications;
+        if (second.Length == 0 || !LandmarkModificationMatches(original, second[0]))
+        {
+            return false;
+        }
+    }
+
+    TerrainRouteModification[] routeModifications = loaded.RouteModifications;
+    if (routeModifications.Length > 0)
+    {
+        TerrainRouteModification original = routeModifications[0];
+        routeModifications[0] = original with { Blocked = !original.Blocked };
+        TerrainRouteModification[] second = loaded.RouteModifications;
+        if (second.Length == 0 || !RouteModificationMatches(original, second[0]))
+        {
+            return false;
+        }
+    }
+
+    return ModificationLayersMatch(expected, loaded);
+}
+
+static bool HeightDeltasMatch(TerrainHeightDelta[] expected, TerrainHeightDelta[] actual)
+{
+    if (expected.Length != actual.Length)
+    {
+        return false;
+    }
+
+    for (int i = 0; i < expected.Length; i++)
+    {
+        if (!HeightDeltaMatches(expected[i], actual[i]))
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+static bool HeightDeltaMatches(TerrainHeightDelta expected, TerrainHeightDelta actual)
+{
+    return ExactPositionEquals(expected.WorldPosition, actual.WorldPosition) &&
+        ExactFloatEquals(expected.Radius, actual.Radius) &&
+        ExactFloatEquals(expected.Delta, actual.Delta) &&
+        ExactFloatEquals(expected.InnerRadius, actual.InnerRadius);
+}
+
+static bool SurfaceOverridesMatch(TerrainSurfaceOverride[] expected, TerrainSurfaceOverride[] actual)
+{
+    if (expected.Length != actual.Length)
+    {
+        return false;
+    }
+
+    for (int i = 0; i < expected.Length; i++)
+    {
+        if (!SurfaceOverrideMatches(expected[i], actual[i]))
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+static bool SurfaceOverrideMatches(TerrainSurfaceOverride expected, TerrainSurfaceOverride actual)
+{
+    return ExactPositionEquals(expected.WorldPosition, actual.WorldPosition) &&
+        ExactFloatEquals(expected.Radius, actual.Radius) &&
+        expected.BiomeKind == actual.BiomeKind &&
+        expected.LandscapeKind == actual.LandscapeKind &&
+        expected.GameplayTags == actual.GameplayTags &&
+        ExactFloatEquals(expected.Traversability, actual.Traversability) &&
+        ExactFloatEquals(expected.HazardPotential, actual.HazardPotential);
+}
+
+static bool ScatterModificationsMatch(TerrainScatterModification[] expected, TerrainScatterModification[] actual)
+{
+    if (expected.Length != actual.Length)
+    {
+        return false;
+    }
+
+    for (int i = 0; i < expected.Length; i++)
+    {
+        if (!ScatterModificationMatches(expected[i], actual[i]))
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+static bool ScatterModificationMatches(TerrainScatterModification expected, TerrainScatterModification actual)
+{
+    return ExactPositionEquals(expected.WorldPosition, actual.WorldPosition) &&
+        ExactFloatEquals(expected.Radius, actual.Radius) &&
+        expected.Kind == actual.Kind &&
+        expected.Remove == actual.Remove &&
+        expected.StableId == actual.StableId &&
+        string.Equals(expected.State, actual.State, StringComparison.Ordinal);
+}
+
+static bool LandmarkModificationsMatch(TerrainLandmarkModification[] expected, TerrainLandmarkModification[] actual)
+{
+    if (expected.Length != actual.Length)
+    {
+        return false;
+    }
+
+    for (int i = 0; i < expected.Length; i++)
+    {
+        if (!LandmarkModificationMatches(expected[i], actual[i]))
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+static bool LandmarkModificationMatches(TerrainLandmarkModification expected, TerrainLandmarkModification actual)
+{
+    return ExactPositionEquals(expected.WorldPosition, actual.WorldPosition) &&
+        ExactFloatEquals(expected.Radius, actual.Radius) &&
+        expected.Kind == actual.Kind &&
+        expected.StableId == actual.StableId &&
+        string.Equals(expected.State, actual.State, StringComparison.Ordinal);
+}
+
+static bool RouteModificationsMatch(TerrainRouteModification[] expected, TerrainRouteModification[] actual)
+{
+    if (expected.Length != actual.Length)
+    {
+        return false;
+    }
+
+    for (int i = 0; i < expected.Length; i++)
+    {
+        if (!RouteModificationMatches(expected[i], actual[i]))
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+static bool RouteModificationMatches(TerrainRouteModification expected, TerrainRouteModification actual)
+{
+    return expected.FromPointId == actual.FromPointId &&
+        expected.ToPointId == actual.ToPointId &&
+        expected.Blocked == actual.Blocked &&
+        expected.Unlocked == actual.Unlocked &&
+        ExactFloatEquals(expected.CostMultiplier, actual.CostMultiplier) &&
+        string.Equals(expected.State, actual.State, StringComparison.Ordinal);
+}
+
+static string ModificationLayerFailureReason(
+    bool fieldOverlayPassed,
+    bool affectedTilesPassed,
+    bool routeStatePassed,
+    bool jsonRoundtripPassed,
+    bool fileRoundtripPassed,
+    bool snapshotIsolationPassed,
+    bool driftRejectionPassed,
+    string jsonError,
+    string fileError,
+    Error saveError)
+{
+    if (!fieldOverlayPassed)
+    {
+        return "terrain modification layer did not apply height or surface overlays deterministically";
+    }
+
+    if (!affectedTilesPassed)
+    {
+        return "terrain modification layer did not report sorted affected streaming tiles";
+    }
+
+    if (!routeStatePassed)
+    {
+        return "terrain modification layer did not expose reversible route state deltas";
+    }
+
+    if (!jsonRoundtripPassed)
+    {
+        return $"terrain modification layer JSON roundtrip failed: {jsonError}";
+    }
+
+    if (!fileRoundtripPassed)
+    {
+        return $"terrain modification layer file roundtrip failed ({saveError}): {fileError}";
+    }
+
+    if (!snapshotIsolationPassed)
+    {
+        return "terrain modification layer exposed mutable array state";
+    }
+
+    if (!driftRejectionPassed)
+    {
+        return "terrain modification layer JSON accepted contract or enum drift";
+    }
+
+    return "terrain modification layer smoke failed";
 }
 
 static bool PlanJsonMetadataMatches(JsonObject root, TerrainGenerationProfile profile, TerrainWorldPlan plan)
@@ -2736,9 +3196,11 @@ static string PlanJsonFailureReason(
     bool profileHashMismatchRejected,
     bool legacyApiVersionAccepted,
     bool previousApiVersionAccepted,
-    bool currentApiMinusThreeVersionAccepted,
-    bool currentApiMinusTwoVersionAccepted,
-    bool currentApiMinusOneVersionAccepted,
+    bool apiVersion12Accepted,
+    bool apiVersion13Accepted,
+    bool apiVersion14Accepted,
+    bool apiVersion15Accepted,
+    bool apiVersion16Accepted,
     bool versionDriftRejected,
     bool enumNameDriftRejected,
     bool enumValueDriftRejected,
@@ -2806,19 +3268,29 @@ static string PlanJsonFailureReason(
         return "plan JSON rejected a compatible terrain-api-v1 1.1.0 plan";
     }
 
-    if (!currentApiMinusThreeVersionAccepted)
+    if (!apiVersion12Accepted)
     {
         return "plan JSON rejected a compatible terrain-api-v1 1.2.0 plan";
     }
 
-    if (!currentApiMinusTwoVersionAccepted)
+    if (!apiVersion13Accepted)
     {
         return "plan JSON rejected a compatible terrain-api-v1 1.3.0 plan";
     }
 
-    if (!currentApiMinusOneVersionAccepted)
+    if (!apiVersion14Accepted)
     {
         return "plan JSON rejected a compatible terrain-api-v1 1.4.0 plan";
+    }
+
+    if (!apiVersion15Accepted)
+    {
+        return "plan JSON rejected a compatible terrain-api-v1 1.5.0 plan";
+    }
+
+    if (!apiVersion16Accepted)
+    {
+        return "plan JSON rejected a compatible terrain-api-v1 1.6.0 plan";
     }
 
     if (!versionDriftRejected)
@@ -3138,6 +3610,27 @@ static TerrainPublicApiShapeSmokeReport ValidateTerrainPublicApiShapeContracts()
                     ("CreatesCollision", typeof(bool)),
                     ("CreatesNavigationObstacle", typeof(bool)),
                     ("InteractionTag", typeof(string))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicShape<TerrainVisualCatalogValidationReport>(
+                [
+                    ("Passed", typeof(bool)),
+                    ("UsePrimitiveFallbacks", typeof(bool)),
+                    ("ScatterEntryCount", typeof(int)),
+                    ("ScatterMeshEntryCount", typeof(int)),
+                    ("ScatterSceneEntryCount", typeof(int)),
+                    ("ScatterDuplicateEntryCount", typeof(int)),
+                    ("ScatterInvalidLodEntryCount", typeof(int)),
+                    ("LandmarkEntryCount", typeof(int)),
+                    ("LandmarkMeshEntryCount", typeof(int)),
+                    ("LandmarkSceneEntryCount", typeof(int)),
+                    ("LandmarkDuplicateEntryCount", typeof(int)),
+                    ("LandmarkInvalidLodEntryCount", typeof(int)),
+                    ("MissingScatterKinds", typeof(TerrainScatterKind[])),
+                    ("MissingLandmarkKinds", typeof(TerrainLandmarkKind[])),
+                    ("ReferencedResources", typeof(Resource[]))
                 ],
                 ref checkedTypeCount,
                 ref checkedMemberCount,
@@ -3761,6 +4254,76 @@ static TerrainPublicApiShapeSmokeReport ValidateTerrainPublicApiShapeContracts()
                 ref checkedTypeCount,
                 ref checkedMemberCount,
                 out failureReason) &&
+            CheckPublicShape<TerrainSurfaceOverride>(
+                [
+                    ("WorldPosition", typeof(Vector2)),
+                    ("Radius", typeof(float)),
+                    ("BiomeKind", typeof(TerrainBiomeKind)),
+                    ("LandscapeKind", typeof(TerrainLandscapeKind)),
+                    ("GameplayTags", typeof(TerrainGameplayTag)),
+                    ("Traversability", typeof(float)),
+                    ("HazardPotential", typeof(float))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicShape<TerrainHeightDelta>(
+                [
+                    ("WorldPosition", typeof(Vector2)),
+                    ("Radius", typeof(float)),
+                    ("Delta", typeof(float)),
+                    ("InnerRadius", typeof(float))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicShape<TerrainScatterModification>(
+                [
+                    ("WorldPosition", typeof(Vector2)),
+                    ("Radius", typeof(float)),
+                    ("Kind", typeof(TerrainScatterKind)),
+                    ("Remove", typeof(bool)),
+                    ("StableId", typeof(int)),
+                    ("State", typeof(string))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicShape<TerrainLandmarkModification>(
+                [
+                    ("WorldPosition", typeof(Vector2)),
+                    ("Radius", typeof(float)),
+                    ("Kind", typeof(TerrainLandmarkKind)),
+                    ("StableId", typeof(int)),
+                    ("State", typeof(string))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicShape<TerrainRouteModification>(
+                [
+                    ("FromPointId", typeof(int)),
+                    ("ToPointId", typeof(int)),
+                    ("Blocked", typeof(bool)),
+                    ("Unlocked", typeof(bool)),
+                    ("CostMultiplier", typeof(float)),
+                    ("State", typeof(string))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicShape<TerrainModificationLayer>(
+                [
+                    ("HeightDeltas", typeof(TerrainHeightDelta[])),
+                    ("SurfaceOverrides", typeof(TerrainSurfaceOverride[])),
+                    ("ScatterModifications", typeof(TerrainScatterModification[])),
+                    ("LandmarkModifications", typeof(TerrainLandmarkModification[])),
+                    ("RouteModifications", typeof(TerrainRouteModification[])),
+                    ("IsEmpty", typeof(bool))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
             CheckPublicShape<TerrainRouteGraphNode>(
                 [
                     ("PointId", typeof(int)),
@@ -3793,6 +4356,44 @@ static TerrainPublicApiShapeSmokeReport ValidateTerrainPublicApiShapeContracts()
                     ("WorldSize", typeof(float)),
                     ("Nodes", typeof(TerrainRouteGraphNode[])),
                     ("Edges", typeof(TerrainRouteGraphEdge[]))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicShape<TerrainNavigationWaypointNode>(
+                [
+                    ("Id", typeof(int)),
+                    ("WorldPosition", typeof(Vector2)),
+                    ("IsPointOfInterest", typeof(bool)),
+                    ("SourcePointId", typeof(int)),
+                    ("PointKind", typeof(TerrainPointOfInterestKind)),
+                    ("SettlementTier", typeof(TerrainSettlementTier)),
+                    ("Score", typeof(float))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicShape<TerrainNavigationWaypointLink>(
+                [
+                    ("FromNodeId", typeof(int)),
+                    ("ToNodeId", typeof(int)),
+                    ("RouteKind", typeof(TerrainRouteKind)),
+                    ("Distance", typeof(float)),
+                    ("Cost", typeof(float)),
+                    ("AverageScenicPotential", typeof(float)),
+                    ("AverageTraversability", typeof(float)),
+                    ("CoreWidth", typeof(float)),
+                    ("ShoulderWidth", typeof(float))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicShape<TerrainNavigationWaypointGraph>(
+                [
+                    ("Center", typeof(Vector2)),
+                    ("WorldSize", typeof(float)),
+                    ("Nodes", typeof(TerrainNavigationWaypointNode[])),
+                    ("Links", typeof(TerrainNavigationWaypointLink[]))
                 ],
                 ref checkedTypeCount,
                 ref checkedMemberCount,
@@ -4156,10 +4757,27 @@ static TerrainPublicApiShapeSmokeReport ValidateTerrainPublicApiShapeContracts()
                 ref checkedMemberCount,
                 out failureReason) &&
             CheckPublicStaticFields(
+                typeof(TerrainModificationLayer),
+                [
+                    ("Contract", typeof(string)),
+                    ("CurrentVersion", typeof(int))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicStaticFields(
                 typeof(TerrainWorldPlanSerializer),
                 [
                     ("Contract", typeof(string)),
                     ("GeneratorVersion", typeof(string))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicStaticProperties(
+                typeof(TerrainModificationLayer),
+                [
+                    ("Empty", typeof(TerrainModificationLayer))
                 ],
                 ref checkedTypeCount,
                 ref checkedMemberCount,
@@ -4203,6 +4821,20 @@ static TerrainPublicApiShapeSmokeReport ValidateTerrainPublicApiShapeContracts()
                 typeof(TerrainExperienceThresholds),
                 [
                     ("OpenWorldDefault", typeof(TerrainExperienceThresholds))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicMethods(
+                typeof(TerrainModificationLayer),
+                [
+                    new("ApplyToField", false, typeof(TerrainWorldField), [typeof(TerrainWorldField)]),
+                    new("QueryAffectedTiles", false, typeof(TerrainTileCoord[]), [typeof(float)]),
+                    new("HasRouteState", false, typeof(bool), [typeof(int), typeof(int), typeof(TerrainRouteModification).MakeByRefType()]),
+                    new("ToJson", false, typeof(string), []),
+                    new("SaveJson", false, typeof(Error), [typeof(string)]),
+                    new("TryFromJson", true, typeof(bool), [typeof(string), typeof(TerrainModificationLayer).MakeByRefType(), typeof(string).MakeByRefType()]),
+                    new("TryLoadJson", true, typeof(bool), [typeof(string), typeof(TerrainModificationLayer).MakeByRefType(), typeof(string).MakeByRefType()])
                 ],
                 ref checkedTypeCount,
                 ref checkedMemberCount,
@@ -4263,6 +4895,7 @@ static TerrainPublicApiShapeSmokeReport ValidateTerrainPublicApiShapeContracts()
                     new("CreateTraversalCostGridForTile", false, typeof(TerrainTraversalCostGrid), [typeof(TerrainTileCoord), typeof(int), typeof(float)]),
                     new("QueryTraversalCosts", false, typeof(TerrainTraversalCost[]), [typeof(Rect2), typeof(float), typeof(int)]),
                     new("GetRouteGraphSnapshot", false, typeof(TerrainRouteGraphSnapshot), []),
+                    new("CreateNavigationWaypointGraph", false, typeof(TerrainNavigationWaypointGraph), []),
                     new("TryGetRouteGraphSnapshot", false, typeof(bool), [typeof(TerrainRouteGraphSnapshot).MakeByRefType()]),
                     new("TryFindRoutePath", false, typeof(bool), [typeof(int), typeof(int), typeof(TerrainRouteGraphPath).MakeByRefType()])
                 ],
@@ -4302,6 +4935,7 @@ static TerrainPublicApiShapeSmokeReport ValidateTerrainPublicApiShapeContracts()
                     new("CreateTraversalCostGridForTile", false, typeof(TerrainTraversalCostGrid), [typeof(TerrainTileCoord), typeof(int), typeof(float)]),
                     new("QueryTraversalCosts", false, typeof(TerrainTraversalCost[]), [typeof(Rect2), typeof(float), typeof(int)]),
                     new("GetRouteGraphSnapshot", false, typeof(TerrainRouteGraphSnapshot), []),
+                    new("CreateNavigationWaypointGraph", false, typeof(TerrainNavigationWaypointGraph), []),
                     new("TryGetRouteGraphSnapshot", false, typeof(bool), [typeof(TerrainRouteGraphSnapshot).MakeByRefType()]),
                     new("TryFindRoutePath", false, typeof(bool), [typeof(int), typeof(int), typeof(TerrainRouteGraphPath).MakeByRefType()]),
                     new("CreateRuntimeOpenWorldPlan", true, typeof(TerrainWorldPlan), [typeof(TerrainGenerationProfile), typeof(float), typeof(CancellationToken)]),
@@ -4319,6 +4953,19 @@ static TerrainPublicApiShapeSmokeReport ValidateTerrainPublicApiShapeContracts()
                     new("TryGetNode", false, typeof(bool), [typeof(int), typeof(TerrainRouteGraphNode).MakeByRefType()]),
                     new("QueryConnectedEdges", false, typeof(TerrainRouteGraphEdge[]), [typeof(int)]),
                     new("TryFindPath", false, typeof(bool), [typeof(int), typeof(int), typeof(TerrainRouteGraphPath).MakeByRefType()])
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
+            CheckPublicMethods(
+                typeof(TerrainNavigationWaypointGraph),
+                [
+                    new("ContainsNode", false, typeof(bool), [typeof(int)]),
+                    new("TryGetNode", false, typeof(bool), [typeof(int), typeof(TerrainNavigationWaypointNode).MakeByRefType()]),
+                    new("TryGetPointNodeId", false, typeof(bool), [typeof(int), typeof(int).MakeByRefType()]),
+                    new("QueryOutgoingLinks", false, typeof(TerrainNavigationWaypointLink[]), [typeof(int)]),
+                    new("FromRouteGraph", true, typeof(TerrainNavigationWaypointGraph), [typeof(TerrainRouteGraphSnapshot)]),
+                    new("FromPlan", true, typeof(TerrainNavigationWaypointGraph), [typeof(TerrainWorldPlan)])
                 ],
                 ref checkedTypeCount,
                 ref checkedMemberCount,
@@ -4577,13 +5224,19 @@ static bool CheckExportedTerrainTypes(out string? failureReason)
         "Dao.Terrain.Generation.TerrainGameplayTag",
         "Dao.Terrain.Generation.TerrainGameplayTagRegionSummary",
         "Dao.Terrain.Generation.TerrainGameplayTags",
+        "Dao.Terrain.Generation.TerrainHeightDelta",
         "Dao.Terrain.Generation.TerrainLandmarkData",
         "Dao.Terrain.Generation.TerrainLandmarkKind",
+        "Dao.Terrain.Generation.TerrainLandmarkModification",
         "Dao.Terrain.Generation.TerrainLandscapeKind",
         "Dao.Terrain.Generation.TerrainMapExporter",
         "Dao.Terrain.Generation.TerrainMapLayer",
         "Dao.Terrain.Generation.TerrainMapRaster",
         "Dao.Terrain.Generation.TerrainMapSample",
+        "Dao.Terrain.Generation.TerrainModificationLayer",
+        "Dao.Terrain.Generation.TerrainNavigationWaypointGraph",
+        "Dao.Terrain.Generation.TerrainNavigationWaypointLink",
+        "Dao.Terrain.Generation.TerrainNavigationWaypointNode",
         "Dao.Terrain.Generation.TerrainPlacementCandidate",
         "Dao.Terrain.Generation.TerrainPointOfInterestIndex",
         "Dao.Terrain.Generation.TerrainPointOfInterestKind",
@@ -4599,12 +5252,15 @@ static bool CheckExportedTerrainTypes(out string? failureReason)
         "Dao.Terrain.Generation.TerrainRouteGraphPath",
         "Dao.Terrain.Generation.TerrainRouteGraphSnapshot",
         "Dao.Terrain.Generation.TerrainRouteKind",
+        "Dao.Terrain.Generation.TerrainRouteModification",
         "Dao.Terrain.Generation.TerrainSample",
         "Dao.Terrain.Generation.TerrainSampler",
         "Dao.Terrain.Generation.TerrainScatterInstance",
         "Dao.Terrain.Generation.TerrainScatterKind",
+        "Dao.Terrain.Generation.TerrainScatterModification",
         "Dao.Terrain.Generation.TerrainSemanticClassifier",
         "Dao.Terrain.Generation.TerrainSettlementTier",
+        "Dao.Terrain.Generation.TerrainSurfaceOverride",
         "Dao.Terrain.Generation.TerrainTileBuilder",
         "Dao.Terrain.Generation.TerrainTileCoord",
         "Dao.Terrain.Generation.TerrainTileData",
@@ -4671,6 +5327,7 @@ static bool CheckExportedTerrainTypes(out string? failureReason)
         "Dao.Terrain.TerrainSettings",
         "Dao.Terrain.TerrainStreamingSettingsResource",
         "Dao.Terrain.TerrainVisualCatalog",
+        "Dao.Terrain.TerrainVisualCatalogValidationReport",
         "Dao.Terrain.TerrainWorldSettingsResource"
     ];
 
@@ -5000,6 +5657,15 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
                 secondRegionCosts.Length == expectedRegionCosts.Length &&
                 TerrainTraversalCostsMatch(originalRegionCost, secondRegionCosts[0]);
         }
+        TerrainNavigationWaypointGraph emptyWaypointGraph = noPlanWorld.CreateNavigationWaypointGraph();
+        bool navigationWaypointGraphPassed =
+            emptyWaypointGraph.Nodes.Length == 0 &&
+            emptyWaypointGraph.Links.Length == 0 &&
+            !emptyWaypointGraph.ContainsNode(0) &&
+            !emptyWaypointGraph.TryGetNode(0, out _) &&
+            !emptyWaypointGraph.TryGetPointNodeId(1, out _) &&
+            emptyWaypointGraph.QueryOutgoingLinks(0).Length == 0;
+        bool navigationWaypointGraphIsolated = navigationWaypointGraphPassed;
         TerrainRouteGraphSnapshot emptyRouteGraph = noPlanWorld.GetRouteGraphSnapshot();
         bool noPlanRouteGraphPassed =
             !noPlanWorld.TryGetRouteGraphSnapshot(out TerrainRouteGraphSnapshot? noPlanRouteGraph) &&
@@ -5022,10 +5688,10 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
                 expectedQueuedCoords: [new TerrainTileCoord(-4, -3), new TerrainTileCoord(8, -2)]);
         bool apiVersionPassed =
             TerrainApiVersion.Major == 1 &&
-            TerrainApiVersion.Minor == 5 &&
+            TerrainApiVersion.Minor == 7 &&
             TerrainApiVersion.Patch == 0 &&
             string.Equals(TerrainApiVersion.Contract, "terrain-api-v1", StringComparison.Ordinal) &&
-            string.Equals(TerrainApiVersion.Version, "1.5.0", StringComparison.Ordinal);
+            string.Equals(TerrainApiVersion.Version, "1.7.0", StringComparison.Ordinal);
         bool determinismContractPassed =
             string.Equals(TerrainDeterminismContract.Contract, "terrain-determinism-v1", StringComparison.Ordinal) &&
             ExactFloatEquals(TerrainDeterminismContract.HeightEpsilon, 0.05f) &&
@@ -5393,11 +6059,21 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
             {
                 routeGraphSnapshotIsolated = RouteGraphSnapshotIsolated(planWorld, routeGraphSnapshot, plan);
                 routePathQueryPassed = RoutePathFacadeMatchesSnapshot(planWorld, routeGraphSnapshot, plan);
+                TerrainNavigationWaypointGraph expectedWaypointGraph =
+                    TerrainNavigationWaypointGraph.FromRouteGraph(routeGraphSnapshot);
+                TerrainNavigationWaypointGraph facadeWaypointGraph = planWorld.CreateNavigationWaypointGraph();
+                navigationWaypointGraphPassed =
+                    NavigationWaypointGraphMatches(expectedWaypointGraph, facadeWaypointGraph, plan);
+                navigationWaypointGraphIsolated =
+                    navigationWaypointGraphPassed &&
+                    NavigationWaypointGraphIsolated(planWorld, facadeWaypointGraph, plan);
             }
             else
             {
                 routeGraphSnapshotIsolated = false;
                 routePathQueryPassed = false;
+                navigationWaypointGraphPassed = false;
+                navigationWaypointGraphIsolated = false;
             }
         }
 
@@ -5418,6 +6094,8 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
             navigationGridPassed &&
             navigationTileGridPassed &&
             navigationRegionQueryPassed &&
+            navigationWaypointGraphPassed &&
+            navigationWaypointGraphIsolated &&
             noPlanRouteGraphPassed &&
             noPlanRoutePathPassed &&
             streamingSnapshotPassed &&
@@ -5463,6 +6141,8 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
                 navigationGridPassed,
                 navigationTileGridPassed,
                 navigationRegionQueryPassed,
+                navigationWaypointGraphPassed,
+                navigationWaypointGraphIsolated,
                 noPlanRouteGraphPassed,
                 noPlanRoutePathPassed,
                 streamingSnapshotPassed,
@@ -5513,6 +6193,8 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
             navigationGridPassed,
             navigationTileGridPassed,
             navigationRegionQueryPassed,
+            navigationWaypointGraphPassed,
+            navigationWaypointGraphIsolated,
             noPlanRouteGraphPassed,
             noPlanRoutePathPassed,
             streamingSnapshotPassed,
@@ -5560,6 +6242,8 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
             NavigationGridPassed: false,
             NavigationTileGridPassed: false,
             NavigationRegionQueryPassed: false,
+            NavigationWaypointGraphPassed: false,
+            NavigationWaypointGraphIsolated: false,
             NoPlanRouteGraphPassed: false,
             NoPlanRoutePathPassed: false,
             StreamingSnapshotPassed: false,
@@ -6468,6 +7152,176 @@ static bool RouteGraphPathIsolated(
     return true;
 }
 
+static bool NavigationWaypointGraphMatches(
+    TerrainNavigationWaypointGraph expected,
+    TerrainNavigationWaypointGraph actual,
+    TerrainWorldPlan plan)
+{
+    if (!ExactPositionEquals(expected.Center, actual.Center) ||
+        !ExactFloatEquals(expected.WorldSize, actual.WorldSize))
+    {
+        return false;
+    }
+
+    TerrainNavigationWaypointNode[] expectedNodes = expected.Nodes;
+    TerrainNavigationWaypointNode[] actualNodes = actual.Nodes;
+    TerrainNavigationWaypointLink[] expectedLinks = expected.Links;
+    TerrainNavigationWaypointLink[] actualLinks = actual.Links;
+    if (actualNodes.Length != expectedNodes.Length ||
+        actualLinks.Length != expectedLinks.Length ||
+        actualNodes.Length < plan.PointsOfInterest.Length ||
+        (plan.Routes.Length > 0 && actualLinks.Length == 0))
+    {
+        return false;
+    }
+
+    for (int i = 0; i < expectedNodes.Length; i++)
+    {
+        if (!NavigationWaypointNodesMatch(expectedNodes[i], actualNodes[i]) ||
+            !actual.ContainsNode(actualNodes[i].Id) ||
+            !actual.TryGetNode(actualNodes[i].Id, out TerrainNavigationWaypointNode queriedNode) ||
+            !NavigationWaypointNodesMatch(actualNodes[i], queriedNode))
+        {
+            return false;
+        }
+    }
+
+    for (int i = 0; i < expectedLinks.Length; i++)
+    {
+        if (!NavigationWaypointLinksMatch(expectedLinks[i], actualLinks[i]))
+        {
+            return false;
+        }
+    }
+
+    for (int i = 0; i < plan.PointsOfInterest.Length; i++)
+    {
+        TerrainWorldPointOfInterest point = plan.PointsOfInterest[i];
+        if (!actual.TryGetPointNodeId(point.Id, out int nodeId) ||
+            !actual.TryGetNode(nodeId, out TerrainNavigationWaypointNode node) ||
+            !node.IsPointOfInterest ||
+            node.SourcePointId != point.Id ||
+            node.PointKind != point.Kind ||
+            node.SettlementTier != point.SettlementTier ||
+            !ExactPositionEquals(node.WorldPosition, point.WorldPosition))
+        {
+            return false;
+        }
+    }
+
+    if (actualLinks.Length > 0)
+    {
+        TerrainNavigationWaypointLink firstLink = actualLinks[0];
+        TerrainNavigationWaypointLink[] outgoing = actual.QueryOutgoingLinks(firstLink.FromNodeId);
+        bool found = false;
+        for (int i = 0; i < outgoing.Length; i++)
+        {
+            if (NavigationWaypointLinksMatch(outgoing[i], firstLink))
+            {
+                found = true;
+                break;
+            }
+        }
+
+        if (!found)
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+static bool NavigationWaypointGraphIsolated(
+    TerrainWorld planWorld,
+    TerrainNavigationWaypointGraph graph,
+    TerrainWorldPlan plan)
+{
+    TerrainNavigationWaypointNode[] nodes = graph.Nodes;
+    if (nodes.Length != graph.Nodes.Length)
+    {
+        return false;
+    }
+
+    if (nodes.Length > 0)
+    {
+        TerrainNavigationWaypointNode originalNode = nodes[0];
+        nodes[0] = originalNode with { Id = originalNode.Id + 1_000_000 };
+        if (!graph.TryGetNode(originalNode.Id, out TerrainNavigationWaypointNode queriedNode) ||
+            !NavigationWaypointNodesMatch(originalNode, queriedNode))
+        {
+            return false;
+        }
+
+        TerrainNavigationWaypointGraph freshGraph = planWorld.CreateNavigationWaypointGraph();
+        if (!freshGraph.TryGetNode(originalNode.Id, out TerrainNavigationWaypointNode freshNode) ||
+            !NavigationWaypointNodesMatch(originalNode, freshNode))
+        {
+            return false;
+        }
+    }
+
+    TerrainNavigationWaypointLink[] links = graph.Links;
+    if (links.Length > 0)
+    {
+        TerrainNavigationWaypointLink originalLink = links[0];
+        links[0] = originalLink with { ToNodeId = originalLink.ToNodeId + 1_000_000 };
+        TerrainNavigationWaypointLink[] secondLinks = graph.Links;
+        if (secondLinks.Length == 0 || !NavigationWaypointLinksMatch(originalLink, secondLinks[0]))
+        {
+            return false;
+        }
+
+        TerrainNavigationWaypointLink[] outgoing = graph.QueryOutgoingLinks(originalLink.FromNodeId);
+        if (outgoing.Length == 0)
+        {
+            return false;
+        }
+
+        TerrainNavigationWaypointLink originalOutgoing = outgoing[0];
+        outgoing[0] = originalOutgoing with { ToNodeId = originalOutgoing.ToNodeId + 1_000_000 };
+        TerrainNavigationWaypointLink[] secondOutgoing = graph.QueryOutgoingLinks(originalLink.FromNodeId);
+        if (secondOutgoing.Length == 0 ||
+            !NavigationWaypointLinksMatch(originalOutgoing, secondOutgoing[0]))
+        {
+            return false;
+        }
+    }
+
+    return NavigationWaypointGraphMatches(
+        TerrainNavigationWaypointGraph.FromPlan(plan),
+        planWorld.CreateNavigationWaypointGraph(),
+        plan);
+}
+
+static bool NavigationWaypointNodesMatch(
+    TerrainNavigationWaypointNode expected,
+    TerrainNavigationWaypointNode actual)
+{
+    return expected.Id == actual.Id &&
+        expected.IsPointOfInterest == actual.IsPointOfInterest &&
+        expected.SourcePointId == actual.SourcePointId &&
+        expected.PointKind == actual.PointKind &&
+        expected.SettlementTier == actual.SettlementTier &&
+        ExactFloatEquals(expected.Score, actual.Score) &&
+        ExactPositionEquals(expected.WorldPosition, actual.WorldPosition);
+}
+
+static bool NavigationWaypointLinksMatch(
+    TerrainNavigationWaypointLink expected,
+    TerrainNavigationWaypointLink actual)
+{
+    return expected.FromNodeId == actual.FromNodeId &&
+        expected.ToNodeId == actual.ToNodeId &&
+        expected.RouteKind == actual.RouteKind &&
+        ExactFloatEquals(expected.Distance, actual.Distance) &&
+        ExactFloatEquals(expected.Cost, actual.Cost) &&
+        ExactFloatEquals(expected.AverageScenicPotential, actual.AverageScenicPotential) &&
+        ExactFloatEquals(expected.AverageTraversability, actual.AverageTraversability) &&
+        ExactFloatEquals(expected.CoreWidth, actual.CoreWidth) &&
+        ExactFloatEquals(expected.ShoulderWidth, actual.ShoulderWidth);
+}
+
 static float RouteEdgeDistance(TerrainRouteGraphEdge edge, TerrainRouteGraphSnapshot snapshot)
 {
     if (edge.Waypoints.Length >= 2)
@@ -6507,6 +7361,8 @@ static string RuntimeApiFailureReason(
     bool navigationGridPassed,
     bool navigationTileGridPassed,
     bool navigationRegionQueryPassed,
+    bool navigationWaypointGraphPassed,
+    bool navigationWaypointGraphIsolated,
     bool noPlanRouteGraphPassed,
     bool noPlanRoutePathPassed,
     bool streamingSnapshotPassed,
@@ -6615,6 +7471,16 @@ static string RuntimeApiFailureReason(
         return "QueryTraversalCosts did not return isolated classifier-backed traversal samples for the requested region";
     }
 
+    if (!navigationWaypointGraphPassed)
+    {
+        return "CreateNavigationWaypointGraph did not convert the route graph into a stable waypoint graph handoff";
+    }
+
+    if (!navigationWaypointGraphIsolated)
+    {
+        return "CreateNavigationWaypointGraph exposed mutable waypoint graph arrays or lookup state";
+    }
+
     if (!noPlanRouteGraphPassed)
     {
         return "route graph facade did not expose an empty no-plan state";
@@ -6632,7 +7498,7 @@ static string RuntimeApiFailureReason(
 
     if (!apiVersionPassed)
     {
-        return "TerrainApiVersion constants did not match terrain-api-v1 version 1.5.0";
+        return "TerrainApiVersion constants did not match terrain-api-v1 version 1.7.0";
     }
 
     if (!determinismContractPassed)

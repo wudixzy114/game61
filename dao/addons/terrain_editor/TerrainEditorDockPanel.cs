@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Text;
@@ -804,119 +803,43 @@ public partial class TerrainEditorDockPanel : VBoxContainer
 
     private static TerrainVisualCatalogValidationSummary ValidateVisualCatalog(TerrainVisualCatalog catalog)
     {
-        int scatterEntries = 0;
-        int scatterMeshEntries = 0;
-        int scatterSceneEntries = 0;
-        int scatterInvalidLodEntries = 0;
-        int scatterDuplicateEntries = 0;
-        var scatterKinds = new HashSet<TerrainScatterKind>();
-        foreach (TerrainScatterVisualEntryResource? entry in catalog.ScatterEntries)
-        {
-            if (entry is null)
-            {
-                continue;
-            }
-
-            scatterEntries++;
-            if (entry.Mesh is not null)
-            {
-                scatterMeshEntries++;
-            }
-
-            if (entry.Scene is not null)
-            {
-                scatterSceneEntries++;
-            }
-
-            if (entry.MaxLod < entry.MinLod)
-            {
-                scatterInvalidLodEntries++;
-            }
-
-            if (!scatterKinds.Add(entry.Kind))
-            {
-                scatterDuplicateEntries++;
-            }
-        }
-
-        int landmarkEntries = 0;
-        int landmarkMeshEntries = 0;
-        int landmarkSceneEntries = 0;
-        int landmarkInvalidLodEntries = 0;
-        int landmarkDuplicateEntries = 0;
-        var landmarkKinds = new HashSet<TerrainLandmarkKind>();
-        foreach (TerrainLandmarkVisualEntryResource? entry in catalog.LandmarkEntries)
-        {
-            if (entry is null)
-            {
-                continue;
-            }
-
-            landmarkEntries++;
-            if (entry.Mesh is not null)
-            {
-                landmarkMeshEntries++;
-            }
-
-            if (entry.Scene is not null)
-            {
-                landmarkSceneEntries++;
-            }
-
-            if (entry.MaxLod < entry.MinLod)
-            {
-                landmarkInvalidLodEntries++;
-            }
-
-            if (!landmarkKinds.Add(entry.Kind))
-            {
-                landmarkDuplicateEntries++;
-            }
-        }
-
-        TerrainScatterKind[] missingScatter = catalog.GetMissingScatterMeshKinds();
-        TerrainLandmarkKind[] missingLandmarks = catalog.GetMissingLandmarkMeshKinds();
-        bool missingEntriesAllowed = catalog.UsePrimitiveFallbacks;
-        bool passed =
-            scatterInvalidLodEntries == 0 &&
-            landmarkInvalidLodEntries == 0 &&
-            scatterDuplicateEntries == 0 &&
-            landmarkDuplicateEntries == 0 &&
-            (missingEntriesAllowed || (missingScatter.Length == 0 && missingLandmarks.Length == 0));
+        TerrainVisualCatalogValidationReport report = catalog.ValidateCatalog();
+        bool missingEntriesAllowed = report.UsePrimitiveFallbacks;
 
         var builder = new StringBuilder(768);
-        builder.AppendLine($"Primitive Fallbacks: {catalog.UsePrimitiveFallbacks}");
-        builder.AppendLine($"Scatter Entries: {scatterEntries}  mesh {scatterMeshEntries}  scene {scatterSceneEntries}  duplicates {scatterDuplicateEntries}  invalid LOD {scatterInvalidLodEntries}");
-        builder.AppendLine($"Landmark Entries: {landmarkEntries}  mesh {landmarkMeshEntries}  scene {landmarkSceneEntries}  duplicates {landmarkDuplicateEntries}  invalid LOD {landmarkInvalidLodEntries}");
-        builder.AppendLine($"Missing Scatter Kinds: {missingScatter.Length}{(missingEntriesAllowed ? " (fallback allowed)" : string.Empty)}");
-        builder.AppendLine($"Missing Landmark Kinds: {missingLandmarks.Length}{(missingEntriesAllowed ? " (fallback allowed)" : string.Empty)}");
+        builder.AppendLine($"Primitive Fallbacks: {report.UsePrimitiveFallbacks}");
+        builder.AppendLine($"Referenced Resources: {report.ReferencedResources.Length}");
+        builder.AppendLine($"Scatter Entries: {report.ScatterEntryCount}  mesh {report.ScatterMeshEntryCount}  scene {report.ScatterSceneEntryCount}  duplicates {report.ScatterDuplicateEntryCount}  invalid LOD {report.ScatterInvalidLodEntryCount}");
+        builder.AppendLine($"Landmark Entries: {report.LandmarkEntryCount}  mesh {report.LandmarkMeshEntryCount}  scene {report.LandmarkSceneEntryCount}  duplicates {report.LandmarkDuplicateEntryCount}  invalid LOD {report.LandmarkInvalidLodEntryCount}");
+        builder.AppendLine($"Missing Scatter Kinds: {report.MissingScatterKinds.Length}{(missingEntriesAllowed ? " (fallback allowed)" : string.Empty)}");
+        builder.AppendLine($"Missing Landmark Kinds: {report.MissingLandmarkKinds.Length}{(missingEntriesAllowed ? " (fallback allowed)" : string.Empty)}");
 
-        if (!passed)
+        if (!report.Passed)
         {
             builder.AppendLine();
             builder.AppendLine("Issues");
-            if (!missingEntriesAllowed && missingScatter.Length > 0)
+            if (!missingEntriesAllowed && report.MissingScatterKinds.Length > 0)
             {
-                builder.AppendLine($"Scatter kinds without Mesh or Scene: {string.Join(", ", missingScatter)}");
+                builder.AppendLine($"Scatter kinds without Mesh or Scene: {string.Join(", ", report.MissingScatterKinds)}");
             }
 
-            if (!missingEntriesAllowed && missingLandmarks.Length > 0)
+            if (!missingEntriesAllowed && report.MissingLandmarkKinds.Length > 0)
             {
-                builder.AppendLine($"Landmark kinds without Mesh or Scene: {string.Join(", ", missingLandmarks)}");
+                builder.AppendLine($"Landmark kinds without Mesh or Scene: {string.Join(", ", report.MissingLandmarkKinds)}");
             }
 
-            if (scatterDuplicateEntries > 0 || landmarkDuplicateEntries > 0)
+            if (report.ScatterDuplicateEntryCount > 0 || report.LandmarkDuplicateEntryCount > 0)
             {
                 builder.AppendLine("Duplicate entries use the first matching kind and should be removed.");
             }
 
-            if (scatterInvalidLodEntries > 0 || landmarkInvalidLodEntries > 0)
+            if (report.ScatterInvalidLodEntryCount > 0 || report.LandmarkInvalidLodEntryCount > 0)
             {
                 builder.AppendLine("Invalid LOD entries have MaxLod lower than MinLod.");
             }
         }
 
-        return new TerrainVisualCatalogValidationSummary(passed, builder.ToString());
+        return new TerrainVisualCatalogValidationSummary(report.Passed, builder.ToString());
     }
 
     private string NormalizeResourcePath(string path)
