@@ -14,6 +14,7 @@ using static TerrainValidationContractChecks;
 using static TerrainValidationEditorPluginChecks;
 using static TerrainValidationOutput;
 using static TerrainValidationRuntimeProbeHelpers;
+using static TerrainValidationVisualCatalogChecks;
 using Dao.Terrain;
 using Dao.Terrain.Generation;
 using Dao.Terrain.Rendering;
@@ -88,6 +89,7 @@ TerrainThresholdContractSmokeReport? thresholdContractSmokeReport = null;
 TerrainDefaultStateContractSmokeReport? defaultStateContractSmokeReport = null;
 TerrainApiLayeringSmokeReport? apiLayeringSmokeReport = null;
 TerrainEditorPluginSmokeReport? editorPluginSmokeReport = null;
+TerrainVisualCatalogSmokeReport? visualCatalogSmokeReport = null;
 TerrainRuntimeApiSmokeReport? runtimeApiSmokeReport = null;
 TerrainAnchorContractSmokeReport? anchorSmokeReport = null;
 TerrainRuntimeWorldSmokeReport? runtimeWorldSmokeReport = null;
@@ -255,6 +257,10 @@ editorPluginSmokeReport = ValidateTerrainEditorPluginScaffold();
 PrintEditorPluginSmoke(editorPluginSmokeReport.Value);
 RecordAuxiliaryCheck(editorPluginSmokeReport.Value.Passed, ref totalFailures, ref auxiliaryCheckCount, ref auxiliaryFailureCount);
 
+visualCatalogSmokeReport = ValidateTerrainVisualCatalogContract();
+PrintVisualCatalogSmoke(visualCatalogSmokeReport.Value);
+RecordAuxiliaryCheck(visualCatalogSmokeReport.Value.Passed, ref totalFailures, ref auxiliaryCheckCount, ref auxiliaryFailureCount);
+
 PrintAggregate(
     aggregate,
     seedCount,
@@ -278,6 +284,7 @@ PrintAggregate(
     defaultStateContractSmokeReport,
     apiLayeringSmokeReport,
     editorPluginSmokeReport,
+    visualCatalogSmokeReport,
     runtimeApiSmokeReport,
     anchorSmokeReport,
     runtimeWorldSmokeReport,
@@ -3101,10 +3108,17 @@ static TerrainPublicApiShapeSmokeReport ValidateTerrainPublicApiShapeContracts()
                 [
                     ("Kind", typeof(TerrainScatterKind)),
                     ("Mesh", typeof(Mesh)),
+                    ("Scene", typeof(PackedScene)),
+                    ("PreferSceneInstances", typeof(bool)),
                     ("NodeName", typeof(string)),
                     ("VerticalOffset", typeof(float)),
                     ("AxisScale", typeof(Vector3)),
-                    ("AabbHeightPadding", typeof(float))
+                    ("AabbHeightPadding", typeof(float)),
+                    ("MinLod", typeof(int)),
+                    ("MaxLod", typeof(int)),
+                    ("CreatesCollision", typeof(bool)),
+                    ("CreatesNavigationObstacle", typeof(bool)),
+                    ("InteractionTag", typeof(string))
                 ],
                 ref checkedTypeCount,
                 ref checkedMemberCount,
@@ -3113,10 +3127,17 @@ static TerrainPublicApiShapeSmokeReport ValidateTerrainPublicApiShapeContracts()
                 [
                     ("Kind", typeof(TerrainLandmarkKind)),
                     ("Mesh", typeof(Mesh)),
+                    ("Scene", typeof(PackedScene)),
+                    ("PreferSceneInstances", typeof(bool)),
                     ("NodeName", typeof(string)),
                     ("VerticalOffset", typeof(float)),
                     ("AxisScale", typeof(Vector3)),
-                    ("AabbHeightPadding", typeof(float))
+                    ("AabbHeightPadding", typeof(float)),
+                    ("MinLod", typeof(int)),
+                    ("MaxLod", typeof(int)),
+                    ("CreatesCollision", typeof(bool)),
+                    ("CreatesNavigationObstacle", typeof(bool)),
+                    ("InteractionTag", typeof(string))
                 ],
                 ref checkedTypeCount,
                 ref checkedMemberCount,

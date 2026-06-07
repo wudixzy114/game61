@@ -305,6 +305,16 @@ internal static class TerrainValidationOutput
             $"({report.Reason})");
     }
 
+    internal static void PrintVisualCatalogSmoke(TerrainVisualCatalogSmokeReport report)
+    {
+        Console.WriteLine(
+            $"Terrain visual catalog smoke: {(report.Passed ? "PASS" : "FAIL")} " +
+            $"mesh/scene {report.MeshEntryLookupPassed}/{report.SceneEntryLookupPassed}, " +
+            $"scene-only {report.SceneOnlyEntriesAreAccepted}, missing {report.MissingEntryDetectionPassed}, " +
+            $"metadata/runtime {report.VisualEntryMetadataPassed}/{report.RuntimeScenePathPassed} " +
+            $"({report.Reason})");
+    }
+
     internal static void PrintAggregate(
         TerrainValidationAggregate aggregate,
         int seedCount,
@@ -328,6 +338,7 @@ internal static class TerrainValidationOutput
         TerrainDefaultStateContractSmokeReport? defaultStateContractSmokeReport,
         TerrainApiLayeringSmokeReport? apiLayeringSmokeReport,
         TerrainEditorPluginSmokeReport? editorPluginSmokeReport,
+        TerrainVisualCatalogSmokeReport? visualCatalogSmokeReport,
         TerrainRuntimeApiSmokeReport? runtimeApiSmokeReport,
         TerrainAnchorContractSmokeReport? anchorSmokeReport,
         TerrainRuntimeWorldSmokeReport? runtimeWorldSmokeReport,
@@ -440,6 +451,11 @@ internal static class TerrainValidationOutput
         if (editorPluginSmokeReport is not null)
         {
             Console.WriteLine($"Terrain editor plugin smoke: {(editorPluginSmokeReport.Value.Passed ? "PASS" : "FAIL")}");
+        }
+
+        if (visualCatalogSmokeReport is not null)
+        {
+            Console.WriteLine($"Terrain visual catalog smoke: {(visualCatalogSmokeReport.Value.Passed ? "PASS" : "FAIL")}");
         }
 
         if (runtimeApiSmokeReport is not null)

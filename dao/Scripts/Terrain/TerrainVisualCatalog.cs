@@ -41,7 +41,7 @@ public partial class TerrainVisualCatalog : Resource
         return null;
     }
 
-    /// <summary>Reports scatter kinds missing a mesh entry when primitive fallbacks are disabled.</summary>
+    /// <summary>Reports scatter kinds missing a mesh or scene entry when primitive fallbacks are disabled.</summary>
     public TerrainScatterKind[] GetMissingScatterMeshKinds()
     {
         var missing = new List<TerrainScatterKind>();
@@ -53,7 +53,7 @@ public partial class TerrainVisualCatalog : Resource
             }
 
             TerrainScatterVisualEntryResource? entry = GetScatterEntry(kind);
-            if (entry?.Mesh is null)
+            if (entry?.Mesh is null && entry?.Scene is null)
             {
                 missing.Add(kind);
             }
@@ -62,14 +62,14 @@ public partial class TerrainVisualCatalog : Resource
         return missing.ToArray();
     }
 
-    /// <summary>Reports landmark kinds missing a mesh entry when primitive fallbacks are disabled.</summary>
+    /// <summary>Reports landmark kinds missing a mesh or scene entry when primitive fallbacks are disabled.</summary>
     public TerrainLandmarkKind[] GetMissingLandmarkMeshKinds()
     {
         var missing = new List<TerrainLandmarkKind>();
         foreach (TerrainLandmarkKind kind in System.Enum.GetValues<TerrainLandmarkKind>())
         {
             TerrainLandmarkVisualEntryResource? entry = GetLandmarkEntry(kind);
-            if (entry?.Mesh is null)
+            if (entry?.Mesh is null && entry?.Scene is null)
             {
                 missing.Add(kind);
             }

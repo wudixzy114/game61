@@ -32,6 +32,21 @@ public partial class TerrainChunk
             _landmarkScatter.Remove(kind);
         }
 
+        staleKinds.Clear();
+        foreach (TerrainLandmarkKind kind in _landmarkSceneNodes.Keys)
+        {
+            if (!activeKinds.Contains(kind))
+            {
+                staleKinds.Add(kind);
+            }
+        }
+
+        foreach (TerrainLandmarkKind kind in staleKinds)
+        {
+            _landmarkSceneNodes[kind].QueueFree();
+            _landmarkSceneNodes.Remove(kind);
+        }
+
         foreach (TerrainLandmarkKind kind in activeKinds)
         {
             _landmarkScatter.TryGetValue(kind, out MultiMeshInstance3D? existing);
@@ -39,6 +54,10 @@ public partial class TerrainChunk
             if (rebuilt is not null)
             {
                 _landmarkScatter[kind] = rebuilt;
+            }
+            else
+            {
+                _landmarkScatter.Remove(kind);
             }
         }
     }
@@ -68,6 +87,22 @@ public partial class TerrainChunk
         }
 
         ScatterVisual visual = VisualForLandmark(landmarkKind);
+        if (UsesSceneInstances(visual))
+        {
+            if (existing is not null)
+            {
+                existing.QueueFree();
+            }
+
+            RebuildLandmarkSceneKind(data, landmarkKind, count, visual);
+            return null;
+        }
+
+        if (_landmarkSceneNodes.Remove(landmarkKind, out Node3D? sceneContainer))
+        {
+            sceneContainer.QueueFree();
+        }
+
         Mesh? mesh = visual.Mesh;
         if (mesh is null)
         {
@@ -117,6 +152,45 @@ public partial class TerrainChunk
         return existing;
     }
 
+    private void RebuildLandmarkSceneKind(
+        TerrainTileData data,
+        TerrainLandmarkKind landmarkKind,
+        int count,
+        ScatterVisual visual)
+    {
+        PackedScene? scene = visual.Scene;
+        if (scene is null || count == 0)
+        {
+            if (_landmarkSceneNodes.Remove(landmarkKind, out Node3D? stale))
+            {
+                stale.QueueFree();
+            }
+
+            return;
+        }
+
+        if (!_landmarkSceneNodes.TryGetValue(landmarkKind, out Node3D? container))
+        {
+            container = CreateSceneContainer(visual.NodeName);
+            _landmarkSceneNodes[landmarkKind] = container;
+        }
+        else
+        {
+            container.Name = $"{visual.NodeName}_Scenes";
+            ClearSceneContainer(container);
+        }
+
+        foreach (TerrainScatterInstance instance in data.ScatterInstances)
+        {
+            if (instance.Kind != TerrainScatterKind.Landmark || instance.LandmarkKind != landmarkKind)
+            {
+                continue;
+            }
+
+            AddSceneInstance(container, scene, TransformForInstance(instance, visual), visual, instance.Color);
+        }
+    }
+
     private ScatterVisual VisualForLandmark(TerrainLandmarkKind kind)
     {
         TerrainLandmarkVisualEntryResource? entry = _visualCatalog?.GetLandmarkEntry(kind);
@@ -131,13 +205,22 @@ public partial class TerrainChunk
         string nodeName = string.IsNullOrWhiteSpace(entry.NodeName)
             ? fallback.NodeName
             : entry.NodeName;
-        Mesh? mesh = entry.Mesh ?? (_visualCatalog?.UsePrimitiveFallbacks == false ? null : fallback.Mesh);
+        bool lodMatches = Lod >= entry.MinLod && Lod <= entry.MaxLod;
+        Mesh? mesh = lodMatches
+            ? entry.Mesh ?? (_visualCatalog?.UsePrimitiveFallbacks == false ? null : fallback.Mesh)
+            : (_visualCatalog?.UsePrimitiveFallbacks == false ? null : fallback.Mesh);
+        PackedScene? scene = lodMatches ? entry.Scene : null;
         return new ScatterVisual(
             nodeName,
             mesh,
+            scene,
+            entry.PreferSceneInstances,
             entry.VerticalOffset,
             entry.AxisScale,
-            entry.AabbHeightPadding);
+            entry.AabbHeightPadding,
+            entry.CreatesCollision,
+            entry.CreatesNavigationObstacle,
+            entry.InteractionTag);
     }
 
     private static ScatterVisual DefaultVisualForLandmark(TerrainLandmarkKind kind)
@@ -179,9 +262,14 @@ public partial class TerrainChunk
         return new ScatterVisual(
             $"Landmarks_{kind}",
             GetLandmarkMesh(kind),
+            null,
+            false,
             LandmarkVerticalOffset(kind),
             axisScale,
-            132.0f);
+            132.0f,
+            false,
+            false,
+            string.Empty);
     }
 
     private static float LandmarkVerticalOffset(TerrainLandmarkKind kind)

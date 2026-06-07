@@ -317,6 +317,17 @@ internal readonly record struct TerrainEditorPluginSmokeReport(
     bool DockPanelUsesDefaultSettingsResource,
     string Reason);
 
+/// <summary>Reports whether terrain visual catalogs support mesh and scene assets with production metadata.</summary>
+internal readonly record struct TerrainVisualCatalogSmokeReport(
+    bool Passed,
+    bool MeshEntryLookupPassed,
+    bool SceneEntryLookupPassed,
+    bool SceneOnlyEntriesAreAccepted,
+    bool MissingEntryDetectionPassed,
+    bool VisualEntryMetadataPassed,
+    bool RuntimeScenePathPassed,
+    string Reason);
+
 /// <summary>Stable method signature expected by public API shape validation.</summary>
 internal readonly record struct PublicMethodContract(
     string Name,
