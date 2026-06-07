@@ -33,12 +33,36 @@ internal static class TerrainValidationRuntimeProbeHelpers
         return world;
     }
 
+    internal static TerrainChunk CreateTerrainChunkProbe(
+        TerrainTileCoord coord,
+        int lod,
+        bool hasCollision)
+    {
+        var chunk = (TerrainChunk)RuntimeHelpers.GetUninitializedObject(typeof(TerrainChunk));
+        SetCompilerGeneratedAutoPropertyField(chunk, nameof(TerrainChunk.Coord), coord);
+        SetCompilerGeneratedAutoPropertyField(chunk, nameof(TerrainChunk.Lod), lod);
+        SetCompilerGeneratedAutoPropertyField(chunk, nameof(TerrainChunk.HasCollision), hasCollision);
+        return chunk;
+    }
+
     internal static void SetPrivateField<T>(object instance, string fieldName, T value)
     {
         FieldInfo? field = instance.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
         if (field is null)
         {
             throw new MissingFieldException(instance.GetType().FullName, fieldName);
+        }
+
+        field.SetValue(instance, value);
+    }
+
+    internal static void SetCompilerGeneratedAutoPropertyField<T>(object instance, string propertyName, T value)
+    {
+        string backingFieldName = $"<{propertyName}>k__BackingField";
+        FieldInfo? field = instance.GetType().GetField(backingFieldName, BindingFlags.Instance | BindingFlags.NonPublic);
+        if (field is null)
+        {
+            throw new MissingFieldException(instance.GetType().FullName, backingFieldName);
         }
 
         field.SetValue(instance, value);
@@ -53,6 +77,17 @@ internal static class TerrainValidationRuntimeProbeHelpers
         }
 
         method.Invoke(instance, null);
+    }
+
+    internal static object? InvokePrivateMethod(object instance, string methodName, params object?[]? args)
+    {
+        MethodInfo? method = instance.GetType().GetMethod(methodName, BindingFlags.Instance | BindingFlags.NonPublic);
+        if (method is null)
+        {
+            throw new MissingMethodException(instance.GetType().FullName, methodName);
+        }
+
+        return method.Invoke(instance, args);
     }
 
     internal static object CreatePendingTileJobKeyDictionary(TerrainTileCoord[] coords)
@@ -101,16 +136,27 @@ internal static class TerrainValidationRuntimeProbeHelpers
         TerrainGenerationProfile profile,
         int terrainFeatureKey)
     {
+        return CreateTileCacheState([coord], profile, terrainFeatureKey);
+    }
+
+    internal static object CreateTileCacheState(
+        TerrainTileCoord[] coords,
+        TerrainGenerationProfile profile,
+        int terrainFeatureKey)
+    {
         Type cacheType = ResolveRuntimeType("TerrainTileDataCache");
         object cache = Activator.CreateInstance(cacheType, nonPublic: true)
             ?? throw new InvalidOperationException("Failed to create terrain tile cache state.");
         Type cacheKeyType = ResolveRuntimeType("TerrainTileCacheKey");
-        object key = Activator.CreateInstance(cacheKeyType, coord, 0, false, profile, terrainFeatureKey)
-            ?? throw new InvalidOperationException("Failed to create tile cache key.");
         Type dictionaryType = typeof(Dictionary<,>).MakeGenericType(cacheKeyType, typeof(TerrainTileData));
         var dictionary = (System.Collections.IDictionary)(Activator.CreateInstance(dictionaryType)
             ?? throw new InvalidOperationException("Failed to create tile cache dictionary."));
-        dictionary.Add(key, null);
+        foreach (TerrainTileCoord coord in coords)
+        {
+            object key = Activator.CreateInstance(cacheKeyType, coord, 0, false, profile, terrainFeatureKey)
+                ?? throw new InvalidOperationException("Failed to create tile cache key.");
+            dictionary.Add(key, null);
+        }
         SetPrivateField(cache, "_tileCache", dictionary);
         Type nodeType = typeof(LinkedListNode<>).MakeGenericType(cacheKeyType);
         Type nodeDictionaryType = typeof(Dictionary<,>).MakeGenericType(cacheKeyType, nodeType);

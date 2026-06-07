@@ -50,7 +50,7 @@
   - plan map
   - traversal cost map
   - text report
-- `TerrainApiVersion` 已推进到 `terrain-api-v1` / `1.5.0`
+- `TerrainApiVersion` 已推进到 `terrain-api-v1` / `1.8.0`
 - `TraversalCostGrid` handoff 已补齐局部查询能力：
   - `TerrainTraversalCostGrid.WorldBounds`
   - grid index 和 world position 互查
@@ -77,6 +77,19 @@
 - `Terrain editor plugin smoke: PASS`
 - `Runtime TerrainWorld API smoke: PASS`
 - `Terrain public API shape smoke` 当前为 `99` public types、`1014` members
+- `ITerrainQueryService` 已补充显式 base-only 查询入口，runtime query facade 现在同时支持：
+  - 当前 overlay world view 查询
+  - deterministic base terrain 查询
+- `TerrainWorld` 已补充 modification layer runtime/save 便捷入口：
+  - `GetModificationLayerJson()`
+  - `SaveModificationLayer(...)`
+  - `TrySetModificationLayerFromJson(...)`
+  - `TryLoadModificationLayer(...)`
+  - `QueryAffectedModificationTiles()`
+- terrain editor dock 已补充 modification layer 工作流入口：
+  - load/save/clear modification JSON
+  - affected tile summary
+  - base vs overlay semantic sample diff
 
 这意味着“编辑器插件完全缺失”已经不再是当前状态，更准确的判断是：编辑器生产工作流已经有初版落地，但仍明显不完整。
 
@@ -163,7 +176,7 @@ PR 级地形验证结果：
 - 支持规则集 Resource：scatter、settlement visual、POI、route、scenic landmark。
 - `TerrainGenerationProfile` 是不可变快照，适合后台任务和 deterministic generation。
 - `TerrainProfileHash` 覆盖 28 个 profile 字段和规则集 hash。
-- `TerrainApiVersion` 当前为 `terrain-api-v1` / `1.4.0`，兼容 plan API `1.0.0`、`1.1.0`、`1.2.0`、`1.3.0`、`1.4.0`。
+- `TerrainApiVersion` 当前为 `terrain-api-v1` / `1.8.0`，兼容 plan API `1.0.0`、`1.1.0`、`1.2.0`、`1.3.0`、`1.4.0`、`1.5.0`、`1.6.0`、`1.7.0`、`1.8.0`。
 - `TerrainDeterminismContract` 集中定义 deterministic、native parity、tile parity 阈值。
 - `TerrainPerformanceContract` 定义 tile benchmark 阈值。
 
@@ -698,7 +711,8 @@ Native sampler 是性能基础，但 C++ 和 C# terrain logic 双实现会带来
 - 支持 height delta、surface override、scatter removal/addition、landmark state、route unlock/block。
 - Tile builder 应用 base terrain + modification overlay。
 - Serializer 保存 modification delta，不保存完整 generated mesh。
-- Query API 可以选择 base only 或 with overlay。
+- Query API 已具备显式 base-only 与 overlay-aware 双路径。
+- Runtime/save/editor 已具备 modification layer JSON 载入、保存、应用与受影响 tile 查询入口。
 - Navigation、collision、scatter 随 delta invalidation 更新。
 
 验收标准：

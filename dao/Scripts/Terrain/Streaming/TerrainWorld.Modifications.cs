@@ -25,9 +25,58 @@ public partial class TerrainWorld
         TerrainWorldRuntimeLifecycleService.SetModificationLayer(this, null);
     }
 
-    private TerrainWorldField SampleBaseField(Vector2 world)
+    /// <summary>Returns the current terrain modification overlay as JSON for save systems and tooling.</summary>
+    public string GetModificationLayerJson()
+    {
+        return _modificationLayer.ToJson();
+    }
+
+    /// <summary>Saves the current terrain modification overlay to a JSON file.</summary>
+    public Error SaveModificationLayer(string outputPath)
+    {
+        return _modificationLayer.SaveJson(outputPath);
+    }
+
+    /// <summary>Loads a terrain modification overlay from JSON text and applies it to this world.</summary>
+    public bool TrySetModificationLayerFromJson(string json, out string error)
+    {
+        if (!TerrainModificationLayer.TryFromJson(json, out TerrainModificationLayer? layer, out error) ||
+            layer is null)
+        {
+            return false;
+        }
+
+        SetModificationLayer(layer);
+        return true;
+    }
+
+    /// <summary>Loads a terrain modification overlay from a JSON file and applies it to this world.</summary>
+    public bool TryLoadModificationLayer(string path, out string error)
+    {
+        if (!TerrainModificationLayer.TryLoadJson(path, out TerrainModificationLayer? layer, out error) ||
+            layer is null)
+        {
+            return false;
+        }
+
+        SetModificationLayer(layer);
+        return true;
+    }
+
+    /// <summary>Returns the streaming-tile coordinates affected by the current terrain modification overlay.</summary>
+    public TerrainTileCoord[] QueryAffectedModificationTiles()
+    {
+        return _modificationLayer.QueryAffectedTiles(CurrentProfile.ChunkSize);
+    }
+
+    private TerrainWorldField SampleBaseFieldCore(Vector2 world)
     {
         return TerrainWorldFieldSampler.Sample(world, CurrentProfile);
+    }
+
+    private TerrainSample SampleBaseSurfaceCore(Vector2 world, float spacing)
+    {
+        return TerrainSampler.SampleWithSlope(world, CurrentProfile, spacing);
     }
 
     private TerrainWorldField SampleFieldWithModification(Vector2 world)
@@ -71,6 +120,14 @@ public partial class TerrainWorld
             centerField.LandscapeKind,
             slope,
             color);
+    }
+
+    private TerrainTraversalCost SampleBaseTraversalCostCore(Vector2 world, float spacing)
+    {
+        TerrainGenerationProfile profile = CurrentProfile;
+        TerrainWorldField field = SampleBaseFieldCore(world);
+        TerrainSample surface = SampleBaseSurfaceCore(world, spacing);
+        return TerrainSemanticClassifier.ClassifyTraversalCost(field, surface, profile);
     }
 
     private TerrainTraversalCost SampleTraversalCostWithModification(Vector2 world, float spacing)

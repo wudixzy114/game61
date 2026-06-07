@@ -49,6 +49,12 @@ internal static class TerrainValidationEditorPluginChecks
                 dockPanel.Contains("Export Artifacts", StringComparison.Ordinal) &&
                 dockPanel.Contains("Save Preset Copy", StringComparison.Ordinal) &&
                 dockPanel.Contains("Run PR Validation", StringComparison.Ordinal) &&
+                dockPanel.Contains("Load Modification", StringComparison.Ordinal) &&
+                dockPanel.Contains("Save Modification", StringComparison.Ordinal) &&
+                dockPanel.Contains("Clear Modification", StringComparison.Ordinal) &&
+                dockPanel.Contains("TerrainModificationLayer", StringComparison.Ordinal) &&
+                dockPanel.Contains("TryLoadJson", StringComparison.Ordinal) &&
+                dockPanel.Contains("QueryAffectedTiles", StringComparison.Ordinal) &&
                 dockPanel.Contains("DefaultTerrainVisualCatalog.tres", StringComparison.Ordinal) &&
                 dockPanel.Contains("Validate Visual Catalog", StringComparison.Ordinal) &&
                 dockPanel.Contains("Use Default Catalog", StringComparison.Ordinal) &&

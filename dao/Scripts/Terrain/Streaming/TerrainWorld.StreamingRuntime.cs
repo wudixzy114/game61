@@ -208,9 +208,14 @@ public partial class TerrainWorld
                 continue;
             }
 
-            TerrainChunk chunk = _chunks[coord];
+            TerrainChunk? chunk = _chunks[coord];
             _chunks.Remove(coord);
             MarkStreamingSnapshotDirty();
+            if (chunk is null)
+            {
+                continue;
+            }
+
             EmitChunkUnloadedSignalIfReady(chunk);
             chunk.QueueFree();
         }
@@ -421,8 +426,12 @@ public partial class TerrainWorld
                 continue;
             }
 
-            EmitChunkUnloadedSignalIfReady(chunk);
-            chunk.QueueFree();
+            if (chunk is not null)
+            {
+                EmitChunkUnloadedSignalIfReady(chunk);
+                chunk.QueueFree();
+            }
+
             changed = true;
         }
 

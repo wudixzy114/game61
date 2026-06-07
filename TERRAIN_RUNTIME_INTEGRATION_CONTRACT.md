@@ -13,13 +13,30 @@ dependency surface for quests, AI, resources, audio, map UI, and similar systems
 Use for point sampling and semantic terrain queries.
 
 - `SampleField(Vector2 world)`
+- `SampleBaseField(Vector2 world)`
 - `SampleSurface(Vector2 world, float spacing = 4.0f)`
+- `SampleBaseSurface(Vector2 world, float spacing = 4.0f)`
 - `SurfacePositionAt(Vector2 world, float heightOffset = 0.0f)`
+- `BaseSurfacePositionAt(Vector2 world, float heightOffset = 0.0f)`
 - `SampleWaterState(Vector2 world)`
+- `SampleBaseWaterState(Vector2 world)`
 - `SampleGameplayTags(Vector2 world)`
+- `SampleBaseGameplayTags(Vector2 world)`
 - `SampleTraversalCost(Vector2 world, float spacing = 4.0f)`
+- `SampleBaseTraversalCost(Vector2 world, float spacing = 4.0f)`
 - `IsTraversable(Vector2 world, float minTraversability = 0.45f)`
+- `IsBaseTraversable(Vector2 world, float minTraversability = 0.45f)`
 - `IsAboveWater(Vector2 world, float margin = 0.0f)`
+- `IsBaseAboveWater(Vector2 world, float margin = 0.0f)`
+
+`SampleField(...)`, `SampleSurface(...)`, `SampleWaterState(...)`, `SampleGameplayTags(...)`,
+`SampleTraversalCost(...)`, `IsTraversable(...)`, and `IsAboveWater(...)` operate on the current
+runtime world view, including any active `TerrainModificationLayer`.
+
+The `SampleBase...` / `BaseSurfacePositionAt(...)` / `IsBase...` variants ignore the active
+modification overlay and expose deterministic base-terrain results for save-delta comparisons,
+editor diff tooling, validation, and gameplay systems that need to reason about authored changes
+separately from generated terrain.
 
 ### `ITerrainPlanProvider`
 
@@ -170,7 +187,17 @@ validation tools, runtime services, and background jobs can use it without edito
 
 It currently supports height delta brushes, surface semantic overrides, scatter removal/addition
 state, landmark state overrides, route blocked/unlocked/cost state, affected streaming tile
-queries, JSON string/file persistence, and base-field plus overlay sampling via `ApplyToField(...)`.
+queries, JSON string/file persistence, base-field plus overlay sampling via `ApplyToField(...)`,
+and `TerrainWorld` runtime facade helpers for:
+
+- `GetModificationLayer()`
+- `SetModificationLayer(...)`
+- `ClearModificationLayer()`
+- `GetModificationLayerJson()`
+- `SaveModificationLayer(...)`
+- `TrySetModificationLayerFromJson(...)`
+- `TryLoadModificationLayer(...)`
+- `QueryAffectedModificationTiles()`
 
 The layer is not yet fully wired into tile mesh, collision, scatter, and navigation invalidation.
 Consumers should treat it as the stable persistence and query foundation for that later runtime
@@ -200,6 +227,7 @@ The PR terrain validation tier now verifies:
 - route-graph node lookup, connected-edge lookup, high-level path queries, and waypoint graph importer output are stable and isolated
 - terrain modification layers apply deterministic field overlays, report affected tiles, and
   roundtrip through JSON without saving generated meshes
+- runtime query facade exposes both overlay-aware and base-only sampling paths for modification-aware systems
 - runtime signal delegates exist with the expected signatures
 - gameplay-facing scripts outside `dao/Scripts/Terrain` and `dao/Scripts/Demo` do not directly
   reference internal terrain implementation tokens such as `TerrainTileBuilder`,

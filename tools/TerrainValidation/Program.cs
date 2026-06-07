@@ -4843,13 +4843,21 @@ static TerrainPublicApiShapeSmokeReport ValidateTerrainPublicApiShapeContracts()
                 typeof(ITerrainQueryService),
                 [
                     new("SampleField", false, typeof(TerrainWorldField), [typeof(Vector2)]),
+                    new("SampleBaseField", false, typeof(TerrainWorldField), [typeof(Vector2)]),
                     new("SampleSurface", false, typeof(TerrainSample), [typeof(Vector2), typeof(float)]),
+                    new("SampleBaseSurface", false, typeof(TerrainSample), [typeof(Vector2), typeof(float)]),
                     new("SurfacePositionAt", false, typeof(Vector3), [typeof(Vector2), typeof(float)]),
+                    new("BaseSurfacePositionAt", false, typeof(Vector3), [typeof(Vector2), typeof(float)]),
                     new("SampleWaterState", false, typeof(TerrainWaterState), [typeof(Vector2)]),
+                    new("SampleBaseWaterState", false, typeof(TerrainWaterState), [typeof(Vector2)]),
                     new("SampleGameplayTags", false, typeof(TerrainGameplayTags), [typeof(Vector2)]),
+                    new("SampleBaseGameplayTags", false, typeof(TerrainGameplayTags), [typeof(Vector2)]),
                     new("SampleTraversalCost", false, typeof(TerrainTraversalCost), [typeof(Vector2), typeof(float)]),
+                    new("SampleBaseTraversalCost", false, typeof(TerrainTraversalCost), [typeof(Vector2), typeof(float)]),
                     new("IsTraversable", false, typeof(bool), [typeof(Vector2), typeof(float)]),
-                    new("IsAboveWater", false, typeof(bool), [typeof(Vector2), typeof(float)])
+                    new("IsBaseTraversable", false, typeof(bool), [typeof(Vector2), typeof(float)]),
+                    new("IsAboveWater", false, typeof(bool), [typeof(Vector2), typeof(float)]),
+                    new("IsBaseAboveWater", false, typeof(bool), [typeof(Vector2), typeof(float)])
                 ],
                 ref checkedTypeCount,
                 ref checkedMemberCount,
@@ -4907,6 +4915,14 @@ static TerrainPublicApiShapeSmokeReport ValidateTerrainPublicApiShapeContracts()
                 [
                     new("SetFocus", false, typeof(void), [typeof(Node3D)]),
                     new("SetWorldPlan", false, typeof(void), [typeof(TerrainWorldPlan)]),
+                    new("GetModificationLayer", false, typeof(TerrainModificationLayer), []),
+                    new("SetModificationLayer", false, typeof(void), [typeof(TerrainModificationLayer)]),
+                    new("ClearModificationLayer", false, typeof(void), []),
+                    new("GetModificationLayerJson", false, typeof(string), []),
+                    new("SaveModificationLayer", false, typeof(Error), [typeof(string)]),
+                    new("TrySetModificationLayerFromJson", false, typeof(bool), [typeof(string), typeof(string).MakeByRefType()]),
+                    new("TryLoadModificationLayer", false, typeof(bool), [typeof(string), typeof(string).MakeByRefType()]),
+                    new("QueryAffectedModificationTiles", false, typeof(TerrainTileCoord[]), []),
                     new("Regenerate", false, typeof(void), []),
                     new("GenerateOpenWorldPlan", false, typeof(TerrainWorldPlan), [typeof(bool)]),
                     new("SampleField", false, typeof(TerrainWorldField), [typeof(Vector2)]),
@@ -5529,6 +5545,25 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
         Vector2 query = plan.PointsOfInterest.Length > 0
             ? plan.PointsOfInterest[0].WorldPosition
             : new Vector2(profile.ChunkSize * 0.75f, profile.ChunkSize * -0.5f);
+        var probeModificationLayer = new TerrainModificationLayer(
+            [
+                new TerrainHeightDelta(query, 96.0f, 18.0f, 24.0f)
+            ],
+            [
+                new TerrainSurfaceOverride(
+                    query,
+                    96.0f,
+                    TerrainBiomeKind.Desert,
+                    TerrainLandscapeKind.Lowland,
+                    TerrainGameplayTag.Traversable | TerrainGameplayTag.SettlementFriendly,
+                    0.92f,
+                    0.12f)
+            ],
+            [],
+            [],
+            []);
+        TerrainWorld modifiedNoPlanWorld = CreateTerrainWorldFacadeProbe(profile, worldPlan: null);
+        modifiedNoPlanWorld.SetModificationLayer(probeModificationLayer);
 
         bool noPlanTryGetPassed = !noPlanWorld.TryGetWorldPlan(out TerrainWorldPlan? noPlan) && noPlan is null;
         bool noPlanSnapshotPassed =
@@ -5554,33 +5589,67 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
 
         TerrainWorldField expectedField = TerrainWorldFieldSampler.Sample(query, profile);
         TerrainWorldField facadeField = noPlanWorld.SampleField(query);
+        TerrainWorldField modifiedFacadeField = modifiedNoPlanWorld.SampleField(query);
+        TerrainWorldField baseFacadeField = modifiedNoPlanWorld.SampleBaseField(query);
         bool sampleFieldMatchesSampler = TerrainFieldsMatch(expectedField, facadeField);
+        bool baseFieldMatchesSampler = TerrainFieldsMatch(expectedField, baseFacadeField);
+        TerrainWorldField expectedModifiedField = probeModificationLayer.ApplyToField(expectedField);
+        bool overlayFieldDeltaPassed =
+            TerrainFieldsMatch(expectedModifiedField, modifiedFacadeField) &&
+            !TerrainFieldsMatch(expectedField, modifiedFacadeField);
 
         TerrainSample expectedSurface = TerrainSampler.SampleWithSlope(query, profile, spacing: 4.0f);
         TerrainSample facadeSurface = noPlanWorld.SampleSurface(query, spacing: 4.0f);
+        TerrainSample modifiedFacadeSurface = modifiedNoPlanWorld.SampleSurface(query, spacing: 4.0f);
+        TerrainSample baseFacadeSurface = modifiedNoPlanWorld.SampleBaseSurface(query, spacing: 4.0f);
         bool sampleSurfaceMatchesSampler = TerrainSamplesMatch(expectedSurface, facadeSurface);
+        bool baseSurfaceMatchesSampler = TerrainSamplesMatch(expectedSurface, baseFacadeSurface);
+        bool overlaySurfaceDeltaPassed =
+            !TerrainSamplesMatch(expectedSurface, modifiedFacadeSurface) &&
+            ExactFloatEquals(modifiedFacadeSurface.Height, modifiedFacadeField.Height) &&
+            modifiedFacadeSurface.BiomeKind == expectedModifiedField.BiomeKind &&
+            modifiedFacadeSurface.LandscapeKind == expectedModifiedField.LandscapeKind;
 
         const float heightOffset = 2.75f;
-        Vector3 surfacePosition = noPlanWorld.SurfacePositionAt(query, heightOffset);
+        Vector3 surfacePosition = modifiedNoPlanWorld.SurfacePositionAt(query, heightOffset);
+        Vector3 baseSurfacePosition = modifiedNoPlanWorld.BaseSurfacePositionAt(query, heightOffset);
         bool surfacePositionAxesPassed =
             ExactFloatEquals(surfacePosition.X, query.X) &&
-            ExactFloatEquals(surfacePosition.Y, expectedField.Height + heightOffset) &&
+            ExactFloatEquals(surfacePosition.Y, modifiedFacadeField.Height + heightOffset) &&
             ExactFloatEquals(surfacePosition.Z, query.Y);
+        bool baseSurfacePositionAxesPassed =
+            ExactFloatEquals(baseSurfacePosition.X, query.X) &&
+            ExactFloatEquals(baseSurfacePosition.Y, expectedField.Height + heightOffset) &&
+            ExactFloatEquals(baseSurfacePosition.Z, query.Y);
 
         bool traversabilityQueryPassed =
-            noPlanWorld.IsTraversable(query, 0.45f) == (expectedField.Traversability >= 0.45f);
+            modifiedNoPlanWorld.IsTraversable(query, 0.95f) == (modifiedFacadeField.Traversability >= 0.95f);
+        bool baseTraversabilityQueryPassed =
+            modifiedNoPlanWorld.IsBaseTraversable(query, 0.45f) == (expectedField.Traversability >= 0.45f);
         bool aboveWaterQueryPassed =
-            noPlanWorld.IsAboveWater(query) == (expectedField.Height >= profile.SeaLevel);
+            modifiedNoPlanWorld.IsAboveWater(query) == (modifiedFacadeField.Height >= profile.SeaLevel);
+        bool baseAboveWaterQueryPassed =
+            modifiedNoPlanWorld.IsBaseAboveWater(query) == (expectedField.Height >= profile.SeaLevel);
         TerrainWaterState expectedWaterState = TerrainSemanticClassifier.ClassifyWater(expectedField, profile);
-        TerrainWaterState facadeWaterState = noPlanWorld.SampleWaterState(query);
-        bool waterStateQueryPassed = TerrainWaterStatesMatch(expectedWaterState, facadeWaterState);
+        TerrainWaterState expectedModifiedWaterState = TerrainSemanticClassifier.ClassifyWater(expectedModifiedField, profile);
+        TerrainWaterState facadeWaterState = modifiedNoPlanWorld.SampleWaterState(query);
+        TerrainWaterState baseFacadeWaterState = modifiedNoPlanWorld.SampleBaseWaterState(query);
+        bool waterStateQueryPassed = TerrainWaterStatesMatch(expectedModifiedWaterState, facadeWaterState);
+        bool baseWaterStateQueryPassed = TerrainWaterStatesMatch(expectedWaterState, baseFacadeWaterState);
         TerrainGameplayTags expectedGameplayTags = TerrainSemanticClassifier.ClassifyGameplayTags(expectedField, profile);
-        TerrainGameplayTags facadeGameplayTags = noPlanWorld.SampleGameplayTags(query);
-        bool gameplayTagsQueryPassed = TerrainGameplayTagsMatch(expectedGameplayTags, facadeGameplayTags);
+        TerrainGameplayTags expectedModifiedGameplayTags = TerrainSemanticClassifier.ClassifyGameplayTags(expectedModifiedField, profile);
+        TerrainGameplayTags facadeGameplayTags = modifiedNoPlanWorld.SampleGameplayTags(query);
+        TerrainGameplayTags baseFacadeGameplayTags = modifiedNoPlanWorld.SampleBaseGameplayTags(query);
+        bool gameplayTagsQueryPassed = TerrainGameplayTagsMatch(expectedModifiedGameplayTags, facadeGameplayTags);
+        bool baseGameplayTagsQueryPassed = TerrainGameplayTagsMatch(expectedGameplayTags, baseFacadeGameplayTags);
         TerrainTraversalCost expectedTraversalCost =
             TerrainSemanticClassifier.ClassifyTraversalCost(expectedField, expectedSurface, profile);
-        TerrainTraversalCost facadeTraversalCost = noPlanWorld.SampleTraversalCost(query, spacing: 4.0f);
-        bool traversalCostQueryPassed = TerrainTraversalCostsMatch(expectedTraversalCost, facadeTraversalCost);
+        TerrainTraversalCost expectedModifiedTraversalCost =
+            TerrainSemanticClassifier.ClassifyTraversalCost(expectedModifiedField, modifiedFacadeSurface, profile);
+        TerrainTraversalCost facadeTraversalCost = modifiedNoPlanWorld.SampleTraversalCost(query, spacing: 4.0f);
+        TerrainTraversalCost baseFacadeTraversalCost = modifiedNoPlanWorld.SampleBaseTraversalCost(query, spacing: 4.0f);
+        bool traversalCostQueryPassed = TerrainTraversalCostsMatch(expectedModifiedTraversalCost, facadeTraversalCost);
+        bool baseTraversalCostQueryPassed = TerrainTraversalCostsMatch(expectedTraversalCost, baseFacadeTraversalCost);
         Rect2 placementBounds = new(
             query - new Vector2(profile.ChunkSize * 0.5f, profile.ChunkSize * 0.5f),
             new Vector2(profile.ChunkSize, profile.ChunkSize));
@@ -5688,10 +5757,10 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
                 expectedQueuedCoords: [new TerrainTileCoord(-4, -3), new TerrainTileCoord(8, -2)]);
         bool apiVersionPassed =
             TerrainApiVersion.Major == 1 &&
-            TerrainApiVersion.Minor == 7 &&
+            TerrainApiVersion.Minor == 8 &&
             TerrainApiVersion.Patch == 0 &&
             string.Equals(TerrainApiVersion.Contract, "terrain-api-v1", StringComparison.Ordinal) &&
-            string.Equals(TerrainApiVersion.Version, "1.7.0", StringComparison.Ordinal);
+            string.Equals(TerrainApiVersion.Version, "1.8.0", StringComparison.Ordinal);
         bool determinismContractPassed =
             string.Equals(TerrainDeterminismContract.Contract, "terrain-determinism-v1", StringComparison.Ordinal) &&
             ExactFloatEquals(TerrainDeterminismContract.HeightEpsilon, 0.05f) &&
@@ -6082,13 +6151,23 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
             noPlanSnapshotPassed &&
             emptyPlanCollectionsPassed &&
             sampleFieldMatchesSampler &&
+            baseFieldMatchesSampler &&
+            overlayFieldDeltaPassed &&
             sampleSurfaceMatchesSampler &&
+            baseSurfaceMatchesSampler &&
+            overlaySurfaceDeltaPassed &&
             surfacePositionAxesPassed &&
+            baseSurfacePositionAxesPassed &&
             traversabilityQueryPassed &&
+            baseTraversabilityQueryPassed &&
             aboveWaterQueryPassed &&
+            baseAboveWaterQueryPassed &&
             waterStateQueryPassed &&
+            baseWaterStateQueryPassed &&
             gameplayTagsQueryPassed &&
+            baseGameplayTagsQueryPassed &&
             traversalCostQueryPassed &&
+            baseTraversalCostQueryPassed &&
             placementCandidatesQueryPassed &&
             noPlanRoutePlacementPassed &&
             navigationGridPassed &&
@@ -6129,13 +6208,23 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
                 noPlanSnapshotPassed,
                 emptyPlanCollectionsPassed,
                 sampleFieldMatchesSampler,
+                baseFieldMatchesSampler,
+                overlayFieldDeltaPassed,
                 sampleSurfaceMatchesSampler,
+                baseSurfaceMatchesSampler,
+                overlaySurfaceDeltaPassed,
                 surfacePositionAxesPassed,
+                baseSurfacePositionAxesPassed,
                 traversabilityQueryPassed,
+                baseTraversabilityQueryPassed,
                 aboveWaterQueryPassed,
+                baseAboveWaterQueryPassed,
                 waterStateQueryPassed,
+                baseWaterStateQueryPassed,
                 gameplayTagsQueryPassed,
+                baseGameplayTagsQueryPassed,
                 traversalCostQueryPassed,
+                baseTraversalCostQueryPassed,
                 placementCandidatesQueryPassed,
                 noPlanRoutePlacementPassed,
                 navigationGridPassed,
@@ -6172,59 +6261,74 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
                 worldPlanSnapshotIsolated);
 
         return new TerrainRuntimeApiSmokeReport(
-            passed,
-            sampleFieldMatchesSampler,
-            sampleSurfaceMatchesSampler,
-            surfacePositionAxesPassed,
-            noPlanTryGetPassed,
-            noPlanSnapshotPassed,
-            emptyPlanCollectionsPassed,
-            planTryGetPassed,
-            planSnapshotTryGetPassed,
-            points.Length,
-            routes.Length,
-            traversabilityQueryPassed,
-            aboveWaterQueryPassed,
-            waterStateQueryPassed,
-            gameplayTagsQueryPassed,
-            traversalCostQueryPassed,
-            placementCandidatesQueryPassed,
-            noPlanRoutePlacementPassed,
-            navigationGridPassed,
-            navigationTileGridPassed,
-            navigationRegionQueryPassed,
-            navigationWaypointGraphPassed,
-            navigationWaypointGraphIsolated,
-            noPlanRouteGraphPassed,
-            noPlanRoutePathPassed,
-            streamingSnapshotPassed,
-            apiVersionPassed,
-            determinismContractPassed,
-            performanceContractPassed,
-            integrationInterfacesPassed,
-            signalContractsPassed,
-            pointQueryPassed,
-            pointSummaryQueryPassed,
-            gameplayTagRegionQueryPassed,
-            routeQueryPassed,
-            routeSummaryQueryPassed,
-            routeCorridorQueryPassed,
-            routePlacementQueryPassed,
-            routeGraphSnapshotPassed,
-            routePathQueryPassed,
-            routeGraphSnapshotIsolated,
-            pointSnapshotIsolated,
-            routeSnapshotIsolated,
-            worldPlanSnapshotIsolated,
-            reason);
+            Passed: passed,
+            SampleFieldMatchesSampler: sampleFieldMatchesSampler,
+            BaseFieldMatchesSampler: baseFieldMatchesSampler,
+            OverlayFieldDeltaPassed: overlayFieldDeltaPassed,
+            SampleSurfaceMatchesSampler: sampleSurfaceMatchesSampler,
+            BaseSurfaceMatchesSampler: baseSurfaceMatchesSampler,
+            OverlaySurfaceDeltaPassed: overlaySurfaceDeltaPassed,
+            SurfacePositionAxesPassed: surfacePositionAxesPassed,
+            BaseSurfacePositionAxesPassed: baseSurfacePositionAxesPassed,
+            NoPlanTryGetPassed: noPlanTryGetPassed,
+            NoPlanSnapshotPassed: noPlanSnapshotPassed,
+            EmptyPlanCollectionsPassed: emptyPlanCollectionsPassed,
+            PlanTryGetPassed: planTryGetPassed,
+            PlanSnapshotTryGetPassed: planSnapshotTryGetPassed,
+            PointOfInterestCount: points.Length,
+            RouteCount: routes.Length,
+            TraversabilityQueryPassed: traversabilityQueryPassed,
+            BaseTraversabilityQueryPassed: baseTraversabilityQueryPassed,
+            AboveWaterQueryPassed: aboveWaterQueryPassed,
+            BaseAboveWaterQueryPassed: baseAboveWaterQueryPassed,
+            WaterStateQueryPassed: waterStateQueryPassed,
+            BaseWaterStateQueryPassed: baseWaterStateQueryPassed,
+            GameplayTagsQueryPassed: gameplayTagsQueryPassed,
+            BaseGameplayTagsQueryPassed: baseGameplayTagsQueryPassed,
+            TraversalCostQueryPassed: traversalCostQueryPassed,
+            BaseTraversalCostQueryPassed: baseTraversalCostQueryPassed,
+            PlacementCandidatesQueryPassed: placementCandidatesQueryPassed,
+            NoPlanRoutePlacementPassed: noPlanRoutePlacementPassed,
+            NavigationGridPassed: navigationGridPassed,
+            NavigationTileGridPassed: navigationTileGridPassed,
+            NavigationRegionQueryPassed: navigationRegionQueryPassed,
+            NavigationWaypointGraphPassed: navigationWaypointGraphPassed,
+            NavigationWaypointGraphIsolated: navigationWaypointGraphIsolated,
+            NoPlanRouteGraphPassed: noPlanRouteGraphPassed,
+            NoPlanRoutePathPassed: noPlanRoutePathPassed,
+            StreamingSnapshotPassed: streamingSnapshotPassed,
+            ApiVersionPassed: apiVersionPassed,
+            DeterminismContractPassed: determinismContractPassed,
+            PerformanceContractPassed: performanceContractPassed,
+            IntegrationInterfacesPassed: integrationInterfacesPassed,
+            SignalContractsPassed: signalContractsPassed,
+            PointQueryPassed: pointQueryPassed,
+            PointSummaryQueryPassed: pointSummaryQueryPassed,
+            GameplayTagRegionQueryPassed: gameplayTagRegionQueryPassed,
+            RouteQueryPassed: routeQueryPassed,
+            RouteSummaryQueryPassed: routeSummaryQueryPassed,
+            RouteCorridorQueryPassed: routeCorridorQueryPassed,
+            RoutePlacementQueryPassed: routePlacementQueryPassed,
+            RouteGraphSnapshotPassed: routeGraphSnapshotPassed,
+            RoutePathQueryPassed: routePathQueryPassed,
+            RouteGraphSnapshotIsolated: routeGraphSnapshotIsolated,
+            PointSnapshotIsolated: pointSnapshotIsolated,
+            RouteSnapshotIsolated: routeSnapshotIsolated,
+            WorldPlanSnapshotIsolated: worldPlanSnapshotIsolated,
+            Reason: reason);
     }
     catch (Exception ex)
     {
         return new TerrainRuntimeApiSmokeReport(
             Passed: false,
             SampleFieldMatchesSampler: false,
+            BaseFieldMatchesSampler: false,
+            OverlayFieldDeltaPassed: false,
             SampleSurfaceMatchesSampler: false,
+            BaseSurfaceMatchesSampler: false,
+            OverlaySurfaceDeltaPassed: false,
             SurfacePositionAxesPassed: false,
+            BaseSurfacePositionAxesPassed: false,
             NoPlanTryGetPassed: false,
             NoPlanSnapshotPassed: false,
             EmptyPlanCollectionsPassed: false,
@@ -6233,10 +6337,15 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
             PointOfInterestCount: 0,
             RouteCount: 0,
             TraversabilityQueryPassed: false,
+            BaseTraversabilityQueryPassed: false,
             AboveWaterQueryPassed: false,
+            BaseAboveWaterQueryPassed: false,
             WaterStateQueryPassed: false,
+            BaseWaterStateQueryPassed: false,
             GameplayTagsQueryPassed: false,
+            BaseGameplayTagsQueryPassed: false,
             TraversalCostQueryPassed: false,
+            BaseTraversalCostQueryPassed: false,
             PlacementCandidatesQueryPassed: false,
             NoPlanRoutePlacementPassed: false,
             NavigationGridPassed: false,
@@ -7349,13 +7458,23 @@ static string RuntimeApiFailureReason(
     bool noPlanSnapshotPassed,
     bool emptyPlanCollectionsPassed,
     bool sampleFieldMatchesSampler,
+    bool baseFieldMatchesSampler,
+    bool overlayFieldDeltaPassed,
     bool sampleSurfaceMatchesSampler,
+    bool baseSurfaceMatchesSampler,
+    bool overlaySurfaceDeltaPassed,
     bool surfacePositionAxesPassed,
+    bool baseSurfacePositionAxesPassed,
     bool traversabilityQueryPassed,
+    bool baseTraversabilityQueryPassed,
     bool aboveWaterQueryPassed,
+    bool baseAboveWaterQueryPassed,
     bool waterStateQueryPassed,
+    bool baseWaterStateQueryPassed,
     bool gameplayTagsQueryPassed,
+    bool baseGameplayTagsQueryPassed,
     bool traversalCostQueryPassed,
+    bool baseTraversalCostQueryPassed,
     bool placementCandidatesQueryPassed,
     bool noPlanRoutePlacementPassed,
     bool navigationGridPassed,
@@ -7411,9 +7530,29 @@ static string RuntimeApiFailureReason(
         return "SampleField did not match TerrainWorldFieldSampler.Sample";
     }
 
+    if (!baseFieldMatchesSampler)
+    {
+        return "SampleBaseField did not match TerrainWorldFieldSampler.Sample";
+    }
+
+    if (!overlayFieldDeltaPassed)
+    {
+        return "SampleField did not reflect the active terrain modification overlay";
+    }
+
     if (!sampleSurfaceMatchesSampler)
     {
         return "SampleSurface did not match TerrainSampler.SampleWithSlope";
+    }
+
+    if (!baseSurfaceMatchesSampler)
+    {
+        return "SampleBaseSurface did not match TerrainSampler.SampleWithSlope";
+    }
+
+    if (!overlaySurfaceDeltaPassed)
+    {
+        return "SampleSurface did not reflect modified base height/semantics";
     }
 
     if (!surfacePositionAxesPassed)
@@ -7421,9 +7560,19 @@ static string RuntimeApiFailureReason(
         return "SurfacePositionAt did not map world X/Y into Godot X/Z with sampled height on Y";
     }
 
+    if (!baseSurfacePositionAxesPassed)
+    {
+        return "BaseSurfacePositionAt did not map world X/Y into Godot X/Z with sampled base height on Y";
+    }
+
     if (!traversabilityQueryPassed)
     {
         return "IsTraversable did not match sampled terrain traversability";
+    }
+
+    if (!baseTraversabilityQueryPassed)
+    {
+        return "IsBaseTraversable did not match sampled base terrain traversability";
     }
 
     if (!aboveWaterQueryPassed)
@@ -7431,19 +7580,39 @@ static string RuntimeApiFailureReason(
         return "IsAboveWater did not match sampled height versus sea level";
     }
 
+    if (!baseAboveWaterQueryPassed)
+    {
+        return "IsBaseAboveWater did not match sampled base height versus sea level";
+    }
+
     if (!waterStateQueryPassed)
     {
         return "SampleWaterState did not match terrain semantic water classification";
     }
 
+    if (!baseWaterStateQueryPassed)
+    {
+        return "SampleBaseWaterState did not match terrain semantic water classification";
+    }
+
     if (!gameplayTagsQueryPassed)
     {
-        return "SampleGameplayTags did not match terrain semantic tag classification";
+        return "SampleGameplayTags did not reflect the active terrain modification overlay";
+    }
+
+    if (!baseGameplayTagsQueryPassed)
+    {
+        return "SampleBaseGameplayTags did not match terrain semantic tag classification";
     }
 
     if (!traversalCostQueryPassed)
     {
-        return "SampleTraversalCost did not match terrain semantic traversal classification";
+        return "SampleTraversalCost did not reflect modified terrain traversal classification";
+    }
+
+    if (!baseTraversalCostQueryPassed)
+    {
+        return "SampleBaseTraversalCost did not match terrain semantic traversal classification";
     }
 
     if (!placementCandidatesQueryPassed)
@@ -7498,7 +7667,7 @@ static string RuntimeApiFailureReason(
 
     if (!apiVersionPassed)
     {
-        return "TerrainApiVersion constants did not match terrain-api-v1 version 1.7.0";
+        return "TerrainApiVersion constants did not match terrain-api-v1 version 1.8.0";
     }
 
     if (!determinismContractPassed)
@@ -8234,6 +8403,8 @@ static TerrainRuntimeWorldSmokeReport ValidateRuntimeWorldPlanMaterialization(
     TerrainWorldPlanningGateResult planningGate = TerrainWorldPlanner.ValidateOpenWorldPlanning(plan);
     TerrainExperienceGateResult experienceGate = TerrainExperienceAnalyzer.ValidateOpenWorldDefault(plan.ExperienceReport);
     TerrainPointOfInterestArchetypeValidationReport archetypeGate = TerrainPointOfInterestArchetypeCatalog.ValidatePlanReadiness(plan);
+    bool modificationQueryConsistencyPassed = ValidateRuntimeModificationQueryConsistency(profile, plan);
+    bool modificationInvalidationPassed = ValidateRuntimeModificationInvalidation(profile, plan, out string modificationInvalidationError);
     bool setWorldPlanInvalidationPassed = ValidateRuntimeSetWorldPlanInvalidation(profile, plan);
     TerrainRouteCorridorIndex corridorIndex = TerrainRouteCorridorIndex.FromPlan(plan, profile);
     TerrainPointOfInterestIndex poiIndex = TerrainPointOfInterestIndex.FromPlan(plan, profile);
@@ -8299,6 +8470,8 @@ static TerrainRuntimeWorldSmokeReport ValidateRuntimeWorldPlanMaterialization(
         planningGate.Passed &&
         experienceGate.Passed &&
         archetypeGate.Passed &&
+        modificationQueryConsistencyPassed &&
+        modificationInvalidationPassed &&
         setWorldPlanInvalidationPassed &&
         corridorIndex.HasSegments &&
         poiIndex.HasPoints &&
@@ -8317,6 +8490,9 @@ static TerrainRuntimeWorldSmokeReport ValidateRuntimeWorldPlanMaterialization(
             planningGate,
             experienceGate,
             archetypeGate,
+            modificationQueryConsistencyPassed,
+            modificationInvalidationPassed,
+            modificationInvalidationError,
             setWorldPlanInvalidationPassed,
             corridorIndex.HasSegments,
             poiIndex.HasPoints,
@@ -8346,8 +8522,178 @@ static TerrainRuntimeWorldSmokeReport ValidateRuntimeWorldPlanMaterialization(
         planningGate.Passed,
         experienceGate.Passed,
         archetypeGate.Passed,
+        modificationQueryConsistencyPassed,
+        modificationInvalidationPassed,
         setWorldPlanInvalidationPassed,
         reason);
+}
+
+static bool ValidateRuntimeModificationQueryConsistency(
+    TerrainGenerationProfile profile,
+    TerrainWorldPlan plan)
+{
+    if (plan.PointsOfInterest.Length == 0)
+    {
+        return false;
+    }
+
+    TerrainWorldPointOfInterest point = plan.PointsOfInterest[0];
+    Vector2 world = point.WorldPosition;
+    TerrainModificationLayer layer = new(
+        [
+            new TerrainHeightDelta(world, 96.0f, 15.0f, 24.0f)
+        ],
+        [
+            new TerrainSurfaceOverride(
+                world,
+                72.0f,
+                TerrainBiomeKind.Desert,
+                TerrainLandscapeKind.Lowland,
+                TerrainGameplayTag.Traversable | TerrainGameplayTag.Arid,
+                0.91f,
+                0.11f)
+        ],
+        [],
+        [],
+        []);
+    TerrainWorld worldProbe = CreateTerrainWorldFacadeProbe(profile, plan);
+    worldProbe.SetModificationLayer(layer);
+
+    TerrainWorldField baseField = worldProbe.SampleBaseField(world);
+    TerrainWorldField overlayField = worldProbe.SampleField(world);
+    TerrainSample baseSurface = worldProbe.SampleBaseSurface(world, 24.0f);
+    TerrainSample overlaySurface = worldProbe.SampleSurface(world, 24.0f);
+    TerrainGameplayTags baseTags = worldProbe.SampleBaseGameplayTags(world);
+    TerrainGameplayTags overlayTags = worldProbe.SampleGameplayTags(world);
+    TerrainTraversalCost baseTraversal = worldProbe.SampleBaseTraversalCost(world, 24.0f);
+    TerrainTraversalCost overlayTraversal = worldProbe.SampleTraversalCost(world, 24.0f);
+    TerrainTileCoord[] affectedTiles = worldProbe.QueryAffectedModificationTiles();
+
+    TerrainWorldField expectedBaseField = TerrainWorldFieldSampler.Sample(world, profile);
+    TerrainWorldField expectedOverlayField = layer.ApplyToField(expectedBaseField);
+    TerrainGameplayTags expectedBaseTags = TerrainSemanticClassifier.ClassifyGameplayTags(expectedBaseField, profile);
+    TerrainGameplayTags expectedOverlayTags = TerrainSemanticClassifier.ClassifyGameplayTags(expectedOverlayField, profile);
+
+    bool overlayDiffers =
+        !TerrainFieldsMatch(baseField, overlayField) &&
+        !TerrainSamplesMatch(baseSurface, overlaySurface) &&
+        !TerrainTraversalCostsMatch(baseTraversal, overlayTraversal);
+    bool passed =
+        TerrainFieldsMatch(expectedBaseField, baseField) &&
+        TerrainFieldsMatch(expectedOverlayField, overlayField) &&
+        TerrainGameplayTagsMatch(expectedBaseTags, baseTags) &&
+        TerrainGameplayTagsMatch(expectedOverlayTags, overlayTags) &&
+        overlayDiffers &&
+        affectedTiles.Length > 0 &&
+        ContainsTile(affectedTiles, WorldToCoord(world, profile));
+
+    worldProbe.ClearModificationLayer();
+    passed = passed &&
+        TerrainFieldsMatch(expectedBaseField, worldProbe.SampleField(world)) &&
+        TerrainSamplesMatch(baseSurface, worldProbe.SampleSurface(world, 24.0f)) &&
+        TerrainTraversalCostsMatch(baseTraversal, worldProbe.SampleTraversalCost(world, 24.0f)) &&
+        worldProbe.QueryAffectedModificationTiles().Length == 0;
+    return passed;
+}
+
+static bool ValidateRuntimeModificationInvalidation(
+    TerrainGenerationProfile profile,
+    TerrainWorldPlan plan,
+    out string error)
+{
+    error = string.Empty;
+    TerrainGenerationProfile probeProfile = profile with
+    {
+        MaxQueuedTileJobs = 0,
+        StreamRadiusChunks = 1
+    };
+    TerrainRouteCorridorIndex routeIndex = TerrainRouteCorridorIndex.FromPlan(plan, probeProfile);
+    TerrainPointOfInterestIndex poiIndex = TerrainPointOfInterestIndex.FromPlan(plan, probeProfile);
+    int terrainFeatureKey = HashCode.Combine(routeIndex.CacheKey, poiIndex.CacheKey);
+    TerrainTileCoord affectedCoord = new(12, -7);
+    TerrainTileCoord untouchedCoord = new(18, -7);
+    Vector2 affectedWorld = affectedCoord.Origin(probeProfile.ChunkSize) + new Vector2(probeProfile.ChunkSize * 0.5f, probeProfile.ChunkSize * 0.5f);
+    var modificationLayer = new TerrainModificationLayer(
+        [
+            new TerrainHeightDelta(affectedWorld, 64.0f, 9.0f, 16.0f)
+        ],
+        [],
+        [],
+        [],
+        []);
+
+    TerrainWorld world = CreateTerrainWorldFacadeProbe(probeProfile, plan);
+    SetPrivateField(world, "_routeCorridors", routeIndex);
+    SetPrivateField(world, "_pointOfInterestIndex", poiIndex);
+    SetPrivateField(world, "_desiredCoords", new HashSet<TerrainTileCoord> { affectedCoord, untouchedCoord });
+    SetPrivateField(
+        world,
+        "_chunks",
+        new Dictionary<TerrainTileCoord, TerrainChunk>
+        {
+            [affectedCoord] = null!,
+            [untouchedCoord] = null!
+        });
+    SetPrivateField(
+        world,
+        "_jobs",
+        CreatePendingTileJobStateDictionary([affectedCoord, untouchedCoord], probeProfile, terrainFeatureKey));
+    SetPrivateField(world, "_retiredJobs", CreatePendingTileJobList());
+    SetPrivateField(world, "_tileCache", CreateTileCacheState([affectedCoord, untouchedCoord], probeProfile, terrainFeatureKey));
+
+    TerrainWorldStreamingSnapshot seededSnapshot = world.GetStreamingSnapshot();
+    if (seededSnapshot.LoadedChunkCount != 2 ||
+        seededSnapshot.QueuedTileJobCount != 2 ||
+        seededSnapshot.TileCacheCount != 2)
+    {
+        error = $"seeded snapshot mismatch loaded/jobs/cache {seededSnapshot.LoadedChunkCount}/{seededSnapshot.QueuedTileJobCount}/{seededSnapshot.TileCacheCount}";
+        return false;
+    }
+
+    TerrainTileCoord[] expectedAffected = modificationLayer.QueryAffectedTiles(probeProfile.ChunkSize);
+    SetPrivateField(world, "_modificationLayer", modificationLayer);
+    SetPrivateField(world, "_modificationLayerCacheKey", HashCode.Combine(modificationLayer.ToJson()));
+    InvokePrivateMethod(world, "InvalidateAffectedStreamingState", [expectedAffected]);
+    TerrainWorldStreamingSnapshot invalidatedSnapshot = world.GetStreamingSnapshot();
+    bool passed =
+        expectedAffected.Length == 1 &&
+        expectedAffected[0] == affectedCoord &&
+        invalidatedSnapshot.LoadedChunkCount == 1 &&
+        invalidatedSnapshot.QueuedTileJobCount == 1 &&
+        invalidatedSnapshot.TileCacheCount == 1 &&
+        invalidatedSnapshot.LoadedChunks[0] == untouchedCoord &&
+        invalidatedSnapshot.QueuedTileJobs[0] == untouchedCoord &&
+        GetPrivateCollectionCount(world, "_chunks") == 1 &&
+        GetPrivateCollectionCount(world, "_jobs") == 1 &&
+        GetNestedPrivateCollectionCount(world, "_tileCache", "_tileCache") == 1 &&
+        GetPrivateCollectionCount(world, "_retiredJobs") == 1;
+    if (!passed)
+    {
+        error =
+            $"after apply affected {expectedAffected.Length} first {(expectedAffected.Length > 0 ? expectedAffected[0].ToString() : "none")}, " +
+            $"loaded/jobs/cache {invalidatedSnapshot.LoadedChunkCount}/{invalidatedSnapshot.QueuedTileJobCount}/{invalidatedSnapshot.TileCacheCount}, " +
+            $"loaded [{string.Join(";", invalidatedSnapshot.LoadedChunks)}], queued [{string.Join(";", invalidatedSnapshot.QueuedTileJobs)}], " +
+            $"priv chunks/jobs/cache/retired {GetPrivateCollectionCount(world, "_chunks")}/{GetPrivateCollectionCount(world, "_jobs")}/{GetNestedPrivateCollectionCount(world, "_tileCache", "_tileCache")}/{GetPrivateCollectionCount(world, "_retiredJobs")}";
+    }
+
+    SetPrivateField(world, "_modificationLayer", TerrainModificationLayer.Empty);
+    SetPrivateField(world, "_modificationLayerCacheKey", 0);
+    TerrainWorldStreamingSnapshot clearedSnapshot = world.GetStreamingSnapshot();
+    bool clearPassed = passed &&
+        world.QueryAffectedModificationTiles().Length == 0 &&
+        clearedSnapshot.LoadedChunkCount == 1 &&
+        clearedSnapshot.QueuedTileJobCount == 1 &&
+        clearedSnapshot.TileCacheCount == 1 &&
+        clearedSnapshot.LoadedChunks[0] == untouchedCoord &&
+        clearedSnapshot.QueuedTileJobs[0] == untouchedCoord;
+    if (!clearPassed && string.IsNullOrEmpty(error))
+    {
+        error =
+            $"after clear loaded/jobs/cache {clearedSnapshot.LoadedChunkCount}/{clearedSnapshot.QueuedTileJobCount}/{clearedSnapshot.TileCacheCount}, " +
+            $"loaded [{string.Join(";", clearedSnapshot.LoadedChunks)}], queued [{string.Join(";", clearedSnapshot.QueuedTileJobs)}], affected {world.QueryAffectedModificationTiles().Length}";
+    }
+
+    return clearPassed;
 }
 
 static bool ValidateRuntimeSetWorldPlanInvalidation(
@@ -8500,6 +8846,9 @@ static string RuntimeWorldFailureReason(
     TerrainWorldPlanningGateResult planningGate,
     TerrainExperienceGateResult experienceGate,
     TerrainPointOfInterestArchetypeValidationReport archetypeGate,
+    bool modificationQueryConsistencyPassed,
+    bool modificationInvalidationPassed,
+    string modificationInvalidationError,
     bool setWorldPlanInvalidationPassed,
     bool hasCorridorIndex,
     bool hasPointIndex,
@@ -8523,6 +8872,18 @@ static string RuntimeWorldFailureReason(
     if (!qualityGate.Passed || !planningGate.Passed || !experienceGate.Passed || !archetypeGate.Passed)
     {
         return "runtime open world plan failed readiness gates";
+    }
+
+    if (!modificationQueryConsistencyPassed)
+    {
+        return "TerrainWorld modification overlay queries did not remain consistent across base/overlay/clear transitions";
+    }
+
+    if (!modificationInvalidationPassed)
+    {
+        return string.IsNullOrWhiteSpace(modificationInvalidationError)
+            ? "TerrainWorld modification overlay did not selectively invalidate affected jobs, cache, and loaded chunks"
+            : $"TerrainWorld modification overlay invalidation mismatch: {modificationInvalidationError}";
     }
 
     if (!setWorldPlanInvalidationPassed)

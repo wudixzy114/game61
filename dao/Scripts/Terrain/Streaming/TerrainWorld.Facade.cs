@@ -17,16 +17,35 @@ public partial class TerrainWorld
         return SampleFieldWithModification(world);
     }
 
+    /// <summary>Samples the deterministic base terrain semantic field at a world XZ position without applying the active modification overlay.</summary>
+    public TerrainWorldField SampleBaseField(Vector2 world)
+    {
+        return SampleBaseFieldCore(world);
+    }
+
     /// <summary>Samples height, slope, biome, landscape, traversability, and surface color at a world XZ position.</summary>
     public TerrainSample SampleSurface(Vector2 world, float spacing = 4.0f)
     {
         return SampleSurfaceWithModification(world, spacing);
     }
 
+    /// <summary>Samples deterministic base height, slope, biome, landscape, traversability, and surface color without applying the active modification overlay.</summary>
+    public TerrainSample SampleBaseSurface(Vector2 world, float spacing = 4.0f)
+    {
+        return SampleBaseSurfaceCore(world, spacing);
+    }
+
     /// <summary>Returns a Godot 3D surface position for a world XZ query, using X/Z as horizontal axes and Y as height.</summary>
     public Vector3 SurfacePositionAt(Vector2 world, float heightOffset = 0.0f)
     {
         TerrainWorldField field = SampleField(world);
+        return new Vector3(world.X, field.Height + heightOffset, world.Y);
+    }
+
+    /// <summary>Returns a Godot 3D surface position from deterministic base terrain only, ignoring the active modification overlay.</summary>
+    public Vector3 BaseSurfacePositionAt(Vector2 world, float heightOffset = 0.0f)
+    {
+        TerrainWorldField field = SampleBaseField(world);
         return new Vector3(world.X, field.Height + heightOffset, world.Y);
     }
 
@@ -114,11 +133,27 @@ public partial class TerrainWorld
         return TerrainSemanticClassifier.ClassifyWater(field, profile);
     }
 
+    /// <summary>Samples static terrain water semantics from deterministic base terrain only.</summary>
+    public TerrainWaterState SampleBaseWaterState(Vector2 world)
+    {
+        TerrainGenerationProfile profile = CurrentProfile;
+        TerrainWorldField field = SampleBaseFieldCore(world);
+        return TerrainSemanticClassifier.ClassifyWater(field, profile);
+    }
+
     /// <summary>Samples gameplay-facing terrain tags at a world XZ position without touching streaming tiles.</summary>
     public TerrainGameplayTags SampleGameplayTags(Vector2 world)
     {
         TerrainGenerationProfile profile = CurrentProfile;
         TerrainWorldField field = SampleFieldWithModification(world);
+        return TerrainSemanticClassifier.ClassifyGameplayTags(field, profile);
+    }
+
+    /// <summary>Samples gameplay-facing terrain tags from deterministic base terrain only.</summary>
+    public TerrainGameplayTags SampleBaseGameplayTags(Vector2 world)
+    {
+        TerrainGenerationProfile profile = CurrentProfile;
+        TerrainWorldField field = SampleBaseFieldCore(world);
         return TerrainSemanticClassifier.ClassifyGameplayTags(field, profile);
     }
 
@@ -128,6 +163,12 @@ public partial class TerrainWorld
         return SampleTraversalCostWithModification(world, spacing);
     }
 
+    /// <summary>Samples local traversal cost from deterministic base terrain only, ignoring the active modification overlay.</summary>
+    public TerrainTraversalCost SampleBaseTraversalCost(Vector2 world, float spacing = 4.0f)
+    {
+        return SampleBaseTraversalCostCore(world, spacing);
+    }
+
     /// <summary>Returns whether the sampled terrain field meets the requested traversability threshold.</summary>
     public bool IsTraversable(Vector2 world, float minTraversability = 0.45f)
     {
@@ -135,11 +176,25 @@ public partial class TerrainWorld
         return SampleField(world).Traversability >= threshold;
     }
 
+    /// <summary>Returns whether deterministic base terrain meets the requested traversability threshold without overlay influence.</summary>
+    public bool IsBaseTraversable(Vector2 world, float minTraversability = 0.45f)
+    {
+        float threshold = Mathf.Clamp(minTraversability, 0.0f, 1.0f);
+        return SampleBaseFieldCore(world).Traversability >= threshold;
+    }
+
     /// <summary>Returns whether sampled terrain height is above this world's sea level plus an optional margin.</summary>
     public bool IsAboveWater(Vector2 world, float margin = 0.0f)
     {
         TerrainGenerationProfile profile = CurrentProfile;
         return SampleFieldWithModification(world).Height >= profile.SeaLevel + margin;
+    }
+
+    /// <summary>Returns whether deterministic base terrain height is above sea level plus margin without overlay influence.</summary>
+    public bool IsBaseAboveWater(Vector2 world, float margin = 0.0f)
+    {
+        TerrainGenerationProfile profile = CurrentProfile;
+        return SampleBaseFieldCore(world).Height >= profile.SeaLevel + margin;
     }
 
     /// <summary>Creates the open-world plan used by TerrainWorld runtime streaming for a profile and world size.</summary>

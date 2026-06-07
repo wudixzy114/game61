@@ -14,9 +14,11 @@ public partial class TerrainEditorDockPanel : VBoxContainer
 {
     private const string DefaultTerrainSettingsPath = "res://Resources/Terrain/DefaultTerrainSettings.tres";
     private const string DefaultTerrainVisualCatalogPath = "res://Resources/Terrain/DefaultTerrainVisualCatalog.tres";
+    private const string DefaultModificationLayerPath = "user://terrain_editor/terrain_modification_layer.json";
     private bool _uiBuilt;
     private LineEdit? _settingsPathEdit;
     private LineEdit? _visualCatalogPathEdit;
+    private LineEdit? _modificationLayerPathEdit;
     private Label? _statusLabel;
     private Label? _profileLabel;
     private SpinBox? _previewSeedSpin;
@@ -31,6 +33,7 @@ public partial class TerrainEditorDockPanel : VBoxContainer
     private SpinBox? _sampleZSpin;
     private TextEdit? _sampleText;
     private TextEdit? _visualCatalogText;
+    private TextEdit? _modificationText;
     private LineEdit? _fromPoiIdEdit;
     private LineEdit? _toPoiIdEdit;
     private TextEdit? _pathText;
@@ -122,6 +125,25 @@ public partial class TerrainEditorDockPanel : VBoxContainer
 
         _visualCatalogText = CreateReadOnlyText(160.0f);
         content.AddChild(_visualCatalogText);
+
+        content.AddChild(CreateSectionTitle("Terrain Modification Layer"));
+
+        _modificationLayerPathEdit = new LineEdit
+        {
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            Text = DefaultModificationLayerPath,
+            PlaceholderText = "user://terrain_editor/terrain_modification_layer.json"
+        };
+        content.AddChild(_modificationLayerPathEdit);
+
+        var modificationRow = new HBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        content.AddChild(modificationRow);
+        modificationRow.AddChild(CreateActionButton("Load Modification", OnLoadModificationPressed));
+        modificationRow.AddChild(CreateActionButton("Save Modification", OnSaveModificationPressed));
+        modificationRow.AddChild(CreateActionButton("Clear Modification", OnClearModificationPressed));
+
+        _modificationText = CreateReadOnlyText(180.0f);
+        content.AddChild(_modificationText);
 
         var grid = new GridContainer
         {
@@ -490,18 +512,80 @@ public partial class TerrainEditorDockPanel : VBoxContainer
         TerrainWaterState water = TerrainSemanticClassifier.ClassifyWater(field, profile);
         TerrainGameplayTags tags = TerrainSemanticClassifier.ClassifyGameplayTags(field, profile);
         TerrainTraversalCost traversal = TerrainSemanticClassifier.ClassifyTraversalCost(field, surface, profile);
+        TerrainModificationLayer modificationLayer = ResolveModificationLayer();
+        TerrainWorldField modifiedField = modificationLayer.ApplyToField(field);
+        TerrainSample modifiedSurface = CreateModifiedSurface(world, profile, modificationLayer, spacing: 24.0f);
+        TerrainWaterState modifiedWater = TerrainSemanticClassifier.ClassifyWater(modifiedField, profile);
+        TerrainGameplayTags modifiedTags = TerrainSemanticClassifier.ClassifyGameplayTags(modifiedField, profile);
+        TerrainTraversalCost modifiedTraversal = TerrainSemanticClassifier.ClassifyTraversalCost(modifiedField, modifiedSurface, profile);
 
-        var builder = new StringBuilder(512);
+        var builder = new StringBuilder(768);
         builder.AppendLine($"World: {world.X:0.0}, {world.Y:0.0}");
-        builder.AppendLine($"Height: {field.Height:0.00}  Slope: {surface.Slope:0.000}");
-        builder.AppendLine($"Biome/Landscape: {field.BiomeKind} / {field.LandscapeKind}");
-        builder.AppendLine($"Water: {water.Kind} depth {water.Depth:0.00} strength {water.Strength:0.000}");
-        builder.AppendLine($"Tags: {tags.Flags}");
-        builder.AppendLine($"Traversal: blocked {traversal.IsBlocked}, cost {traversal.Cost:0.000}, traversability {traversal.Traversability:0.000}");
+        builder.AppendLine($"Base Height/Slope: {field.Height:0.00} / {surface.Slope:0.000}");
+        builder.AppendLine($"Base Biome/Landscape: {field.BiomeKind} / {field.LandscapeKind}");
+        builder.AppendLine($"Base Water: {water.Kind} depth {water.Depth:0.00} strength {water.Strength:0.000}");
+        builder.AppendLine($"Base Tags: {tags.Flags}");
+        builder.AppendLine($"Base Traversal: blocked {traversal.IsBlocked}, cost {traversal.Cost:0.000}, traversability {traversal.Traversability:0.000}");
+        if (!modificationLayer.IsEmpty)
+        {
+            builder.AppendLine();
+            builder.AppendLine($"Overlay Height/Slope: {modifiedField.Height:0.00} / {modifiedSurface.Slope:0.000}");
+            builder.AppendLine($"Overlay Biome/Landscape: {modifiedField.BiomeKind} / {modifiedField.LandscapeKind}");
+            builder.AppendLine($"Overlay Water: {modifiedWater.Kind} depth {modifiedWater.Depth:0.00} strength {modifiedWater.Strength:0.000}");
+            builder.AppendLine($"Overlay Tags: {modifiedTags.Flags}");
+            builder.AppendLine($"Overlay Traversal: blocked {modifiedTraversal.IsBlocked}, cost {modifiedTraversal.Cost:0.000}, traversability {modifiedTraversal.Traversability:0.000}");
+            builder.AppendLine($"Delta Height: {modifiedField.Height - field.Height:0.00}");
+        }
+
         builder.AppendLine($"Scenic/Resource/Hazard/Encounter: {field.ScenicPotential:0.000} / {field.ResourcePotential:0.000} / {field.HazardPotential:0.000} / {field.EncounterPotential:0.000}");
         builder.AppendLine($"River/Lake/Moisture/Temperature: {field.River:0.000} / {field.Lake:0.000} / {field.Moisture:0.000} / {field.Temperature:0.000}");
         _sampleText!.Text = builder.ToString();
         SetStatus($"Sampled terrain semantics at {world.X:0.0}, {world.Y:0.0}.");
+    }
+
+    private void OnLoadModificationPressed()
+    {
+        if (_modificationLayerPathEdit is null)
+        {
+            SetStatus("Terrain editor dock was not initialized correctly.", isError: true);
+            return;
+        }
+
+        string path = _modificationLayerPathEdit.Text.Trim();
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            SetStatus("Set a terrain modification JSON path before loading.", isError: true);
+            return;
+        }
+
+        if (!TerrainModificationLayer.TryLoadJson(path, out TerrainModificationLayer? layer, out string error) ||
+            layer is null)
+        {
+            SetStatus(error, isError: true);
+            return;
+        }
+
+        ApplyModificationLayerSummary(layer, NormalizeResourcePath(path), "Loaded terrain modification layer.");
+    }
+
+    private void OnSaveModificationPressed()
+    {
+        TerrainModificationLayer layer = ResolveModificationLayer();
+        string outputPath = ResolveModificationLayerOutputPath();
+        Error saveError = layer.SaveJson(outputPath);
+        if (saveError != Error.Ok)
+        {
+            SetStatus($"Failed to save terrain modification layer to '{outputPath}' ({saveError}).", isError: true);
+            return;
+        }
+
+        ApplyModificationLayerSummary(layer, outputPath, "Saved terrain modification layer.");
+    }
+
+    private void OnClearModificationPressed()
+    {
+        TerrainModificationLayer empty = TerrainModificationLayer.Empty;
+        ApplyModificationLayerSummary(empty, ResolveModificationLayerOutputPath(), "Cleared terrain modification layer preview state.");
     }
 
     private void OnPreviewPathPressed()
@@ -840,6 +924,110 @@ public partial class TerrainEditorDockPanel : VBoxContainer
         }
 
         return new TerrainVisualCatalogValidationSummary(report.Passed, builder.ToString());
+    }
+
+    private TerrainModificationLayer ResolveModificationLayer()
+    {
+        string path = ResolveModificationLayerOutputPath();
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return TerrainModificationLayer.Empty;
+        }
+
+        return TerrainModificationLayer.TryLoadJson(path, out TerrainModificationLayer? layer, out _)
+            && layer is not null
+            ? layer
+            : TerrainModificationLayer.Empty;
+    }
+
+    private void ApplyModificationLayerSummary(TerrainModificationLayer layer, string path, string status)
+    {
+        if (_modificationLayerPathEdit is not null)
+        {
+            _modificationLayerPathEdit.Text = path;
+        }
+
+        _modificationText!.Text = CreateModificationLayerSummary(layer, path);
+        SetStatus(status);
+    }
+
+    private string CreateModificationLayerSummary(TerrainModificationLayer layer, string path)
+    {
+        TerrainGenerationProfile profile = default;
+        bool hasProfile = TryResolveProfile(out profile, out _);
+        TerrainTileCoord[] affectedTiles = hasProfile
+            ? layer.QueryAffectedTiles(profile.ChunkSize)
+            : Array.Empty<TerrainTileCoord>();
+
+        var builder = new StringBuilder(640);
+        builder.AppendLine($"Path: {path}");
+        builder.AppendLine($"Contract: {TerrainModificationLayer.Contract} v{TerrainModificationLayer.CurrentVersion}");
+        builder.AppendLine($"Empty: {layer.IsEmpty}");
+        builder.AppendLine($"Height Deltas: {layer.HeightDeltas.Length}");
+        builder.AppendLine($"Surface Overrides: {layer.SurfaceOverrides.Length}");
+        builder.AppendLine($"Scatter Modifications: {layer.ScatterModifications.Length}");
+        builder.AppendLine($"Landmark Modifications: {layer.LandmarkModifications.Length}");
+        builder.AppendLine($"Route Modifications: {layer.RouteModifications.Length}");
+        if (hasProfile)
+        {
+            builder.AppendLine($"Affected Tiles: {affectedTiles.Length} (chunk size {profile.ChunkSize:0.##})");
+            if (affectedTiles.Length > 0)
+            {
+                int previewCount = Math.Min(affectedTiles.Length, 12);
+                var preview = new string[previewCount];
+                for (int i = 0; i < previewCount; i++)
+                {
+                    preview[i] = $"{affectedTiles[i].X},{affectedTiles[i].Z}";
+                }
+
+                builder.AppendLine($"Tile Preview: {string.Join(" | ", preview)}");
+            }
+        }
+
+        builder.AppendLine();
+        builder.AppendLine("JSON Snapshot");
+        builder.AppendLine(layer.ToJson());
+        return builder.ToString();
+    }
+
+    private string ResolveModificationLayerOutputPath()
+    {
+        string requested = _modificationLayerPathEdit?.Text.Trim() ?? string.Empty;
+        return string.IsNullOrWhiteSpace(requested)
+            ? DefaultModificationLayerPath
+            : NormalizeResourcePath(requested);
+    }
+
+    private static TerrainSample CreateModifiedSurface(
+        Vector2 world,
+        TerrainGenerationProfile profile,
+        TerrainModificationLayer layer,
+        float spacing)
+    {
+        TerrainWorldField centerField = layer.ApplyToField(TerrainWorldFieldSampler.Sample(world, profile));
+        float delta = Mathf.Max(1.0f, spacing);
+        float left = layer.ApplyToField(TerrainWorldFieldSampler.Sample(new Vector2(world.X - delta, world.Y), profile)).Height;
+        float right = layer.ApplyToField(TerrainWorldFieldSampler.Sample(new Vector2(world.X + delta, world.Y), profile)).Height;
+        float down = layer.ApplyToField(TerrainWorldFieldSampler.Sample(new Vector2(world.X, world.Y - delta), profile)).Height;
+        float up = layer.ApplyToField(TerrainWorldFieldSampler.Sample(new Vector2(world.X, world.Y + delta), profile)).Height;
+
+        Vector3 normal = new Vector3(left - right, delta * 2.0f, down - up).Normalized();
+        float slope = 1.0f - Mathf.Clamp(normal.Y, 0.0f, 1.0f);
+        Color color = TerrainSampler.ColorForSurface(centerField, profile, slope);
+        return new TerrainSample(
+            centerField.Height,
+            centerField.Continent,
+            centerField.Mountains,
+            centerField.River,
+            centerField.Lake,
+            centerField.Moisture,
+            centerField.Temperature,
+            centerField.ScenicPotential,
+            centerField.Traversability,
+            centerField.BiomeKind,
+            centerField.LandscapeKind,
+            slope,
+            color);
     }
 
     private string NormalizeResourcePath(string path)
