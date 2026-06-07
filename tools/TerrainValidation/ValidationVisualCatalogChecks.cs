@@ -23,7 +23,9 @@ internal static class TerrainValidationVisualCatalogChecks
                 HasPublicProperty<TerrainScatterVisualEntryResource>("Mesh", typeof(Mesh)) &&
                 HasPublicProperty<TerrainLandmarkVisualEntryResource>("Mesh", typeof(Mesh)) &&
                 HasPublicMethod<TerrainVisualCatalog>("GetScatterEntry", typeof(TerrainScatterVisualEntryResource), typeof(TerrainScatterKind)) &&
-                HasPublicMethod<TerrainVisualCatalog>("GetLandmarkEntry", typeof(TerrainLandmarkVisualEntryResource), typeof(TerrainLandmarkKind));
+                HasPublicMethod<TerrainVisualCatalog>("GetScatterEntry", typeof(TerrainScatterVisualEntryResource), typeof(TerrainScatterKind), typeof(int)) &&
+                HasPublicMethod<TerrainVisualCatalog>("GetLandmarkEntry", typeof(TerrainLandmarkVisualEntryResource), typeof(TerrainLandmarkKind)) &&
+                HasPublicMethod<TerrainVisualCatalog>("GetLandmarkEntry", typeof(TerrainLandmarkVisualEntryResource), typeof(TerrainLandmarkKind), typeof(int));
             bool sceneEntryLookupPassed =
                 HasPublicProperty<TerrainScatterVisualEntryResource>("Scene", typeof(PackedScene)) &&
                 HasPublicProperty<TerrainLandmarkVisualEntryResource>("Scene", typeof(PackedScene));
@@ -37,7 +39,14 @@ internal static class TerrainValidationVisualCatalogChecks
                 HasPublicMethod<TerrainVisualCatalog>("ValidateCatalog", typeof(TerrainVisualCatalogValidationReport)) &&
                 catalogSource.Contains("TerrainVisualCatalogValidationReport", StringComparison.Ordinal) &&
                 catalogSource.Contains("ScatterDuplicateEntryCount", StringComparison.Ordinal) &&
-                catalogSource.Contains("LandmarkInvalidLodEntryCount", StringComparison.Ordinal);
+                catalogSource.Contains("LandmarkInvalidLodEntryCount", StringComparison.Ordinal) &&
+                catalogSource.Contains("ScatterInvalidDensityEntryCount", StringComparison.Ordinal) &&
+                catalogSource.Contains("LandmarkInvalidInstanceCapEntryCount", StringComparison.Ordinal) &&
+                catalogSource.Contains("scatterEntriesByKind", StringComparison.Ordinal) &&
+                catalogSource.Contains("landmarkEntriesByKind", StringComparison.Ordinal) &&
+                catalogSource.Contains("CountOverlappingLodEntries", StringComparison.Ordinal) &&
+                catalogSource.Contains("LodRangesOverlap", StringComparison.Ordinal) &&
+                catalogSource.Contains("LodInRange(lod, entry.MinLod, entry.MaxLod)", StringComparison.Ordinal);
             bool referencedResourceCollectionPassed =
                 HasPublicMethod<TerrainVisualCatalog>("GetReferencedResources", typeof(Resource[])) &&
                 catalogSource.Contains("AddReferencedResource(entry.Mesh", StringComparison.Ordinal) &&
@@ -49,8 +58,13 @@ internal static class TerrainValidationVisualCatalogChecks
             bool runtimeScenePathPassed =
                 chunkSource.Contains("PackedScene scene", StringComparison.Ordinal) &&
                 chunkSource.Contains("scene.Instantiate()", StringComparison.Ordinal) &&
+                chunkSource.Contains("ShouldRenderVisualInstance", StringComparison.Ordinal) &&
+                chunkSource.Contains("DensityMultiplier", StringComparison.Ordinal) &&
+                chunkSource.Contains("MaxInstancesPerTile", StringComparison.Ordinal) &&
                 chunkScatterSource.Contains("RebuildScatterSceneKind", StringComparison.Ordinal) &&
-                chunkLandmarkSource.Contains("RebuildLandmarkSceneKind", StringComparison.Ordinal);
+                chunkLandmarkSource.Contains("RebuildLandmarkSceneKind", StringComparison.Ordinal) &&
+                chunkScatterSource.Contains("GetScatterEntry(kind, Lod)", StringComparison.Ordinal) &&
+                chunkLandmarkSource.Contains("GetLandmarkEntry(kind, Lod)", StringComparison.Ordinal);
 
             bool passed =
                 meshEntryLookupPassed &&
@@ -96,6 +110,8 @@ internal static class TerrainValidationVisualCatalogChecks
     {
         return source.Contains("PackedScene? Scene", StringComparison.Ordinal) &&
                source.Contains("PreferSceneInstances", StringComparison.Ordinal) &&
+               source.Contains("DensityMultiplier", StringComparison.Ordinal) &&
+               source.Contains("MaxInstancesPerTile", StringComparison.Ordinal) &&
                source.Contains("MinLod", StringComparison.Ordinal) &&
                source.Contains("MaxLod", StringComparison.Ordinal) &&
                source.Contains("CreatesCollision", StringComparison.Ordinal) &&

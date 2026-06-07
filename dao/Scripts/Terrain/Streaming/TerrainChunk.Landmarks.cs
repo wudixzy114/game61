@@ -67,12 +67,19 @@ public partial class TerrainChunk
         TerrainLandmarkKind landmarkKind,
         MultiMeshInstance3D? existing)
     {
+        ScatterVisual visual = VisualForLandmark(landmarkKind);
         int count = 0;
+        int candidateIndex = 0;
         foreach (TerrainScatterInstance instance in data.ScatterInstances)
         {
             if (instance.Kind == TerrainScatterKind.Landmark && instance.LandmarkKind == landmarkKind)
             {
-                count++;
+                if (ShouldRenderVisualInstance(candidateIndex, count, visual))
+                {
+                    count++;
+                }
+
+                candidateIndex++;
             }
         }
 
@@ -86,7 +93,6 @@ public partial class TerrainChunk
             return null;
         }
 
-        ScatterVisual visual = VisualForLandmark(landmarkKind);
         if (UsesSceneInstances(visual))
         {
             if (existing is not null)
@@ -130,10 +136,17 @@ public partial class TerrainChunk
         multimesh.VisibleInstanceCount = count;
 
         int index = 0;
+        candidateIndex = 0;
         foreach (TerrainScatterInstance instance in data.ScatterInstances)
         {
             if (instance.Kind != TerrainScatterKind.Landmark || instance.LandmarkKind != landmarkKind)
             {
+                continue;
+            }
+
+            if (!ShouldRenderVisualInstance(candidateIndex, index, visual))
+            {
+                candidateIndex++;
                 continue;
             }
 
@@ -146,6 +159,7 @@ public partial class TerrainChunk
             multimesh.SetInstanceTransform(index, transform);
             multimesh.SetInstanceColor(index, instance.Color);
             index++;
+            candidateIndex++;
         }
 
         existing.Multimesh = multimesh;
@@ -180,6 +194,8 @@ public partial class TerrainChunk
             ClearSceneContainer(container);
         }
 
+        int candidateIndex = 0;
+        int emittedCount = 0;
         foreach (TerrainScatterInstance instance in data.ScatterInstances)
         {
             if (instance.Kind != TerrainScatterKind.Landmark || instance.LandmarkKind != landmarkKind)
@@ -187,13 +203,21 @@ public partial class TerrainChunk
                 continue;
             }
 
+            if (!ShouldRenderVisualInstance(candidateIndex, emittedCount, visual))
+            {
+                candidateIndex++;
+                continue;
+            }
+
             AddSceneInstance(container, scene, TransformForInstance(instance, visual), visual, instance.Color);
+            emittedCount++;
+            candidateIndex++;
         }
     }
 
     private ScatterVisual VisualForLandmark(TerrainLandmarkKind kind)
     {
-        TerrainLandmarkVisualEntryResource? entry = _visualCatalog?.GetLandmarkEntry(kind);
+        TerrainLandmarkVisualEntryResource? entry = _visualCatalog?.GetLandmarkEntry(kind, Lod);
         ScatterVisual fallback = DefaultVisualForLandmark(kind);
         if (entry is null)
         {
@@ -205,11 +229,8 @@ public partial class TerrainChunk
         string nodeName = string.IsNullOrWhiteSpace(entry.NodeName)
             ? fallback.NodeName
             : entry.NodeName;
-        bool lodMatches = Lod >= entry.MinLod && Lod <= entry.MaxLod;
-        Mesh? mesh = lodMatches
-            ? entry.Mesh ?? (_visualCatalog?.UsePrimitiveFallbacks == false ? null : fallback.Mesh)
-            : (_visualCatalog?.UsePrimitiveFallbacks == false ? null : fallback.Mesh);
-        PackedScene? scene = lodMatches ? entry.Scene : null;
+        Mesh? mesh = entry.Mesh ?? (_visualCatalog?.UsePrimitiveFallbacks == false ? null : fallback.Mesh);
+        PackedScene? scene = entry.Scene;
         return new ScatterVisual(
             nodeName,
             mesh,
@@ -220,7 +241,9 @@ public partial class TerrainChunk
             entry.AabbHeightPadding,
             entry.CreatesCollision,
             entry.CreatesNavigationObstacle,
-            entry.InteractionTag);
+            entry.InteractionTag,
+            entry.DensityMultiplier,
+            entry.MaxInstancesPerTile);
     }
 
     private static ScatterVisual DefaultVisualForLandmark(TerrainLandmarkKind kind)

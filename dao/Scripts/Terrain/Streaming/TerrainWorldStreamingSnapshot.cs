@@ -14,6 +14,7 @@ public readonly record struct TerrainWorldStreamingSnapshot(
     TerrainTileCoord[] DesiredChunks,
     int LoadedChunkCount,
     TerrainTileCoord[] LoadedChunks,
+    TerrainStreamingLodBucket[] LodBuckets,
     int QueuedTileJobCount,
     TerrainTileCoord[] QueuedTileJobs,
     int RetiredTileJobCount,
@@ -27,6 +28,9 @@ public readonly record struct TerrainWorldStreamingSnapshot(
 {
     public bool TileCacheWithinLimit => TileCacheLimit <= 0 || TileCacheCount <= TileCacheLimit;
     public bool TileJobQueueWithinLimit => QueuedTileJobCount <= MaxQueuedTileJobs;
+    public int LoadedLodBucketCount => LodBuckets?.Length ?? 0;
+    public int HighestLoadedLod => HighestLoadedLodIn(LodBuckets);
+    public int LowestLoadedLod => LowestLoadedLodIn(LodBuckets);
     public bool CanStreamTerrain => HasFocus &&
         (HasWorldPlan || StreamTerrainBeforeOpenWorldPlanReady) &&
         TileCacheWithinLimit &&
@@ -80,5 +84,45 @@ public readonly record struct TerrainWorldStreamingSnapshot(
         }
 
         return false;
+    }
+
+    private static int HighestLoadedLodIn(TerrainStreamingLodBucket[]? buckets)
+    {
+        if (buckets is null || buckets.Length == 0)
+        {
+            return -1;
+        }
+
+        int highest = -1;
+        for (int i = 0; i < buckets.Length; i++)
+        {
+            TerrainStreamingLodBucket bucket = buckets[i];
+            if (bucket.LoadedChunkCount > 0 && bucket.Lod > highest)
+            {
+                highest = bucket.Lod;
+            }
+        }
+
+        return highest;
+    }
+
+    private static int LowestLoadedLodIn(TerrainStreamingLodBucket[]? buckets)
+    {
+        if (buckets is null || buckets.Length == 0)
+        {
+            return -1;
+        }
+
+        int lowest = int.MaxValue;
+        for (int i = 0; i < buckets.Length; i++)
+        {
+            TerrainStreamingLodBucket bucket = buckets[i];
+            if (bucket.LoadedChunkCount > 0 && bucket.Lod < lowest)
+            {
+                lowest = bucket.Lod;
+            }
+        }
+
+        return lowest == int.MaxValue ? -1 : lowest;
     }
 }

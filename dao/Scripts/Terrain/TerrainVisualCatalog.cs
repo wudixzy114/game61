@@ -14,11 +14,15 @@ public readonly record struct TerrainVisualCatalogValidationReport(
     int ScatterSceneEntryCount,
     int ScatterDuplicateEntryCount,
     int ScatterInvalidLodEntryCount,
+    int ScatterInvalidDensityEntryCount,
+    int ScatterInvalidInstanceCapEntryCount,
     int LandmarkEntryCount,
     int LandmarkMeshEntryCount,
     int LandmarkSceneEntryCount,
     int LandmarkDuplicateEntryCount,
     int LandmarkInvalidLodEntryCount,
+    int LandmarkInvalidDensityEntryCount,
+    int LandmarkInvalidInstanceCapEntryCount,
     TerrainScatterKind[] MissingScatterKinds,
     TerrainLandmarkKind[] MissingLandmarkKinds,
     Resource[] ReferencedResources);
@@ -45,12 +49,44 @@ public partial class TerrainVisualCatalog : Resource
         return null;
     }
 
+    /// <summary>Returns the first scatter visual entry configured for the requested kind and LOD, if any.</summary>
+    public TerrainScatterVisualEntryResource? GetScatterEntry(TerrainScatterKind kind, int lod)
+    {
+        foreach (TerrainScatterVisualEntryResource? entry in ScatterEntries)
+        {
+            if (entry is not null &&
+                entry.Kind == kind &&
+                LodInRange(lod, entry.MinLod, entry.MaxLod))
+            {
+                return entry;
+            }
+        }
+
+        return null;
+    }
+
     /// <summary>Returns the first landmark visual entry configured for the requested kind, if any.</summary>
     public TerrainLandmarkVisualEntryResource? GetLandmarkEntry(TerrainLandmarkKind kind)
     {
         foreach (TerrainLandmarkVisualEntryResource? entry in LandmarkEntries)
         {
             if (entry is not null && entry.Kind == kind)
+            {
+                return entry;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>Returns the first landmark visual entry configured for the requested kind and LOD, if any.</summary>
+    public TerrainLandmarkVisualEntryResource? GetLandmarkEntry(TerrainLandmarkKind kind, int lod)
+    {
+        foreach (TerrainLandmarkVisualEntryResource? entry in LandmarkEntries)
+        {
+            if (entry is not null &&
+                entry.Kind == kind &&
+                LodInRange(lod, entry.MinLod, entry.MaxLod))
             {
                 return entry;
             }
@@ -134,8 +170,10 @@ public partial class TerrainVisualCatalog : Resource
         int scatterMeshEntries = 0;
         int scatterSceneEntries = 0;
         int scatterInvalidLodEntries = 0;
+        int scatterInvalidDensityEntries = 0;
+        int scatterInvalidInstanceCapEntries = 0;
         int scatterDuplicateEntries = 0;
-        var scatterKinds = new HashSet<TerrainScatterKind>();
+        var scatterEntriesByKind = new System.Collections.Generic.Dictionary<TerrainScatterKind, List<TerrainScatterVisualEntryResource>>();
         foreach (TerrainScatterVisualEntryResource? entry in ScatterEntries)
         {
             if (entry is null)
@@ -159,18 +197,36 @@ public partial class TerrainVisualCatalog : Resource
                 scatterInvalidLodEntries++;
             }
 
-            if (!scatterKinds.Add(entry.Kind))
+            if (!float.IsFinite(entry.DensityMultiplier) ||
+                entry.DensityMultiplier < 0.0f ||
+                entry.DensityMultiplier > 1.0f)
             {
-                scatterDuplicateEntries++;
+                scatterInvalidDensityEntries++;
             }
+
+            if (entry.MaxInstancesPerTile < 0)
+            {
+                scatterInvalidInstanceCapEntries++;
+            }
+
+            if (!scatterEntriesByKind.TryGetValue(entry.Kind, out List<TerrainScatterVisualEntryResource>? kindEntries))
+            {
+                kindEntries = new List<TerrainScatterVisualEntryResource>();
+                scatterEntriesByKind[entry.Kind] = kindEntries;
+            }
+
+            scatterDuplicateEntries += CountOverlappingLodEntries(entry, kindEntries);
+            kindEntries.Add(entry);
         }
 
         int landmarkEntries = 0;
         int landmarkMeshEntries = 0;
         int landmarkSceneEntries = 0;
         int landmarkInvalidLodEntries = 0;
+        int landmarkInvalidDensityEntries = 0;
+        int landmarkInvalidInstanceCapEntries = 0;
         int landmarkDuplicateEntries = 0;
-        var landmarkKinds = new HashSet<TerrainLandmarkKind>();
+        var landmarkEntriesByKind = new System.Collections.Generic.Dictionary<TerrainLandmarkKind, List<TerrainLandmarkVisualEntryResource>>();
         foreach (TerrainLandmarkVisualEntryResource? entry in LandmarkEntries)
         {
             if (entry is null)
@@ -194,10 +250,26 @@ public partial class TerrainVisualCatalog : Resource
                 landmarkInvalidLodEntries++;
             }
 
-            if (!landmarkKinds.Add(entry.Kind))
+            if (!float.IsFinite(entry.DensityMultiplier) ||
+                entry.DensityMultiplier < 0.0f ||
+                entry.DensityMultiplier > 1.0f)
             {
-                landmarkDuplicateEntries++;
+                landmarkInvalidDensityEntries++;
             }
+
+            if (entry.MaxInstancesPerTile < 0)
+            {
+                landmarkInvalidInstanceCapEntries++;
+            }
+
+            if (!landmarkEntriesByKind.TryGetValue(entry.Kind, out List<TerrainLandmarkVisualEntryResource>? kindEntries))
+            {
+                kindEntries = new List<TerrainLandmarkVisualEntryResource>();
+                landmarkEntriesByKind[entry.Kind] = kindEntries;
+            }
+
+            landmarkDuplicateEntries += CountOverlappingLodEntries(entry, kindEntries);
+            kindEntries.Add(entry);
         }
 
         TerrainScatterKind[] missingScatter = GetMissingScatterMeshKinds();
@@ -205,6 +277,10 @@ public partial class TerrainVisualCatalog : Resource
         bool passed =
             scatterInvalidLodEntries == 0 &&
             landmarkInvalidLodEntries == 0 &&
+            scatterInvalidDensityEntries == 0 &&
+            landmarkInvalidDensityEntries == 0 &&
+            scatterInvalidInstanceCapEntries == 0 &&
+            landmarkInvalidInstanceCapEntries == 0 &&
             scatterDuplicateEntries == 0 &&
             landmarkDuplicateEntries == 0 &&
             (UsePrimitiveFallbacks || (missingScatter.Length == 0 && missingLandmarks.Length == 0));
@@ -217,11 +293,15 @@ public partial class TerrainVisualCatalog : Resource
             scatterSceneEntries,
             scatterDuplicateEntries,
             scatterInvalidLodEntries,
+            scatterInvalidDensityEntries,
+            scatterInvalidInstanceCapEntries,
             landmarkEntries,
             landmarkMeshEntries,
             landmarkSceneEntries,
             landmarkDuplicateEntries,
             landmarkInvalidLodEntries,
+            landmarkInvalidDensityEntries,
+            landmarkInvalidInstanceCapEntries,
             missingScatter,
             missingLandmarks,
             GetReferencedResources());
@@ -239,5 +319,47 @@ public partial class TerrainVisualCatalog : Resource
         {
             resources.Add(resource);
         }
+    }
+
+    private static bool LodInRange(int lod, int minLod, int maxLod)
+    {
+        return lod >= minLod && lod <= maxLod;
+    }
+
+    private static int CountOverlappingLodEntries(
+        TerrainScatterVisualEntryResource entry,
+        List<TerrainScatterVisualEntryResource> existingEntries)
+    {
+        int overlaps = 0;
+        foreach (TerrainScatterVisualEntryResource existing in existingEntries)
+        {
+            if (LodRangesOverlap(entry.MinLod, entry.MaxLod, existing.MinLod, existing.MaxLod))
+            {
+                overlaps++;
+            }
+        }
+
+        return overlaps;
+    }
+
+    private static int CountOverlappingLodEntries(
+        TerrainLandmarkVisualEntryResource entry,
+        List<TerrainLandmarkVisualEntryResource> existingEntries)
+    {
+        int overlaps = 0;
+        foreach (TerrainLandmarkVisualEntryResource existing in existingEntries)
+        {
+            if (LodRangesOverlap(entry.MinLod, entry.MaxLod, existing.MinLod, existing.MaxLod))
+            {
+                overlaps++;
+            }
+        }
+
+        return overlaps;
+    }
+
+    private static bool LodRangesOverlap(int aMin, int aMax, int bMin, int bMax)
+    {
+        return aMin <= bMax && bMin <= aMax;
     }
 }

@@ -102,6 +102,7 @@ public partial class TerrainWorld
         TerrainTileCoord[] queuedJobs = _jobs is null
             ? Array.Empty<TerrainTileCoord>()
             : CopySortedCoords(_jobs.Keys);
+        TerrainStreamingLodBucket[] lodBuckets = CreateLodBuckets(profile, focusCoord);
 
         return new TerrainWorldStreamingSnapshot(
             profile,
@@ -113,6 +114,7 @@ public partial class TerrainWorld
             desiredChunks,
             loadedChunks.Length,
             loadedChunks,
+            lodBuckets,
             queuedJobs.Length,
             queuedJobs,
             _retiredJobs?.Count ?? 0,
@@ -123,6 +125,86 @@ public partial class TerrainWorld
             _worldPlan is not null,
             _worldPlanJob is not null,
             StreamTerrainBeforeOpenWorldPlanReady);
+    }
+
+    private TerrainStreamingLodBucket[] CreateLodBuckets(TerrainGenerationProfile profile, TerrainTileCoord focusCoord)
+    {
+        var desiredCounts = new SortedDictionary<int, int>();
+        var loadedCounts = new SortedDictionary<int, int>();
+        var queuedCounts = new SortedDictionary<int, int>();
+
+        if (_desiredCoords is not null)
+        {
+            foreach (TerrainTileCoord coord in _desiredCoords)
+            {
+                TerrainTileRequest request = TerrainStreamingSetBuilder.GetDesiredRequest(coord, focusCoord, profile);
+                IncrementCount(desiredCounts, request.Lod);
+            }
+        }
+
+        if (_chunks is not null)
+        {
+            foreach (KeyValuePair<TerrainTileCoord, TerrainChunk> pair in _chunks)
+            {
+                TerrainChunk? chunk = pair.Value;
+                if (chunk is null)
+                {
+                    IncrementCount(loadedCounts, 0);
+                    continue;
+                }
+
+                IncrementCount(loadedCounts, chunk.Lod);
+            }
+        }
+
+        if (_jobs is not null)
+        {
+            foreach (KeyValuePair<TerrainTileCoord, PendingTileJob> pair in _jobs)
+            {
+                PendingTileJob? job = pair.Value;
+                if (job is null)
+                {
+                    IncrementCount(queuedCounts, 0);
+                    continue;
+                }
+
+                IncrementCount(queuedCounts, job.Lod);
+            }
+        }
+
+        var lods = new SortedSet<int>();
+        foreach (int lod in desiredCounts.Keys)
+        {
+            lods.Add(lod);
+        }
+
+        foreach (int lod in loadedCounts.Keys)
+        {
+            lods.Add(lod);
+        }
+
+        foreach (int lod in queuedCounts.Keys)
+        {
+            lods.Add(lod);
+        }
+
+        var buckets = new List<TerrainStreamingLodBucket>(lods.Count);
+        foreach (int lod in lods)
+        {
+            buckets.Add(new TerrainStreamingLodBucket(
+                lod,
+                desiredCounts.TryGetValue(lod, out int desired) ? desired : 0,
+                loadedCounts.TryGetValue(lod, out int loaded) ? loaded : 0,
+                queuedCounts.TryGetValue(lod, out int queued) ? queued : 0));
+        }
+
+        return buckets.ToArray();
+    }
+
+    private static void IncrementCount(SortedDictionary<int, int> counts, int lod)
+    {
+        counts.TryGetValue(lod, out int count);
+        counts[lod] = count + 1;
     }
 
     /// <summary>Samples static terrain water semantics at a world XZ position without touching streaming tiles.</summary>

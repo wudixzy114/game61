@@ -100,6 +100,29 @@ public partial class TerrainChunk : Node3D
         return visual.Scene is not null && (visual.PreferSceneInstances || visual.Mesh is null);
     }
 
+    private static bool ShouldRenderVisualInstance(int candidateIndex, int emittedCount, ScatterVisual visual)
+    {
+        if (visual.MaxInstancesPerTile > 0 && emittedCount >= visual.MaxInstancesPerTile)
+        {
+            return false;
+        }
+
+        float density = Mathf.Clamp(visual.DensityMultiplier, 0.0f, 1.0f);
+        if (density >= 0.999f)
+        {
+            return true;
+        }
+
+        if (density <= 0.001f)
+        {
+            return false;
+        }
+
+        int threshold = Mathf.RoundToInt(density * 10000.0f);
+        int bucket = Mathf.PosMod(candidateIndex * 9973 + 421, 10000);
+        return bucket < threshold;
+    }
+
     private void ClearSceneContainer(Node3D container)
     {
         foreach (Node child in container.GetChildren())
@@ -160,5 +183,7 @@ public partial class TerrainChunk : Node3D
         float AabbHeightPadding,
         bool CreatesCollision,
         bool CreatesNavigationObstacle,
-        string InteractionTag);
+        string InteractionTag,
+        float DensityMultiplier = 1.0f,
+        int MaxInstancesPerTile = 0);
 }

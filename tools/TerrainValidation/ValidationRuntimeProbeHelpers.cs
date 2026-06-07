@@ -276,6 +276,11 @@ internal static class TerrainValidationRuntimeProbeHelpers
             snapshot.QueuedTileJobs[0] = new TerrainTileCoord(777, 777);
         }
 
+        if (snapshot.LodBuckets.Length > 0)
+        {
+            snapshot.LodBuckets[0] = new TerrainStreamingLodBucket(99, 99, 99, 99);
+        }
+
         TerrainWorldStreamingSnapshot secondSnapshot = world.GetStreamingSnapshot();
         return StreamingSnapshotValuesMatch(
             secondSnapshot,
@@ -320,6 +325,7 @@ internal static class TerrainValidationRuntimeProbeHelpers
             snapshot.StreamRadiusChunks == profile.StreamRadiusChunks &&
             snapshot.DesiredChunkCount == snapshot.DesiredChunks.Length &&
             snapshot.LoadedChunkCount == snapshot.LoadedChunks.Length &&
+            snapshot.LoadedLodBucketCount == snapshot.LodBuckets.Length &&
             snapshot.QueuedTileJobCount == snapshot.QueuedTileJobs.Length &&
             snapshot.RetiredTileJobCount == 0 &&
             snapshot.TileCacheLimit == Mathf.Max(0, profile.MaxCachedTileData) &&
@@ -334,6 +340,7 @@ internal static class TerrainValidationRuntimeProbeHelpers
             !snapshot.FocusTileLoaded &&
             !snapshot.DesiredChunksLoaded &&
             !snapshot.FocusAreaReady &&
+            StreamingLodBucketsMatch(snapshot.LodBuckets, profile, snapshot.FocusCoord, expectedDesiredCoords, expectedLoadedCoords, expectedQueuedCoords) &&
             StreamingReadinessContractMatches(profile) &&
             TileCoordsMatch(snapshot.DesiredChunks, expectedDesiredCoords) &&
             TileCoordsMatch(snapshot.LoadedChunks, expectedLoadedCoords) &&
@@ -484,6 +491,7 @@ internal static class TerrainValidationRuntimeProbeHelpers
             desired,
             loaded.Length,
             loaded,
+            CreateLodBucketsForSnapshot(profile, focusCoord, desired, loaded, queuedJobs),
             queuedJobs.Length,
             queuedJobs,
             retiredJobCount,
@@ -494,6 +502,100 @@ internal static class TerrainValidationRuntimeProbeHelpers
             hasWorldPlan,
             isWorldPlanGenerationPending,
             streamTerrainBeforeOpenWorldPlanReady);
+    }
+
+    private static TerrainStreamingLodBucket[] CreateLodBucketsForSnapshot(
+        TerrainGenerationProfile profile,
+        TerrainTileCoord focusCoord,
+        TerrainTileCoord[] desired,
+        TerrainTileCoord[] loaded,
+        TerrainTileCoord[] queued)
+    {
+        var desiredCounts = new Dictionary<int, int>();
+        var loadedCounts = new Dictionary<int, int>();
+        var queuedCounts = new Dictionary<int, int>();
+        foreach (TerrainTileCoord coord in desired)
+        {
+            int distance = coord.ChebyshevDistanceTo(focusCoord);
+            bool includeCollision = profile.GenerateCollision && distance <= profile.CollisionRadiusChunks;
+            int lod = includeCollision ? 0 : Mathf.Clamp((distance - 1) / 2, 0, profile.MaxLod);
+            IncrementCount(desiredCounts, lod);
+        }
+
+        foreach (TerrainTileCoord _ in loaded)
+        {
+            IncrementCount(loadedCounts, 0);
+        }
+
+        foreach (TerrainTileCoord _ in queued)
+        {
+            IncrementCount(queuedCounts, 0);
+        }
+
+        var lods = new SortedSet<int>();
+        foreach (int lod in desiredCounts.Keys)
+        {
+            lods.Add(lod);
+        }
+
+        foreach (int lod in loadedCounts.Keys)
+        {
+            lods.Add(lod);
+        }
+
+        foreach (int lod in queuedCounts.Keys)
+        {
+            lods.Add(lod);
+        }
+
+        var buckets = new TerrainStreamingLodBucket[lods.Count];
+        int index = 0;
+        foreach (int lod in lods)
+        {
+            buckets[index++] = new TerrainStreamingLodBucket(
+                lod,
+                desiredCounts.TryGetValue(lod, out int desiredCount) ? desiredCount : 0,
+                loadedCounts.TryGetValue(lod, out int loadedCount) ? loadedCount : 0,
+                queuedCounts.TryGetValue(lod, out int queuedCount) ? queuedCount : 0);
+        }
+
+        return buckets;
+    }
+
+    private static bool StreamingLodBucketsMatch(
+        TerrainStreamingLodBucket[] buckets,
+        TerrainGenerationProfile profile,
+        TerrainTileCoord focusCoord,
+        TerrainTileCoord[] expectedDesiredCoords,
+        TerrainTileCoord[] expectedLoadedCoords,
+        TerrainTileCoord[] expectedQueuedCoords)
+    {
+        TerrainStreamingLodBucket[] expected = CreateLodBucketsForSnapshot(
+            profile,
+            focusCoord,
+            expectedDesiredCoords,
+            expectedLoadedCoords,
+            expectedQueuedCoords);
+        if (buckets.Length != expected.Length)
+        {
+            return false;
+        }
+
+        for (int i = 0; i < buckets.Length; i++)
+        {
+            if (buckets[i] != expected[i])
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static void IncrementCount(Dictionary<int, int> counts, int lod)
+    {
+        counts.TryGetValue(lod, out int count);
+        counts[lod] = count + 1;
     }
 
     private static bool TileCoordsMatch(TerrainTileCoord[] actual, TerrainTileCoord[] expected)

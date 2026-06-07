@@ -3853,6 +3853,8 @@ static TerrainPublicApiShapeSmokeReport ValidateTerrainPublicApiShapeContracts()
                     ("VerticalOffset", typeof(float)),
                     ("AxisScale", typeof(Vector3)),
                     ("AabbHeightPadding", typeof(float)),
+                    ("DensityMultiplier", typeof(float)),
+                    ("MaxInstancesPerTile", typeof(int)),
                     ("MinLod", typeof(int)),
                     ("MaxLod", typeof(int)),
                     ("CreatesCollision", typeof(bool)),
@@ -3872,6 +3874,8 @@ static TerrainPublicApiShapeSmokeReport ValidateTerrainPublicApiShapeContracts()
                     ("VerticalOffset", typeof(float)),
                     ("AxisScale", typeof(Vector3)),
                     ("AabbHeightPadding", typeof(float)),
+                    ("DensityMultiplier", typeof(float)),
+                    ("MaxInstancesPerTile", typeof(int)),
                     ("MinLod", typeof(int)),
                     ("MaxLod", typeof(int)),
                     ("CreatesCollision", typeof(bool)),
@@ -3890,11 +3894,15 @@ static TerrainPublicApiShapeSmokeReport ValidateTerrainPublicApiShapeContracts()
                     ("ScatterSceneEntryCount", typeof(int)),
                     ("ScatterDuplicateEntryCount", typeof(int)),
                     ("ScatterInvalidLodEntryCount", typeof(int)),
+                    ("ScatterInvalidDensityEntryCount", typeof(int)),
+                    ("ScatterInvalidInstanceCapEntryCount", typeof(int)),
                     ("LandmarkEntryCount", typeof(int)),
                     ("LandmarkMeshEntryCount", typeof(int)),
                     ("LandmarkSceneEntryCount", typeof(int)),
                     ("LandmarkDuplicateEntryCount", typeof(int)),
                     ("LandmarkInvalidLodEntryCount", typeof(int)),
+                    ("LandmarkInvalidDensityEntryCount", typeof(int)),
+                    ("LandmarkInvalidInstanceCapEntryCount", typeof(int)),
                     ("MissingScatterKinds", typeof(TerrainScatterKind[])),
                     ("MissingLandmarkKinds", typeof(TerrainLandmarkKind[])),
                     ("ReferencedResources", typeof(Resource[]))
@@ -4678,6 +4686,16 @@ static TerrainPublicApiShapeSmokeReport ValidateTerrainPublicApiShapeContracts()
                 ref checkedTypeCount,
                 ref checkedMemberCount,
                 out failureReason) &&
+            CheckPublicShape<TerrainStreamingLodBucket>(
+                [
+                    ("Lod", typeof(int)),
+                    ("DesiredChunkCount", typeof(int)),
+                    ("LoadedChunkCount", typeof(int)),
+                    ("QueuedTileJobCount", typeof(int))
+                ],
+                ref checkedTypeCount,
+                ref checkedMemberCount,
+                out failureReason) &&
             CheckPublicShape<TerrainWorldStreamingSnapshot>(
                 [
                     ("Profile", typeof(TerrainGenerationProfile)),
@@ -4689,6 +4707,7 @@ static TerrainPublicApiShapeSmokeReport ValidateTerrainPublicApiShapeContracts()
                     ("DesiredChunks", typeof(TerrainTileCoord[])),
                     ("LoadedChunkCount", typeof(int)),
                     ("LoadedChunks", typeof(TerrainTileCoord[])),
+                    ("LodBuckets", typeof(TerrainStreamingLodBucket[])),
                     ("QueuedTileJobCount", typeof(int)),
                     ("QueuedTileJobs", typeof(TerrainTileCoord[])),
                     ("RetiredTileJobCount", typeof(int)),
@@ -4701,6 +4720,9 @@ static TerrainPublicApiShapeSmokeReport ValidateTerrainPublicApiShapeContracts()
                     ("StreamTerrainBeforeOpenWorldPlanReady", typeof(bool)),
                     ("TileCacheWithinLimit", typeof(bool)),
                     ("TileJobQueueWithinLimit", typeof(bool)),
+                    ("LoadedLodBucketCount", typeof(int)),
+                    ("HighestLoadedLod", typeof(int)),
+                    ("LowestLoadedLod", typeof(int)),
                     ("CanStreamTerrain", typeof(bool)),
                     ("FocusTileLoaded", typeof(bool)),
                     ("DesiredChunksLoaded", typeof(bool)),
@@ -5601,6 +5623,7 @@ static bool CheckExportedTerrainTypes(out string? failureReason)
         "Dao.Terrain.Runtime.TerrainWorldRouteAnchor",
         "Dao.Terrain.Runtime.TerrainWorldRouteAnchorDescriptor",
         "Dao.Terrain.Streaming.TerrainChunk",
+        "Dao.Terrain.Streaming.TerrainStreamingLodBucket",
         "Dao.Terrain.Streaming.TerrainWorld",
         "Dao.Terrain.Streaming.TerrainWorldStreamingSnapshot",
         "Dao.Terrain.TerrainApiVersion",
@@ -6427,6 +6450,7 @@ static TerrainRuntimeApiSmokeReport ValidateTerrainWorldRuntimeApiFacade(
                 RouteGraphMatchesPlan(routeGraphSnapshot, plan) &&
                 RouteGraphQueriesBehave(routeGraphSnapshot, plan);
             modifiedRouteGraphPassed =
+                routeGraphSnapshot is not null &&
                 modifiedPlanWorld.TryGetRouteGraphSnapshot(out TerrainRouteGraphSnapshot? modifiedRouteGraph) &&
                 modifiedRouteGraph is not null &&
                 modifiedRouteGraph.Edges.Length == routeGraphSnapshot.Edges.Length - 1 &&
