@@ -60,7 +60,7 @@ jobs:
           dotnet-version: 8.0.x
 
       - name: Cache SCons outputs
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: .scons-cache
           key: scons-${{ runner.os }}-linux-x86_64-${{ hashFiles('gdextension/SConstruct', 'gdextension/src/**', 'gdextension/godot-cpp/SConstruct', 'gdextension/godot-cpp/tools/**', 'gdextension/godot-cpp/include/**', 'gdextension/godot-cpp/src/**', 'gdextension/godot-cpp/gdextension/**', '.gitmodules') }}
